@@ -176,3 +176,123 @@ export function CheckIcon({ sw = 3, ...rest }: IconProps) {
     </Glyph>
   );
 }
+
+/* ---- product / nav / ui icons ---- */
+export function DashboardIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+    </Glyph>
+  );
+}
+export function ScenariosIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <circle cx="5" cy="6" r="2.4" />
+      <circle cx="19" cy="12" r="2.4" />
+      <circle cx="5" cy="18" r="2.4" />
+      <path d="M7.3 7l9.4 4M7.3 17l9.4-4" />
+    </Glyph>
+  );
+}
+export function TemplateIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <path d="M4 9h16M9 9v11" />
+    </Glyph>
+  );
+}
+export function ConnectionsIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <path d="M9 7l-3 3a3.5 3.5 0 0 0 5 5l3-3" />
+      <path d="M15 17l3-3a3.5 3.5 0 0 0-5-5l-3 3" />
+    </Glyph>
+  );
+}
+export function ExecutionsIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+      <path d="M3 4v4h4" />
+      <path d="M12 8v4l3 2" />
+    </Glyph>
+  );
+}
+export function SettingsIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" />
+    </Glyph>
+  );
+}
+export function SearchIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="M21 21l-4.3-4.3" />
+    </Glyph>
+  );
+}
+export function ChevronRightIcon(p: IconProps) {
+  return (
+    <Glyph sw={2.2} {...p}>
+      <path d="M9 6l6 6-6 6" />
+    </Glyph>
+  );
+}
+export function ChevronDownIcon(p: IconProps) {
+  return (
+    <Glyph sw={2.2} {...p}>
+      <path d="M6 9l6 6 6-6" />
+    </Glyph>
+  );
+}
+export function ArrowLeftIcon(p: IconProps) {
+  return (
+    <Glyph sw={2} {...p}>
+      <path d="M15 6l-6 6 6 6" />
+    </Glyph>
+  );
+}
+export function MinusIcon(p: IconProps) {
+  return (
+    <Glyph sw={2.1} {...p}>
+      <path d="M5 12h14" />
+    </Glyph>
+  );
+}
+export function FitIcon(p: IconProps) {
+  return (
+    <Glyph sw={2} {...p}>
+      <path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3" />
+    </Glyph>
+  );
+}
+export function XIcon(p: IconProps) {
+  return (
+    <Glyph sw={2.1} {...p}>
+      <path d="M6 6l12 12M18 6L6 18" />
+    </Glyph>
+  );
+}
+export function CalendarIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <rect x="3" y="4.5" width="18" height="16" rx="2" />
+      <path d="M3 9h18M8 3v4M16 3v4" />
+    </Glyph>
+  );
+}
+export function BoltIcon(p: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true" {...p}>
+      <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z" />
+    </svg>
+  );
+}

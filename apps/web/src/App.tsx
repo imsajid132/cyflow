@@ -1,45 +1,21 @@
-import { useMemo, useState } from "react";
-import type { StoredExecution } from "@cyflow/shared";
-import { LeftRail } from "./components/LeftRail";
-import { Canvas } from "./components/Canvas";
-import { ConfigPanel } from "./components/ConfigPanel";
-import { deriveModules } from "./scenario/model";
-import { sampleBlueprint, sampleTrigger } from "./scenario/sampleScenario";
+import { AppStoreProvider, useStore } from "./store/appStore";
+import { AppShell } from "./components/AppShell";
+import { ScenarioBuilder } from "./components/builder/ScenarioBuilder";
 
 /**
- * Cyflow scenario builder shell: glass app rail, lime-world canvas, and the
- * right config panel. Bubbles + links are rendered from a real blueprint;
- * "Run Once" executes it through the actual engine and the panel inspects the
- * resulting execution snapshots. Selection is shared — clicking a bubble (or the
- * replay advancing) updates which module the panel shows.
+ * Cyflow — Make-style automation product. A glass SaaS shell (sidebar,
+ * dashboard, scenarios, connections, executions, data stores) plus the
+ * full-screen scenario builder that runs the real engine for "Run once".
  */
+function Router() {
+  const { view } = useStore();
+  return view === "builder" ? <ScenarioBuilder /> : <AppShell />;
+}
+
 export default function App() {
-  const blueprint = sampleBlueprint;
-  const modules = useMemo(() => deriveModules(blueprint), [blueprint]);
-
-  const [selectedIndex, setSelectedIndex] = useState(modules.length - 1);
-  const [execution, setExecution] = useState<StoredExecution | null>(null);
-
-  const selected = modules[selectedIndex];
-  const selectedStep = execution?.steps.find((s) => s.moduleNodeId === selected.node.id);
-
   return (
-    <div className="app">
-      <LeftRail />
-      <Canvas
-        blueprint={blueprint}
-        trigger={sampleTrigger}
-        modules={modules}
-        selectedIndex={selectedIndex}
-        onSelect={setSelectedIndex}
-        onExecution={setExecution}
-      />
-      <ConfigPanel
-        module={selected.node}
-        number={selected.number}
-        label={selected.label}
-        step={selectedStep}
-      />
-    </div>
+    <AppStoreProvider>
+      <Router />
+    </AppStoreProvider>
   );
 }

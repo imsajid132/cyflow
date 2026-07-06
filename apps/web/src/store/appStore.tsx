@@ -1,0 +1,264 @@
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import type { Blueprint, StoredExecution } from "@cyflow/shared";
+import { sampleBlueprint } from "../scenario/sampleScenario";
+import type { Connection, ExecutionEntry, Scenario, Schedule, ViewName } from "./types";
+
+const iso = (offsetMinutes = 0) => new Date(Date.now() - offsetMinutes * 60_000).toISOString();
+let counter = 100;
+const uid = (prefix: string) => `${prefix}_${(counter += 1).toString(36)}`;
+
+const slackAlert: Blueprint = {
+  modules: [
+    { id: "1", app: "webhook", operation: "custom_webhook", kind: "trigger", params: { name: "New signup" }, next: "2" },
+    { id: "2", app: "slack", operation: "send_message", kind: "action", params: { channel: "#signups", text: "New signup: {{1.body.email}}" }, connectionId: "conn_slack", next: null },
+  ],
+};
+
+const salesSummary: Blueprint = {
+  modules: [
+    { id: "1", app: "webhook", operation: "custom_webhook", kind: "trigger", params: { name: "Daily tick" }, next: "2" },
+    { id: "2", app: "http", operation: "make_request", kind: "action", params: { method: "GET", url: "https://api.example.com/sales" }, next: "3" },
+    { id: "3", app: "openai", operation: "create_completion", kind: "action", params: { model: "gpt-4o-mini", prompt: "Summarise: {{2.data}}" }, connectionId: "conn_openai", next: null },
+  ],
+};
+
+function seedScenarios(): Scenario[] {
+  return [
+    {
+      id: "scn_leads",
+      name: "Enrich leads → Telegram digest",
+      status: "ACTIVE",
+      schedule: { type: "interval", minutes: 15 },
+      blueprint: sampleBlueprint,
+      lastRunAt: iso(6),
+      lastStatus: "SUCCESS",
+      operations: 7,
+      updatedAt: iso(6),
+    },
+    {
+      id: "scn_signup",
+      name: "New signup → Slack alert",
+      status: "ACTIVE",
+      schedule: { type: "manual" },
+      blueprint: slackAlert,
+      lastRunAt: iso(48),
+      lastStatus: "SUCCESS",
+      operations: 2,
+      updatedAt: iso(120),
+    },
+    {
+      id: "scn_sales",
+      name: "Daily sales summary",
+      status: "PAUSED",
+      schedule: { type: "daily", time: "08:00" },
+      blueprint: salesSummary,
+      lastRunAt: iso(1440),
+      lastStatus: "FAILED",
+      operations: 3,
+      updatedAt: iso(1500),
+    },
+  ];
+}
+
+function seedConnections(): Connection[] {
+  return [
+    { id: "conn_telegram", appKey: "telegram", name: "Cyflow Bot", createdAt: iso(4000) },
+    { id: "conn_slack", appKey: "slack", name: "Acme Workspace", createdAt: iso(6000) },
+    { id: "conn_openai", appKey: "openai", name: "OpenAI · production", createdAt: iso(9000) },
+  ];
+}
+
+function emptyExecution(scenarioId: string, status: "SUCCESS" | "FAILED", operations: number): StoredExecution {
+  return {
+    id: uid("exec"),
+    scenarioId,
+    status,
+    operations,
+    error: status === "FAILED" ? "http.make_request network error" : null,
+    startedAt: new Date(),
+    finishedAt: new Date(),
+    steps: [],
+  };
+}
+
+function seedExecutions(): ExecutionEntry[] {
+  return [
+    { scenarioId: "scn_leads", scenarioName: "Enrich leads → Telegram digest", ranAt: iso(6), execution: emptyExecution("scn_leads", "SUCCESS", 7) },
+    { scenarioId: "scn_signup", scenarioName: "New signup → Slack alert", ranAt: iso(48), execution: emptyExecution("scn_signup", "SUCCESS", 2) },
+    { scenarioId: "scn_sales", scenarioName: "Daily sales summary", ranAt: iso(1440), execution: emptyExecution("scn_sales", "FAILED", 3) },
+  ];
+}
+
+interface AppStore {
+  workspace: string;
+  view: ViewName;
+  selectedScenarioId: string | null;
+  search: string;
+  scenarios: Scenario[];
+  connections: Connection[];
+  executions: ExecutionEntry[];
+  setSearch: (s: string) => void;
+  navigate: (view: ViewName, scenarioId?: string | null) => void;
+  createScenario: () => string;
+  updateScenario: (id: string, patch: Partial<Scenario>) => void;
+  deleteScenario: (id: string) => void;
+  recordExecution: (scenarioId: string, execution: StoredExecution) => void;
+  scenarioById: (id: string | null) => Scenario | undefined;
+}
+
+const Ctx = createContext<AppStore | null>(null);
+
+function parseHash(): { view: ViewName; id: string | null } {
+  const raw = window.location.hash.replace(/^#\/?/, "");
+  const parts = raw.split("/").filter(Boolean);
+  if (parts[0] === "scenario" && parts[1]) return { view: "builder", id: parts[1] };
+  const views: ViewName[] = [
+    "dashboard",
+    "scenarios",
+    "templates",
+    "connections",
+    "executions",
+    "datastores",
+    "settings",
+  ];
+  const v = views.find((x) => x === parts[0]);
+  return { view: v ?? "dashboard", id: null };
+}
+
+export function AppStoreProvider({ children }: { children: ReactNode }) {
+  const [scenarios, setScenarios] = useState<Scenario[]>(seedScenarios);
+  const [connections] = useState<Connection[]>(seedConnections);
+  const [executions, setExecutions] = useState<ExecutionEntry[]>(seedExecutions);
+  const [search, setSearch] = useState("");
+
+  const initial = parseHash();
+  const [view, setView] = useState<ViewName>(initial.view);
+  const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(initial.id);
+
+  const navigate = useCallback((next: ViewName, scenarioId: string | null = null) => {
+    setView(next);
+    setSelectedScenarioId(scenarioId);
+    const hash = next === "builder" && scenarioId ? `#/scenario/${scenarioId}` : `#/${next}`;
+    if (window.location.hash !== hash) window.location.hash = hash;
+  }, []);
+
+  useEffect(() => {
+    const onHash = () => {
+      const parsed = parseHash();
+      setView(parsed.view);
+      setSelectedScenarioId(parsed.id);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  const createScenario = useCallback((): string => {
+    const id = uid("scn");
+    const scenario: Scenario = {
+      id,
+      name: "Untitled scenario",
+      status: "DRAFT",
+      schedule: { type: "manual" },
+      blueprint: { modules: [] },
+      updatedAt: new Date().toISOString(),
+    };
+    setScenarios((prev) => [scenario, ...prev]);
+    navigate("builder", id);
+    return id;
+  }, [navigate]);
+
+  const updateScenario = useCallback((id: string, patch: Partial<Scenario>) => {
+    setScenarios((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, ...patch, updatedAt: new Date().toISOString() } : s)),
+    );
+  }, []);
+
+  const deleteScenario = useCallback((id: string) => {
+    setScenarios((prev) => prev.filter((s) => s.id !== id));
+  }, []);
+
+  const recordExecution = useCallback(
+    (scenarioId: string, execution: StoredExecution) => {
+      setScenarios((prev) =>
+        prev.map((s) =>
+          s.id === scenarioId
+            ? {
+                ...s,
+                lastRunAt: new Date().toISOString(),
+                lastStatus: execution.status === "FAILED" ? "FAILED" : "SUCCESS",
+                operations: execution.operations,
+              }
+            : s,
+        ),
+      );
+      setExecutions((prev) => {
+        const scenario = prev.find((e) => e.scenarioId === scenarioId);
+        const name =
+          scenario?.scenarioName ??
+          seedScenarios().find((s) => s.id === scenarioId)?.name ??
+          "Scenario";
+        return [
+          { scenarioId, scenarioName: name, ranAt: new Date().toISOString(), execution },
+          ...prev,
+        ].slice(0, 50);
+      });
+    },
+    [],
+  );
+
+  const scenarioById = useCallback(
+    (id: string | null) => scenarios.find((s) => s.id === id),
+    [scenarios],
+  );
+
+  const value = useMemo<AppStore>(
+    () => ({
+      workspace: "Cyflow Team",
+      view,
+      selectedScenarioId,
+      search,
+      scenarios,
+      connections,
+      executions,
+      setSearch,
+      navigate,
+      createScenario,
+      updateScenario,
+      deleteScenario,
+      recordExecution,
+      scenarioById,
+    }),
+    [
+      view,
+      selectedScenarioId,
+      search,
+      scenarios,
+      connections,
+      executions,
+      navigate,
+      createScenario,
+      updateScenario,
+      deleteScenario,
+      recordExecution,
+      scenarioById,
+    ],
+  );
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+}
+
+export function useStore(): AppStore {
+  const ctx = useContext(Ctx);
+  if (!ctx) throw new Error("useStore must be used within AppStoreProvider");
+  return ctx;
+}
+
+export type { Schedule };
