@@ -289,6 +289,38 @@ export function CalendarIcon(p: IconProps) {
     </Glyph>
   );
 }
+export function MoreIcon(p: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true" {...p}>
+      <circle cx="5" cy="12" r="1.8" />
+      <circle cx="12" cy="12" r="1.8" />
+      <circle cx="19" cy="12" r="1.8" />
+    </svg>
+  );
+}
+export function CopyIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <rect x="9" y="9" width="12" height="12" rx="2" />
+      <path d="M5 15V5a2 2 0 0 1 2-2h8" />
+    </Glyph>
+  );
+}
+export function TrashIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13h10l1-13" />
+    </Glyph>
+  );
+}
+export function DuplicateIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <rect x="8" y="8" width="12" height="12" rx="2" />
+      <path d="M4 16V6a2 2 0 0 1 2-2h10" />
+    </Glyph>
+  );
+}
 export function BoltIcon(p: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true" {...p}>

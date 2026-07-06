@@ -7,7 +7,25 @@ import { MappingToken } from "../MappingToken";
 import { Button } from "../Button";
 import { findApp, findModule } from "../../data/catalog";
 import { outputFields } from "../../scenario/outputs";
-import { PlayIcon, XIcon, ChevronRightIcon } from "../icons";
+import { DEFAULT_TRIGGER } from "../../scenario/localEngine";
+import { PlayIcon, XIcon, ChevronRightIcon, CopyIcon } from "../icons";
+
+function getPath(obj: unknown, path: string): unknown {
+  let cur: unknown = obj;
+  for (const p of path.split(".")) {
+    if (cur == null || typeof cur !== "object") return undefined;
+    cur = (cur as Record<string, unknown>)[p];
+  }
+  return cur;
+}
+function preview(v: unknown): string {
+  if (v === undefined) return "";
+  if (v === null) return "null";
+  if (Array.isArray(v)) return `[${v.length}]`;
+  if (typeof v === "object") return "{…}";
+  const s = String(v);
+  return s.length > 20 ? `${s.slice(0, 20)}…` : s;
+}
 
 export interface UpstreamModule {
   id: string;
@@ -49,6 +67,7 @@ export function ModuleConfigPanel({
   upstream,
   connections,
   step,
+  execution,
   onSave,
   onConnection,
   onTest,
@@ -87,6 +106,23 @@ export function ModuleConfigPanel({
   const mappableFields = (def?.params ?? []).filter((f) => f.mappable);
   const appConnections = connections.filter((c) => c.appKey === module.app);
   const setField = (key: string, value: unknown) => setParams((p) => ({ ...p, [key]: value }));
+
+  const sampleValue = (node: ModuleNode, field: string): unknown => {
+    const s = execution?.steps.find((x) => x.moduleNodeId === node.id);
+    if (s && s.output.length > 0) {
+      const v = getPath(s.output[0], field);
+      if (v !== undefined) return v;
+    }
+    if (node.app === "webhook") return getPath(DEFAULT_TRIGGER[0], field);
+    return undefined;
+  };
+  const focusField = (key: string) => {
+    setActiveField(key);
+    setShowMap(true);
+  };
+  const copyJson = () => {
+    void navigator.clipboard?.writeText(JSON.stringify(bundle ?? {}, null, 2));
+  };
 
   const insertToken = (token: string) => {
     const key = activeField ?? mappableFields[0]?.key;
@@ -152,7 +188,7 @@ export function ModuleConfigPanel({
             className: "input" + (field.mappable ? " mono" : ""),
             value,
             placeholder: field.placeholder,
-            onFocus: () => setActiveField(field.key),
+            onFocus: () => focusField(field.key),
             ref: (el: HTMLInputElement | HTMLTextAreaElement | null) => {
               inputRefs.current[field.key] = el;
             },
@@ -161,7 +197,7 @@ export function ModuleConfigPanel({
             <div className="field" key={field.key}>
               <label htmlFor={`f_${field.key}`}>{field.label}</label>
               {field.type === "select" ? (
-                <select className="input" id={`f_${field.key}`} value={value} onChange={(e) => setField(field.key, e.target.value)} onFocus={() => setActiveField(field.key)}>
+                <select className="input" id={`f_${field.key}`} value={value} onChange={(e) => setField(field.key, e.target.value)} onFocus={() => focusField(field.key)}>
                   {(field.options ?? []).map((o) => (
                     <option key={o} value={o}>{o}</option>
                   ))}
@@ -186,22 +222,35 @@ export function ModuleConfigPanel({
             </button>
             {showMap ? (
               <div className="mapping">
-                {activeField ? null : <span className="hint">Click a field above, then a token to insert it.</span>}
+                <span className="hint">
+                  {activeField
+                    ? `Inserting into “${def?.params.find((p) => p.key === activeField)?.label ?? activeField}” — click a value.`
+                    : "Click a field above, then a value to insert it."}
+                </span>
                 {upstream.map((u) => {
-                  const fields = outputFields(u.node, undefined);
+                  const fields = outputFields(u.node, execution?.steps.find((s) => s.moduleNodeId === u.id));
                   return (
                     <div className="mapping__mod" key={u.id}>
                       <div className="mapping__modhead">
                         <span className="mapping__num">{u.number}</span>
                         {u.label}
                       </div>
-                      <div className="mapping__tokens">
+                      <div className="mapping__rows">
                         {fields.length === 0 ? <span className="muted" style={{ fontSize: ".72rem" }}>no outputs</span> : null}
-                        {fields.map((f) => (
-                          <button key={f} className="token" onClick={() => insertToken(`{{${u.id}.${f}}}`)}>
-                            {`{{${u.id}.${f}}}`}
-                          </button>
-                        ))}
+                        {fields.map((f) => {
+                          const val = sampleValue(u.node, f);
+                          return (
+                            <button
+                              key={f}
+                              className="maprow"
+                              title={`{{${u.id}.${f}}}`}
+                              onClick={() => insertToken(`{{${u.id}.${f}}}`)}
+                            >
+                              <span className="maprow__field">{f}</span>
+                              {val !== undefined ? <span className="maprow__val">{preview(val)}</span> : null}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   );
@@ -221,6 +270,9 @@ export function ModuleConfigPanel({
                 Input
               </button>
               <span className="inspector__count">{bundles.length} bundle{bundles.length === 1 ? "" : "s"}</span>
+              <button className="inspector__copy" onClick={copyJson} title="Copy JSON" aria-label="Copy JSON">
+                <CopyIcon width={14} height={14} />
+              </button>
             </div>
             {step.error && tab === "output" ? (
               <div className="kv" style={{ whiteSpace: "pre-wrap" }}>{step.error}</div>

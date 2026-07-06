@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Modal } from "../ui";
 import { ModuleIcon } from "../ModuleIcon";
-import { SearchIcon, ChevronRightIcon } from "../icons";
+import { SearchIcon, ChevronRightIcon, ArrowLeftIcon } from "../icons";
 import { CATALOG, CATEGORIES, type CatalogApp } from "../../data/catalog";
 
 const RECENT = ["http", "telegram", "openai", "slack"];
@@ -9,12 +9,14 @@ const RECENT = ["http", "telegram", "openai", "slack"];
 export function ModulePicker({
   onPick,
   onClose,
+  context = "action",
 }: {
   onPick: (appKey: string, operation: string) => void;
   onClose: () => void;
+  context?: "trigger" | "action";
 }) {
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<string>("All");
+  const [category, setCategory] = useState<string>(context === "trigger" ? "Triggers" : "All");
   const [selected, setSelected] = useState<CatalogApp | null>(null);
 
   const apps = useMemo(() => {
@@ -30,12 +32,24 @@ export function ModulePicker({
   }, [query, category]);
 
   return (
-    <Modal title={selected ? selected.name : "Add a module"} onClose={onClose} width={720}>
+    <Modal title={selected ? selected.name : context === "trigger" ? "Choose a trigger" : "Add a module"} onClose={onClose} width={720}>
       {selected ? (
         <div>
-          <button className="actionrow" onClick={() => setSelected(null)} style={{ background: "none", border: "none", padding: "0 0 12px", cursor: "pointer" }}>
-            <span className="muted">← All apps</span>
-          </button>
+          <div className="picker__apphead">
+            <button className="modal__x" onClick={() => setSelected(null)} aria-label="Back to apps">
+              <ArrowLeftIcon />
+            </button>
+            <span className="actionrow__icon">
+              <ModuleIcon app={selected.key} operation={selected.modules[0]?.operation ?? ""} sw={1.7} />
+            </span>
+            <div>
+              <b>{selected.name}</b>
+              <div className="muted" style={{ fontSize: ".75rem" }}>{selected.category}</div>
+            </div>
+          </div>
+          <div className="muted" style={{ fontSize: ".78rem", margin: "0 0 10px" }}>
+            Choose a {context === "trigger" ? "trigger" : "module"}
+          </div>
           {selected.modules.map((m) => (
             <div key={m.operation} className="actionrow" onClick={() => onPick(selected.key, m.operation)}>
               <span className="actionrow__icon">
@@ -51,6 +65,11 @@ export function ModulePicker({
         </div>
       ) : (
         <>
+          {context === "trigger" ? (
+            <p className="muted" style={{ margin: "0 0 12px", fontSize: ".82rem" }}>
+              Every scenario starts with a trigger — pick the app that kicks it off.
+            </p>
+          ) : null}
           <div className="picker__search topbar__search" style={{ maxWidth: "none" }}>
             <SearchIcon />
             <input

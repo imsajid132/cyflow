@@ -140,6 +140,7 @@ interface AppStore {
   navigate: (view: ViewName, scenarioId?: string | null) => void;
   createScenario: () => string;
   updateScenario: (id: string, patch: Partial<Scenario>) => void;
+  duplicateScenario: (id: string) => void;
   deleteScenario: (id: string) => void;
   recordExecution: (scenarioId: string, execution: StoredExecution) => void;
   scenarioById: (id: string | null) => Scenario | undefined;
@@ -212,6 +213,25 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  const duplicateScenario = useCallback((id: string) => {
+    setScenarios((prev) => {
+      const src = prev.find((s) => s.id === id);
+      if (!src) return prev;
+      const copy: Scenario = {
+        ...src,
+        id: uid("scn"),
+        name: `${src.name} (copy)`,
+        status: "DRAFT",
+        lastRunAt: undefined,
+        lastStatus: undefined,
+        operations: undefined,
+        updatedAt: new Date().toISOString(),
+        blueprint: JSON.parse(JSON.stringify(src.blueprint)) as Scenario["blueprint"],
+      };
+      return [copy, ...prev];
+    });
+  }, []);
+
   const deleteScenario = useCallback((id: string) => {
     setScenarios((prev) => prev.filter((s) => s.id !== id));
   }, []);
@@ -263,6 +283,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       navigate,
       createScenario,
       updateScenario,
+      duplicateScenario,
       deleteScenario,
       recordExecution,
       scenarioById,
@@ -277,6 +298,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       navigate,
       createScenario,
       updateScenario,
+      duplicateScenario,
       deleteScenario,
       recordExecution,
       scenarioById,

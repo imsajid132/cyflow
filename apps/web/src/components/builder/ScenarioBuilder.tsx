@@ -34,11 +34,53 @@ export function ScenarioBuilder() {
 
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [grabbing, setGrabbing] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [execution, setExecution] = useState<StoredExecution | null>(null);
   const [picker, setPicker] = useState<{ afterId: string | null } | null>(null);
   const [scheduling, setScheduling] = useState(false);
   const [history, setHistory] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const lastUpdated = useRef(scenario?.updatedAt);
+  useEffect(() => {
+    if (!scenario || lastUpdated.current === scenario.updatedAt) return;
+    lastUpdated.current = scenario.updatedAt;
+    setSaving(true);
+    const t = setTimeout(() => setSaving(false), 700);
+    return () => clearTimeout(t);
+  }, [scenario?.updatedAt]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Deep-link / demo hook: ?m=<moduleId> opens that module's config on load.
+  useEffect(() => {
+    const m = new URLSearchParams(window.location.search).get("m");
+    if (m) setSelectedId(m);
+  }, []);
+
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  const panRef = useRef(pan);
+  panRef.current = pan;
+
+  // Wheel = zoom toward the pointer (non-passive so we can preventDefault).
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = stage.getBoundingClientRect();
+      const cx = e.clientX - rect.left - rect.width / 2;
+      const cy = e.clientY - rect.top - rect.height / 2;
+      const z = zoomRef.current;
+      const z2 = clampZoom(z * Math.exp(-e.deltaY * 0.0015));
+      const k = z2 / z;
+      const p = panRef.current;
+      setPan({ x: cx - k * (cx - p.x), y: cy - k * (cy - p.y) });
+      setZoom(z2);
+    };
+    stage.addEventListener("wheel", onWheel, { passive: false });
+    return () => stage.removeEventListener("wheel", onWheel);
+  }, []);
 
   const layout = useMemo(
     () => (scenario ? layoutScenario(scenario.blueprint) : { nodes: [], edges: [], width: 0, height: 0 }),
@@ -87,6 +129,7 @@ export function ScenarioBuilder() {
   const onPointerDown = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest(".node, .addbtn, .chrome, .statusbar, .dockpanel")) return;
     dragging.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+    setGrabbing(true);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
   const onPointerMove = (e: React.PointerEvent) => {
@@ -94,6 +137,7 @@ export function ScenarioBuilder() {
   };
   const onPointerUp = () => {
     dragging.current = null;
+    setGrabbing(false);
   };
 
   if (!scenario) {
@@ -150,8 +194,14 @@ export function ScenarioBuilder() {
         />
         <div className="builder__status">
           <StatusPill status={scenario.status} />
-          <span className="muted" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-            <CheckIcon sw={2.4} width={13} height={13} /> Saved
+          <span className="savestate">
+            {saving ? (
+              "Saving…"
+            ) : (
+              <>
+                <CheckIcon sw={2.4} width={13} height={13} /> Saved
+              </>
+            )}
           </span>
         </div>
         <div className="builder__actions">
@@ -168,7 +218,7 @@ export function ScenarioBuilder() {
       </div>
 
       <div
-        className="builder__stage"
+        className={`builder__stage${grabbing ? " is-grabbing" : ""}`}
         ref={stageRef}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -267,6 +317,7 @@ export function ScenarioBuilder() {
               upstream={upstream.map((u) => ({ id: u.node.id, label: u.label, number: u.number, node: u.node }))}
               connections={store.connections}
               step={selectedStep}
+              execution={execution}
               onSave={(params) => store.updateScenario(scenario.id, { blueprint: updateModuleParams(scenario.blueprint, selectedNode.node.id, params) })}
               onConnection={(connId) => {
                 if (connId === "__new") {
@@ -286,7 +337,13 @@ export function ScenarioBuilder() {
         ) : null}
       </div>
 
-      {picker ? <ModulePicker onPick={(app, op) => addModule(app, op, picker.afterId)} onClose={() => setPicker(null)} /> : null}
+      {picker ? (
+        <ModulePicker
+          context={picker.afterId === null ? "trigger" : "action"}
+          onPick={(app, op) => addModule(app, op, picker.afterId)}
+          onClose={() => setPicker(null)}
+        />
+      ) : null}
       {scheduling ? (
         <ScheduleModal
           schedule={scenario.schedule}
