@@ -278,6 +278,25 @@ textarea.input { resize: vertical; font-family: var(--font-body); line-height: 1
 .rowbtn svg { width: 15px; height: 15px; }
 .rowbtn.is-danger:hover { color: var(--danger); }
 
+/* ---------- routers / filters / error handlers ---------- */
+.links path.stub { stroke-dasharray: 5 6; opacity: 0.5; }
+.links path.skipped { opacity: 0.26; stroke-dasharray: 4 6; }
+.edgelabel.skipped { opacity: 0.45; }
+
+.routerow { border: 1px solid var(--glass-brdr); border-radius: 12px; padding: 10px; margin-bottom: 8px; background: rgba(255, 255, 255, 0.2); display: flex; flex-direction: column; gap: 8px; }
+.routerow__head { display: flex; align-items: center; gap: 8px; }
+.routerow__head .input { flex: 1; }
+.routerow__body { display: flex; align-items: center; gap: 8px; }
+.routerow__lbl { font-size: 0.72rem; color: var(--ink-mute); font-weight: 600; flex: none; }
+.routerow__body .input { flex: 1; }
+
+.filteredit { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
+.filteredit .input { flex: 1; min-width: 90px; }
+.filteredit select.input { flex: 0 0 auto; min-width: 118px; }
+
+.branchrow { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 9px; background: rgba(255, 255, 255, 0.2); border: 1px solid var(--glass-brdr); margin-bottom: 6px; font-size: 0.8rem; }
+.branchrow b { flex: 1; }
+
 /* ---------- schedule options ---------- */
 .schedopt { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--glass-brdr); background: rgba(255, 255, 255, 0.26); cursor: pointer; margin-bottom: 8px; }
 .schedopt.is-active { border-color: var(--ink); background: rgba(255, 255, 255, 0.42); }

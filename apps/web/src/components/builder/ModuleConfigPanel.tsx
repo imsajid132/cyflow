@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { ModuleNode, StoredExecution, StoredExecutionStep } from "@cyflow/shared";
+import type { ErrorHandler, ModuleNode, RouteDef, StoredExecution, StoredExecutionStep } from "@cyflow/shared";
 import type { Connection } from "../../store/types";
 import { ModuleIcon } from "../ModuleIcon";
 import { StatusChip } from "../StatusChip";
@@ -9,6 +9,9 @@ import { findApp, findModule } from "../../data/catalog";
 import { outputFields } from "../../scenario/outputs";
 import { DEFAULT_TRIGGER } from "../../scenario/localEngine";
 import { PlayIcon, XIcon, ChevronRightIcon, CopyIcon } from "../icons";
+import { RouteEditor } from "./RouteEditor";
+import { FilterEditor } from "./FilterEditor";
+import { ErrorHandlerEditor } from "./ErrorHandlerEditor";
 
 function getPath(obj: unknown, path: string): unknown {
   let cur: unknown = obj;
@@ -45,16 +48,28 @@ function TokenPreview({ value }: { value: string }) {
   );
 }
 
+interface NodeRef {
+  id: string;
+  label: string;
+  number: number;
+}
+
 interface Props {
   module: ModuleNode;
   moduleNumber: number;
   predecessorId: string | null;
   upstream: UpstreamModule[];
+  allNodes: NodeRef[];
   connections: Connection[];
   step?: StoredExecutionStep;
   execution?: StoredExecution | null;
   onSave: (params: Record<string, unknown>) => void;
   onConnection: (connectionId: string | null) => void;
+  onFilter: (filter: unknown | null) => void;
+  onError: (handler: ErrorHandler | null) => void;
+  onAddRoute: () => void;
+  onUpdateRoute: (index: number, patch: Partial<RouteDef>) => void;
+  onRemoveRoute: (index: number) => void;
   onTest: () => void;
   onDelete: () => void;
   onClose: () => void;
@@ -65,11 +80,17 @@ export function ModuleConfigPanel({
   moduleNumber,
   predecessorId,
   upstream,
+  allNodes,
   connections,
   step,
   execution,
   onSave,
   onConnection,
+  onFilter,
+  onError,
+  onAddRoute,
+  onUpdateRoute,
+  onRemoveRoute,
   onTest,
   onDelete,
   onClose,
@@ -139,6 +160,9 @@ export function ModuleConfigPanel({
   const bundles = step ? (tab === "input" ? step.input : step.output) : [];
   const bundle = bundles[Math.min(bundleIdx, Math.max(bundles.length - 1, 0))];
 
+  const isRouter = module.kind === "router";
+  const isTrigger = module.kind === "trigger";
+
   return (
     <aside className="panel glass" aria-label="Module configuration">
       <div className="panel__head">
@@ -179,9 +203,21 @@ export function ModuleConfigPanel({
           </div>
         ) : null}
 
-        {(def?.params ?? []).length === 0 ? <div className="field"><span className="hint">This module has no parameters.</span></div> : null}
+        {isRouter ? (
+          <RouteEditor
+            key={module.id}
+            routes={module.routes ?? []}
+            routerId={module.id}
+            nodes={allNodes}
+            onAdd={onAddRoute}
+            onUpdate={onUpdateRoute}
+            onRemove={onRemoveRoute}
+          />
+        ) : null}
 
-        {(def?.params ?? []).map((field) => {
+        {!isRouter && (def?.params ?? []).length === 0 ? <div className="field"><span className="hint">This module has no parameters.</span></div> : null}
+
+        {!isRouter && (def?.params ?? []).map((field) => {
           const value = String(params[field.key] ?? "");
           const common = {
             id: `f_${field.key}`,
@@ -257,6 +293,43 @@ export function ModuleConfigPanel({
                 })}
               </div>
             ) : null}
+          </div>
+        ) : null}
+
+        {!isRouter && !isTrigger ? (
+          <div className="field">
+            <label>Filter — condition on the link to the next module</label>
+            {module.filter != null ? (
+              <FilterEditor value={module.filter} onChange={onFilter} />
+            ) : (
+              <button className="token" type="button" onClick={() => onFilter({ left: "", operator: "equals", right: "" })}>+ add filter</button>
+            )}
+          </div>
+        ) : null}
+
+        {!isRouter && !isTrigger ? (
+          <ErrorHandlerEditor key={module.id} value={module.errorHandler ?? null} onChange={onError} />
+        ) : null}
+
+        {step?.routes && step.routes.length > 0 ? (
+          <div className="field">
+            <label>Branches (this run)</label>
+            {step.routes.map((r, i) => (
+              <div className="branchrow" key={i}>
+                <b>{r.label ?? `Route ${i + 1}`}</b>
+                <span className="muted mono">{r.bundles} bundle{r.bundles === 1 ? "" : "s"}</span>
+                {r.bundles === 0 ? <span className="chip">skipped</span> : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {step?.errorOutcome ? (
+          <div className="field">
+            <label>Error handling (this run)</label>
+            <StatusChip kind="success">
+              {step.errorOutcome.type} · handled {step.errorOutcome.handled}
+            </StatusChip>
           </div>
         ) : null}
 

@@ -2,13 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { StoredExecution } from "@cyflow/shared";
 import { useStore } from "../../store/appStore";
 import type { Schedule } from "../../store/types";
-import { layoutScenario, NODE_W } from "../../scenario/layout";
+import type { ErrorHandler, RouteDef } from "@cyflow/shared";
+import { layoutScenario, NODE_W, type AddTarget } from "../../scenario/layout";
 import {
+  addRoute,
+  insertIntoRoute,
   insertModule,
   makeNode,
   removeModule,
+  removeRoute,
+  setErrorHandler,
+  setModuleFilter,
   updateModuleConnection,
   updateModuleParams,
+  updateRoute,
 } from "../../scenario/blueprintOps";
 import { useReducedMotion } from "../../hooks/useReducedMotion";
 import { useRunOnce } from "../../hooks/useRunOnce";
@@ -36,7 +43,7 @@ export function ScenarioBuilder() {
   const [grabbing, setGrabbing] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [execution, setExecution] = useState<StoredExecution | null>(null);
-  const [picker, setPicker] = useState<{ afterId: string | null } | null>(null);
+  const [picker, setPicker] = useState<{ target: AddTarget } | null>(null);
   const [scheduling, setScheduling] = useState(false);
   const [history, setHistory] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -82,7 +89,7 @@ export function ScenarioBuilder() {
   }, []);
 
   const layout = useMemo(
-    () => (scenario ? layoutScenario(scenario.blueprint) : { nodes: [], edges: [], width: 0, height: 0 }),
+    () => (scenario ? layoutScenario(scenario.blueprint) : { nodes: [], edges: [], addSlots: [], width: 0, height: 0 }),
     [scenario?.blueprint], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const order = useMemo(() => layout.nodes.map((n) => n.node.id), [layout]);
@@ -152,22 +159,33 @@ export function ScenarioBuilder() {
     );
   }
 
-  const addModule = (appKey: string, operation: string, afterId: string | null) => {
+  const patchBlueprint = (blueprint: typeof scenario.blueprint) =>
+    store.updateScenario(scenario.id, { blueprint });
+
+  const addModule = (appKey: string, operation: string, target: AddTarget) => {
     const node = makeNode(scenario.blueprint, appKey, operation);
-    store.updateScenario(scenario.id, { blueprint: insertModule(scenario.blueprint, afterId, node) });
+    const blueprint =
+      target.kind === "route"
+        ? insertIntoRoute(scenario.blueprint, target.routerId, target.routeIndex, node)
+        : insertModule(scenario.blueprint, target.afterId, node);
+    patchBlueprint(blueprint);
     setSelectedId(node.id);
     setPicker(null);
   };
-
-  const fromIds = new Set(layout.edges.map((e) => e.fromId));
-  const leaves = layout.nodes.filter(
-    (n) => !fromIds.has(n.node.id) && !(n.node.routes && n.node.routes.length),
-  );
 
   const selectedNode = layout.nodes.find((n) => n.node.id === selectedId);
   const predecessorId = layout.edges.find((e) => e.toId === selectedId)?.fromId ?? null;
   const upstream = selectedNode ? layout.nodes.filter((n) => n.number < selectedNode.number) : [];
   const selectedStep = execution?.steps.find((s) => s.moduleNodeId === selectedId);
+  const allNodes = layout.nodes.map((n) => ({ id: n.node.id, label: n.label, number: n.number }));
+
+  // Branches that received 0 bundles in the last run (dimmed on the canvas).
+  const skippedEdges = new Set<string>();
+  for (const s of execution?.steps ?? []) {
+    for (const r of s.routes ?? []) {
+      if (r.bundles === 0 && r.next) skippedEdges.add(`${s.moduleNodeId}->${r.next}`);
+    }
+  }
 
   const worldStyle: React.CSSProperties = {
     left: "50%",
@@ -238,7 +256,7 @@ export function ScenarioBuilder() {
         {layout.nodes.length === 0 ? (
           <div className="builder__empty">
             <div style={{ textAlign: "center" }}>
-              <button className="addbtn" style={{ position: "static", width: 56, height: 56, margin: "0 auto 12px" }} onClick={() => setPicker({ afterId: null })} aria-label="Add first module">
+              <button className="addbtn" style={{ position: "static", width: 56, height: 56, margin: "0 auto 12px" }} onClick={() => setPicker({ target: { kind: "after", afterId: null } })} aria-label="Add first module">
                 <PlusIcon width={22} height={22} />
               </button>
               <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: "1.05rem" }}>Add your first module</div>
@@ -250,7 +268,12 @@ export function ScenarioBuilder() {
             <div className="flow" style={{ width: layout.width, height: layout.height }}>
               <svg className="links" width={layout.width} height={layout.height} viewBox={`0 0 ${layout.width} ${layout.height}`} aria-hidden>
                 {layout.edges.map((e) => (
-                  <path key={e.key} d={e.d} ref={(el) => pathMap.current.set(e.key, el)} />
+                  <path
+                    key={e.key}
+                    className={`${e.stub ? "stub" : ""}${skippedEdges.has(e.key) ? " skipped" : ""}`.trim() || undefined}
+                    d={e.d}
+                    ref={(el) => pathMap.current.set(e.key, el)}
+                  />
                 ))}
                 <circle className="packet" r={7} ref={packetRef} />
               </svg>
@@ -268,22 +291,24 @@ export function ScenarioBuilder() {
 
               {layout.edges.map((e) =>
                 e.label ? (
-                  <div key={`l_${e.key}`} className={`edgelabel${e.router ? " edgelabel--router" : ""}`} style={{ left: e.midX, top: e.midY - 26 }}>
+                  <div
+                    key={`l_${e.key}`}
+                    className={`edgelabel${e.router ? " edgelabel--router" : ""}${skippedEdges.has(e.key) ? " skipped" : ""}`}
+                    style={{ left: e.midX, top: e.midY - 26 }}
+                  >
                     {e.label}
                   </div>
                 ) : null,
               )}
 
-              {layout.edges
-                .filter((e) => !e.router)
-                .map((e) => (
-                  <button key={`a_${e.key}`} className="addbtn" style={{ left: e.midX, top: e.midY, transform: "translate(-50%, -50%)" }} onClick={() => setPicker({ afterId: e.fromId })} aria-label="Add a module">
-                    <PlusIcon width={15} height={15} />
-                  </button>
-                ))}
-
-              {leaves.map((n) => (
-                <button key={`e_${n.node.id}`} className="addbtn" style={{ left: n.x + NODE_W / 2 + 44 + 22, top: n.y + 44, transform: "translate(-50%, -50%)" }} onClick={() => setPicker({ afterId: n.node.id })} aria-label="Add a module">
+              {layout.addSlots.map((slot) => (
+                <button
+                  key={slot.key}
+                  className="addbtn"
+                  style={{ left: slot.x, top: slot.y, transform: "translate(-50%, -50%)" }}
+                  onClick={() => setPicker({ target: slot.target })}
+                  aria-label="Add a module"
+                >
                   <PlusIcon width={15} height={15} />
                 </button>
               ))}
@@ -313,20 +338,26 @@ export function ScenarioBuilder() {
               moduleNumber={selectedNode.number}
               predecessorId={predecessorId}
               upstream={upstream.map((u) => ({ id: u.node.id, label: u.label, number: u.number, node: u.node }))}
+              allNodes={allNodes}
               connections={store.connections}
               step={selectedStep}
               execution={execution}
-              onSave={(params) => store.updateScenario(scenario.id, { blueprint: updateModuleParams(scenario.blueprint, selectedNode.node.id, params) })}
+              onSave={(params) => patchBlueprint(updateModuleParams(scenario.blueprint, selectedNode.node.id, params))}
               onConnection={(connId) => {
                 if (connId === "__new") {
                   store.navigate("connections");
                   return;
                 }
-                store.updateScenario(scenario.id, { blueprint: updateModuleConnection(scenario.blueprint, selectedNode.node.id, connId) });
+                patchBlueprint(updateModuleConnection(scenario.blueprint, selectedNode.node.id, connId));
               }}
+              onFilter={(filter) => patchBlueprint(setModuleFilter(scenario.blueprint, selectedNode.node.id, filter))}
+              onError={(handler: ErrorHandler | null) => patchBlueprint(setErrorHandler(scenario.blueprint, selectedNode.node.id, handler))}
+              onAddRoute={() => patchBlueprint(addRoute(scenario.blueprint, selectedNode.node.id))}
+              onUpdateRoute={(index: number, patch: Partial<RouteDef>) => patchBlueprint(updateRoute(scenario.blueprint, selectedNode.node.id, index, patch))}
+              onRemoveRoute={(index: number) => patchBlueprint(removeRoute(scenario.blueprint, selectedNode.node.id, index))}
               onTest={run}
               onDelete={() => {
-                store.updateScenario(scenario.id, { blueprint: removeModule(scenario.blueprint, selectedNode.node.id) });
+                patchBlueprint(removeModule(scenario.blueprint, selectedNode.node.id));
                 setSelectedId(null);
               }}
               onClose={() => setSelectedId(null)}
@@ -337,8 +368,8 @@ export function ScenarioBuilder() {
 
       {picker ? (
         <ModulePicker
-          context={picker.afterId === null ? "trigger" : "action"}
-          onPick={(app, op) => addModule(app, op, picker.afterId)}
+          context={picker.target.kind === "after" && picker.target.afterId === null ? "trigger" : "action"}
+          onPick={(app, op) => addModule(app, op, picker.target)}
           onClose={() => setPicker(null)}
         />
       ) : null}
