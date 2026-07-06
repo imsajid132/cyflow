@@ -689,6 +689,47 @@ describe("YouTube (mocked)", () => {
   });
 });
 
+describe("OpenAI expansion (mocked)", () => {
+  const ctx = () => makeCtx({ token: "sk" });
+  it("create_embedding returns the first vector", async () => {
+    const m = stubGoogle(() => ({ body: { data: [{ embedding: [0.1, 0.2] }], model: "text-embedding-3-small" } }));
+    const out = await openaiApp.modules.create_embedding.run({}, { input: "hi" }, ctx());
+    expect(m.mock.calls[0][0]).toContain("/embeddings");
+    expect(out[0]).toMatchObject({ embedding: [0.1, 0.2] });
+  });
+  it("generate_image posts a prompt", async () => {
+    const m = stubGoogle(() => ({ body: { data: [{ url: "http://img/1" }] } }));
+    const out = await openaiApp.modules.generate_image.run({}, { prompt: "a cat" }, ctx());
+    expect(m.mock.calls[0][0]).toContain("/images/generations");
+    expect(JSON.parse((m.mock.calls[0][1] as { body: string }).body).prompt).toBe("a cat");
+    expect(out[0]).toMatchObject({ images: [{ url: "http://img/1" }] });
+  });
+  it("list_models lists models", async () => {
+    stubGoogle(() => ({ body: { data: [{ id: "gpt-4o" }] } }));
+    const out = await openaiApp.modules.list_models.run({}, {}, ctx());
+    expect(out[0]).toMatchObject({ models: [{ id: "gpt-4o" }] });
+  });
+});
+
+describe("Slack expansion (mocked)", () => {
+  const ctx = () => makeCtx({ token: "xoxb" });
+  it("list_channels calls conversations.list", async () => {
+    const m = stubGoogle(() => ({ body: { ok: true, channels: [{ id: "C1" }] } }));
+    const out = await slackApp.modules.list_channels.run({}, {}, ctx());
+    expect(m.mock.calls[0][0]).toContain("conversations.list");
+    expect(out[0]).toMatchObject({ channels: [{ id: "C1" }] });
+  });
+  it("delete_message calls chat.delete", async () => {
+    const m = stubGoogle(() => ({ body: { ok: true, channel: "C1", ts: "1.2" } }));
+    await slackApp.modules.delete_message.run({}, { channel: "C1", ts: "1.2" }, ctx());
+    expect(m.mock.calls[0][0]).toContain("chat.delete");
+  });
+  it("throws on a Slack { ok:false } response", async () => {
+    stubGoogle(() => ({ body: { ok: false, error: "channel_not_found" } }));
+    await expect(slackApp.modules.get_channel_info.run({}, { channel: "bad" }, ctx())).rejects.toThrow(/channel_not_found/);
+  });
+});
+
 describe("JSON / CSV utilities (pure)", () => {
   const ctx = makeCtx(null);
 

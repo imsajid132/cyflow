@@ -1,7 +1,11 @@
 import { z } from "zod";
 import type { App, TestConnectionResult } from "engine";
 import type { Bundle, OperationRunner } from "@cyflow/shared";
-import { requireCredential, postJson } from "./util";
+import { requireCredential, postJson, apiJson, compact } from "./util";
+
+const OA = "https://api.openai.com/v1";
+const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
+const oaKey = (ctx: Parameters<OperationRunner>[2]) => requireCredential(ctx, ["token", "apiKey"], "OpenAI");
 
 /** Validate an OpenAI API key with a cheap GET /models call. */
 async function testConnection(credentials: Record<string, unknown>): Promise<TestConnectionResult> {
@@ -63,6 +67,49 @@ export const openaiApp: App = {
         messages: z.array(z.object({ role: z.string(), content: z.string() })).optional(),
       }),
       run: createCompletion,
+    },
+    create_embedding: {
+      key: "create_embedding",
+      name: "Create an embedding",
+      kind: "action",
+      params: z.object({ input: z.string(), model: z.string().optional() }),
+      run: async (_i, params, ctx) => {
+        const p = params as { input: string; model?: string };
+        const json = await apiJson<{ data?: { embedding: number[] }[]; model?: string; usage?: unknown }>({ method: "POST", url: `${OA}/embeddings`, headers: bearer(oaKey(ctx)), body: { model: p.model ?? "text-embedding-3-small", input: p.input } });
+        return [{ embedding: json.data?.[0]?.embedding ?? [], model: json.model, usage: json.usage } as Bundle];
+      },
+    },
+    generate_image: {
+      key: "generate_image",
+      name: "Generate an image",
+      kind: "action",
+      params: z.object({ prompt: z.string(), model: z.string().optional(), size: z.string().optional(), n: z.number().optional() }),
+      run: async (_i, params, ctx) => {
+        const p = params as { prompt: string; model?: string; size?: string; n?: number };
+        const json = await apiJson<{ data?: { url?: string; b64_json?: string }[] }>({ method: "POST", url: `${OA}/images/generations`, headers: bearer(oaKey(ctx)), body: compact({ model: p.model ?? "dall-e-3", prompt: p.prompt, size: p.size ?? "1024x1024", n: p.n ?? 1 }) });
+        return [{ images: json.data ?? [] } as Bundle];
+      },
+    },
+    moderation: {
+      key: "moderation",
+      name: "Moderate content",
+      kind: "action",
+      params: z.object({ input: z.string(), model: z.string().optional() }),
+      run: async (_i, params, ctx) => {
+        const p = params as { input: string; model?: string };
+        const json = await apiJson<{ results?: { flagged?: boolean }[] }>({ method: "POST", url: `${OA}/moderations`, headers: bearer(oaKey(ctx)), body: compact({ model: p.model, input: p.input }) });
+        return [{ results: json.results ?? [], flagged: json.results?.[0]?.flagged ?? false } as Bundle];
+      },
+    },
+    list_models: {
+      key: "list_models",
+      name: "List models",
+      kind: "search",
+      params: z.object({}),
+      run: async (_i, _p, ctx) => {
+        const json = await apiJson<{ data?: unknown[] }>({ method: "GET", url: `${OA}/models`, headers: bearer(oaKey(ctx)) });
+        return [{ models: json.data ?? [] } as Bundle];
+      },
     },
   },
   testConnection,

@@ -241,6 +241,24 @@ export const CATALOG: CatalogApp[] = [
           { key: "text", label: "Message text", type: "textarea", mappable: true },
         ],
       },
+      { operation: "update_message", name: "Update a message", kind: "action", params: [
+        { key: "channel", label: "Channel", type: "text", mappable: true },
+        { key: "ts", label: "Message ts", type: "text", mappable: true },
+        { key: "text", label: "Message text", type: "textarea", mappable: true },
+      ] },
+      { operation: "delete_message", name: "Delete a message", kind: "action", params: [
+        { key: "channel", label: "Channel", type: "text", mappable: true },
+        { key: "ts", label: "Message ts", type: "text", mappable: true },
+      ] },
+      { operation: "list_channels", name: "List channels", kind: "search", params: [{ key: "types", label: "Types", type: "text", placeholder: "public_channel" }] },
+      { operation: "get_channel_info", name: "Get channel info", kind: "search", params: [{ key: "channel", label: "Channel", type: "text", mappable: true }] },
+      { operation: "list_users", name: "List users", kind: "search", params: [{ key: "limit", label: "Limit", type: "number" }] },
+      { operation: "get_user_info", name: "Get user info", kind: "search", params: [{ key: "user", label: "User ID", type: "text", mappable: true }] },
+      { operation: "add_reaction", name: "Add a reaction", kind: "action", params: [
+        { key: "channel", label: "Channel", type: "text", mappable: true },
+        { key: "timestamp", label: "Message ts", type: "text", mappable: true },
+        { key: "name", label: "Emoji name", type: "text", mappable: true },
+      ] },
     ],
   },
   {
@@ -298,6 +316,16 @@ export const CATALOG: CatalogApp[] = [
           { key: "prompt", label: "Prompt", type: "textarea", mappable: true },
         ],
       },
+      { operation: "create_embedding", name: "Create an embedding", kind: "action", params: [
+        { key: "input", label: "Input text", type: "textarea", mappable: true },
+        { key: "model", label: "Model", type: "text", placeholder: "text-embedding-3-small" },
+      ] },
+      { operation: "generate_image", name: "Generate an image", kind: "action", params: [
+        { key: "prompt", label: "Prompt", type: "textarea", mappable: true },
+        { key: "size", label: "Size", type: "text", placeholder: "1024x1024" },
+      ] },
+      { operation: "moderation", name: "Moderate content", kind: "action", params: [{ key: "input", label: "Input text", type: "textarea", mappable: true }] },
+      { operation: "list_models", name: "List models", kind: "search", params: [] },
     ],
   },
   {

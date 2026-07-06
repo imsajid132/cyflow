@@ -1,9 +1,19 @@
 import { z } from "zod";
-import type { App, TestConnectionResult } from "engine";
-import type { OperationRunner } from "@cyflow/shared";
+import type { App, ModuleDef, TestConnectionResult } from "engine";
+import type { Bundle, ExecutionContext } from "@cyflow/shared";
 import { requireCredential, postJson } from "./util";
 
-/** Validate a Slack token with auth.test. */
+/** Slack connector (production). Auth: bot token (bearer). */
+
+const tok = (ctx: ExecutionContext) => requireCredential(ctx, ["token"], "Slack");
+
+/** POST a Slack Web API method; Slack signals failure via { ok:false, error }. */
+async function slackCall(token: string, method: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const { json } = await postJson(`https://slack.com/api/${method}`, body, { authorization: `Bearer ${token}` });
+  if (json.ok !== true) throw new Error(`Slack error: ${String(json.error ?? "unknown")}`);
+  return json;
+}
+
 async function testConnection(credentials: Record<string, unknown>): Promise<TestConnectionResult> {
   const token = typeof credentials.token === "string" ? credentials.token : "";
   if (!token) return { ok: false, message: "Missing token." };
@@ -16,37 +26,55 @@ async function testConnection(credentials: Record<string, unknown>): Promise<Tes
   }
 }
 
-/** Slack (scaffold) — Post a message to a channel. Auth: bearer_token. */
-const sendMessage: OperationRunner = async (_input, params, ctx) => {
-  const token = requireCredential(ctx, ["token"], "Slack");
-  const p = params as { channel?: unknown; text?: unknown };
-
-  const { json } = await postJson(
-    "https://slack.com/api/chat.postMessage",
-    { channel: p.channel, text: p.text },
-    { authorization: `Bearer ${token}` },
-  );
-  if (json.ok !== true) {
-    throw new Error(`Slack error: ${String(json.error ?? "unknown")}`);
-  }
-  return [{ ok: true, channel: json.channel, ts: json.ts, text: p.text }];
-};
+function m(k: string, name: string, kind: ModuleDef["kind"], params: z.ZodTypeAny, run: ModuleDef["run"]): ModuleDef {
+  return { key: k, name, kind, params, run };
+}
 
 export const slackApp: App = {
   key: "slack",
   name: "Slack",
-  auth: {
-    type: "bearer_token",
-    fields: [{ key: "token", label: "Bot token", type: "password", required: true }],
-  },
+  auth: { type: "bearer_token", fields: [{ key: "token", label: "Bot token", type: "password", required: true }] },
   modules: {
-    send_message: {
-      key: "send_message",
-      name: "Send a message",
-      kind: "action",
-      params: z.object({ channel: z.string(), text: z.string() }),
-      run: sendMessage,
-    },
+    send_message: m("send_message", "Send a message", "action", z.object({ channel: z.string(), text: z.string() }), async (_i, p, ctx) => {
+      const q = p as { channel: string; text: string };
+      const json = await slackCall(tok(ctx), "chat.postMessage", { channel: q.channel, text: q.text });
+      return [{ ok: true, channel: json.channel, ts: json.ts, text: q.text } as Bundle];
+    }),
+    update_message: m("update_message", "Update a message", "action", z.object({ channel: z.string(), ts: z.string(), text: z.string() }), async (_i, p, ctx) => {
+      const q = p as { channel: string; ts: string; text: string };
+      const json = await slackCall(tok(ctx), "chat.update", { channel: q.channel, ts: q.ts, text: q.text });
+      return [{ ok: true, channel: json.channel, ts: json.ts } as Bundle];
+    }),
+    delete_message: m("delete_message", "Delete a message", "action", z.object({ channel: z.string(), ts: z.string() }), async (_i, p, ctx) => {
+      const q = p as { channel: string; ts: string };
+      const json = await slackCall(tok(ctx), "chat.delete", { channel: q.channel, ts: q.ts });
+      return [{ ok: true, channel: json.channel, ts: json.ts } as Bundle];
+    }),
+    list_channels: m("list_channels", "List channels", "search", z.object({ types: z.string().optional(), limit: z.number().optional() }), async (_i, p, ctx) => {
+      const q = p as { types?: string; limit?: number };
+      const json = await slackCall(tok(ctx), "conversations.list", { types: q.types ?? "public_channel", limit: q.limit ?? 100 });
+      return [{ channels: json.channels ?? [] } as Bundle];
+    }),
+    get_channel_info: m("get_channel_info", "Get channel info", "search", z.object({ channel: z.string() }), async (_i, p, ctx) => {
+      const { channel } = p as { channel: string };
+      const json = await slackCall(tok(ctx), "conversations.info", { channel });
+      return [{ channel: json.channel } as Bundle];
+    }),
+    list_users: m("list_users", "List users", "search", z.object({ limit: z.number().optional() }), async (_i, p, ctx) => {
+      const q = p as { limit?: number };
+      const json = await slackCall(tok(ctx), "users.list", { limit: q.limit ?? 100 });
+      return [{ members: json.members ?? [] } as Bundle];
+    }),
+    get_user_info: m("get_user_info", "Get user info", "search", z.object({ user: z.string() }), async (_i, p, ctx) => {
+      const { user } = p as { user: string };
+      const json = await slackCall(tok(ctx), "users.info", { user });
+      return [{ user: json.user } as Bundle];
+    }),
+    add_reaction: m("add_reaction", "Add a reaction", "action", z.object({ channel: z.string(), timestamp: z.string(), name: z.string() }), async (_i, p, ctx) => {
+      const q = p as { channel: string; timestamp: string; name: string };
+      await slackCall(tok(ctx), "reactions.add", { channel: q.channel, timestamp: q.timestamp, name: q.name });
+      return [{ ok: true } as Bundle];
+    }),
   },
   testConnection,
 };
