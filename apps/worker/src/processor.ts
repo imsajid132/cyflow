@@ -38,12 +38,12 @@ function orderedNodeIds(blueprint: Blueprint): string[] {
 }
 
 /**
- * Turn an ExecutionRecord into per-step snapshots with INPUT bundles.
+ * Turn an ExecutionRecord into per-step snapshots.
  *
- * The engine records each module's OUTPUT bundles; for the linear chain a
- * module's input is simply the previous module's output (and the first module —
- * the trigger — receives the trigger bundles). Reconstructing input here means
- * the engine walker never had to change to capture it.
+ * The engine records each module's exact `input` (post-filter) and `output`
+ * bundles, so iterator fan-out, filtered links, and aggregator collapses are
+ * captured faithfully. A pre-Phase-5 record without `input` falls back to
+ * "input N = output N-1" reconstruction.
  */
 export function toStepSnapshots(
   record: ExecutionRecord,
@@ -58,7 +58,7 @@ export function toStepSnapshots(
     const step = record.steps[nodeId];
     if (!step) break; // the walk stopped here (error) or reached the end
 
-    const input = order === 0 ? triggerBundles : previousOutput;
+    const input = step.input ?? (order === 0 ? triggerBundles : previousOutput);
     snapshots.push({
       moduleNodeId: nodeId,
       status: step.status,

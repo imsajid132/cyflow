@@ -14,7 +14,12 @@ describe("App framework — built-in apps register through the framework", () =>
   it("exposes the three built-in apps and their modules via the registry seam", () => {
     const registry = createDefaultRegistry();
 
-    expect(registry.listApps().map((a) => a.key).sort()).toEqual(["core", "http", "webhook"]);
+    expect(registry.listApps().map((a) => a.key).sort()).toEqual([
+      "core",
+      "flow",
+      "http",
+      "webhook",
+    ]);
 
     const http = registry.get("http", "make_request");
     expect(http.run).toBeTypeOf("function");

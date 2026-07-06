@@ -27,6 +27,9 @@ export interface ModuleResult {
   status: "success" | "error";
   /** How many bundles this module processed (= operations for this module). */
   operations: number;
+  /** The bundles this module received (post-filter, so snapshots are exact). */
+  input?: Bundle[];
+  /** The bundles this module produced. */
   bundles: Bundle[];
   error?: string;
   /** Wall-clock milliseconds around all of this module's bundle runs. */

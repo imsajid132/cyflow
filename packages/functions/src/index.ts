@@ -10,3 +10,5 @@ export {
   resolveParamsTree,
 } from "./resolve";
 export type { MappingScope } from "./resolve";
+export { evaluateFilter } from "./filter";
+export type { Filter, FilterCondition, FilterGroup, FilterOperator } from "./filter";

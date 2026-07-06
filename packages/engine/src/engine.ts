@@ -6,8 +6,9 @@ import type {
   ModuleNode,
   ModuleResult,
 } from "@cyflow/shared";
-import { resolveParamsTree, type MappingScope } from "functions";
+import { evaluateFilter, resolveParamsTree, type Filter, type MappingScope } from "functions";
 import type { Registry } from "./registry";
+import { AGGREGATE_INPUT_KEY } from "./modules/flow";
 
 /**
  * Resolve a module's `{{...}}` mapping expressions against prior module outputs
@@ -37,6 +38,34 @@ const nowMs = (): number =>
 
 const errorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);
+
+/** Build a mapping scope keyed by module id from prior outputs. */
+function buildScope(ctx: ExecutionContext): MappingScope {
+  const scope: MappingScope = {};
+  for (const [id, step] of Object.entries(ctx.steps)) {
+    scope[id] = step.bundles.length > 0 ? step.bundles[0] : {};
+  }
+  return scope;
+}
+
+/**
+ * Apply a link filter to a module's output bundles: keep only those whose
+ * condition passes. The source module's output for the current bundle is the
+ * bundle itself, so `{{source.field}}` addresses it. A malformed filter throws
+ * → the module errors → the run FAILS.
+ */
+function applyFilter(
+  bundles: Bundle[],
+  filter: unknown,
+  ctx: ExecutionContext,
+  sourceModuleId: string,
+): Bundle[] {
+  return bundles.filter((bundle) => {
+    const scope = buildScope(ctx);
+    scope[sourceModuleId] = bundle;
+    return evaluateFilter(filter as Filter, scope);
+  });
+}
 
 /**
  * Runs a scenario on the bundle model.
@@ -85,6 +114,7 @@ export async function runScenario(
   ctx.steps[first.id] = {
     status: "success",
     operations: triggerBundles.length,
+    input: triggerBundles,
     bundles: triggerBundles,
     ms: Math.round(nowMs() - triggerStart),
   };
@@ -98,28 +128,43 @@ export async function runScenario(
   while (current) {
     const mod = current;
     const start = nowMs();
+    const inputForStep = inputBundles; // what this module actually received
     const outputs: Bundle[] = [];
     let ran = 0;
 
     try {
       const registered = registry.get(mod.app, mod.operation); // throws on miss
-      // Run once per input bundle — the heart of bundle multiplexing.
-      for (const inputBundle of inputBundles) {
-        ran += 1;
+
+      if (mod.kind === "aggregator") {
+        // Aggregators break the per-bundle recursion (ARCHITECTURE §2): one run
+        // over ALL input bundles, emitting one (or few) bundles. Counts as a
+        // single operation.
+        ran = 1;
         ctx.operations += 1;
-        const resolved = resolveParams(mod.params, inputBundle, ctx, previousModuleId);
-        const produced = await registered.run(inputBundle, resolved, ctx);
-        outputs.push(...produced);
+        const resolved = resolveParams(mod.params, {}, ctx);
+        const wrapper: Bundle = { [AGGREGATE_INPUT_KEY]: inputBundles };
+        outputs.push(...(await registered.run(wrapper, resolved, ctx)));
+      } else {
+        // Run once per input bundle — the heart of bundle multiplexing.
+        for (const inputBundle of inputBundles) {
+          ran += 1;
+          ctx.operations += 1;
+          const resolved = resolveParams(mod.params, inputBundle, ctx, previousModuleId);
+          const produced = await registered.run(inputBundle, resolved, ctx);
+          outputs.push(...produced);
+        }
       }
 
       const result: ModuleResult = {
         status: "success",
         operations: ran,
+        input: inputForStep,
         bundles: outputs,
         ms: Math.round(nowMs() - start),
       };
       ctx.steps[mod.id] = result;
-      inputBundles = outputs;
+      // A link filter decides which output bundles continue to `next`.
+      inputBundles = mod.filter ? applyFilter(outputs, mod.filter, ctx, mod.id) : outputs;
       previousModuleId = mod.id;
       current = mod.next ? byId.get(mod.next) : undefined;
     } catch (err) {
@@ -127,6 +172,7 @@ export async function runScenario(
       ctx.steps[mod.id] = {
         status: "error",
         operations: ran,
+        input: inputForStep,
         bundles: outputs,
         error: message,
         ms: Math.round(nowMs() - start),
