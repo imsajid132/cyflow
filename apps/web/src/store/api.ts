@@ -115,6 +115,8 @@ export const api = {
   listConnections: () => req<Connection[]>("/connections"),
   createConnection: (input: ConnectionInput) =>
     req<Connection>("/connections", { method: "POST", body: JSON.stringify(input) }),
+  testConnection: (appKey: string, credentials: Record<string, unknown>) =>
+    req<{ ok: boolean; message: string }>("/connections/test", { method: "POST", body: JSON.stringify({ appKey, credentials }) }),
   updateConnection: (id: string, patch: { name?: string; credentials?: Record<string, unknown> }) =>
     req<Connection>(`/connections/${id}`, { method: "PUT", body: JSON.stringify(patch) }),
   deleteConnection: (id: string) => req<void>(`/connections/${id}`, { method: "DELETE" }),

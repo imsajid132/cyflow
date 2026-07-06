@@ -7,7 +7,7 @@ export { Registry, createDefaultRegistry } from "./registry";
 export type { RegisteredModule } from "./registry";
 
 // App framework (Phase 2)
-export type { App, ModuleDef, AuthSchema, AuthType, AuthField } from "./app";
+export type { App, ModuleDef, AuthSchema, AuthType, AuthField, TestConnectionResult } from "./app";
 export { webhookApp, httpApp, coreApp, flowApp, dataStoreApp, builtInApps } from "./apps";
 export { httpRequestParams } from "./apps/http";
 export { sleepParams } from "./apps/core";

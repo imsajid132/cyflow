@@ -135,6 +135,19 @@ describe("cyflow API", () => {
     expect((await request(a).delete(`/connections/${id}`)).status).toBe(404);
   });
 
+  it("tests a connection's credentials (validation path, no network)", async () => {
+    const a = createApp(new InMemoryApiStore());
+    expect((await request(a).post("/connections/test").send({})).status).toBe(400);
+
+    const http = await request(a).post("/connections/test").send({ appKey: "http", credentials: {} });
+    expect(http.body.ok).toBe(false);
+    expect(http.body.message).toMatch(/doesn't support/i);
+
+    const tg = await request(a).post("/connections/test").send({ appKey: "telegram", credentials: {} });
+    expect(tg.body.ok).toBe(false);
+    expect(tg.body.message).toMatch(/missing bot token/i);
+  });
+
   it("rejects a connection whose credentials fail the app's auth schema", async () => {
     const a = app();
     const res = await request(a).post("/connections").send({ appKey: "telegram", name: "Bad", credentials: {} });

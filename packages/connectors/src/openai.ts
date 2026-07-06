@@ -1,7 +1,21 @@
 import { z } from "zod";
-import type { App } from "engine";
+import type { App, TestConnectionResult } from "engine";
 import type { Bundle, OperationRunner } from "@cyflow/shared";
 import { requireCredential, postJson } from "./util";
+
+/** Validate an OpenAI API key with a cheap GET /models call. */
+async function testConnection(credentials: Record<string, unknown>): Promise<TestConnectionResult> {
+  const token = typeof credentials.token === "string" ? credentials.token : "";
+  if (!token) return { ok: false, message: "Missing API key." };
+  try {
+    const res = await fetch("https://api.openai.com/v1/models", { headers: { authorization: `Bearer ${token}` } });
+    if (res.ok) return { ok: true, message: "API key valid" };
+    const json = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+    return { ok: false, message: json.error?.message ?? `HTTP ${res.status}` };
+  } catch (e) {
+    return { ok: false, message: String((e as Error).message) };
+  }
+}
 
 /** OpenAI — Create a chat completion. Auth: bearer_token (API key). */
 const createCompletion: OperationRunner = async (_input, params, ctx) => {
@@ -51,4 +65,5 @@ export const openaiApp: App = {
       run: createCompletion,
     },
   },
+  testConnection,
 };

@@ -47,6 +47,41 @@ const mockTelegram: OperationRunner = async (_input, params) => {
   return [{ ok: true, messageId: 1001, chatId: p.chatId, sent: p.text }];
 };
 
+/** Offline mock for the rest of the Telegram Bot API surface (demo mode). */
+const mockTelegramGeneric: OperationRunner = async (_input, params) => [
+  { ok: true, message_id: 1001, mock: true, ...(params as Record<string, unknown>) },
+];
+
+/** Every Telegram operation the catalog exposes (kept in sync with the connector). */
+const TELEGRAM_OPS: { op: string; kind: "action" | "search" }[] = [
+  { op: "send_photo", kind: "action" },
+  { op: "send_document", kind: "action" },
+  { op: "send_video", kind: "action" },
+  { op: "send_animation", kind: "action" },
+  { op: "send_audio", kind: "action" },
+  { op: "send_voice", kind: "action" },
+  { op: "send_location", kind: "action" },
+  { op: "send_contact", kind: "action" },
+  { op: "send_poll", kind: "action" },
+  { op: "send_media_group", kind: "action" },
+  { op: "edit_message_text", kind: "action" },
+  { op: "delete_message", kind: "action" },
+  { op: "forward_message", kind: "action" },
+  { op: "copy_message", kind: "action" },
+  { op: "answer_callback_query", kind: "action" },
+  { op: "pin_message", kind: "action" },
+  { op: "unpin_message", kind: "action" },
+  { op: "create_invite_link", kind: "action" },
+  { op: "set_my_commands", kind: "action" },
+  { op: "get_chat", kind: "search" },
+  { op: "get_chat_member", kind: "search" },
+  { op: "get_file", kind: "search" },
+  { op: "get_updates", kind: "search" },
+  { op: "set_webhook", kind: "action" },
+  { op: "delete_webhook", kind: "action" },
+  { op: "get_webhook_info", kind: "search" },
+];
+
 const mockSlack: OperationRunner = async (_input, params) => {
   const p = params as { channel?: unknown; text?: unknown };
   return [{ ok: true, channel: p.channel, ts: "1700000000.0001", text: p.text }];
@@ -79,6 +114,7 @@ function createBrowserRegistry(): Registry {
   const registry = createDefaultRegistry();
   registry.register({ app: "http", operation: "make_request", kind: "action", run: mockHttp });
   registry.register({ app: "telegram", operation: "send_message", kind: "action", run: mockTelegram });
+  for (const { op, kind } of TELEGRAM_OPS) registry.register({ app: "telegram", operation: op, kind, run: mockTelegramGeneric });
   registry.register({ app: "slack", operation: "send_message", kind: "action", run: mockSlack });
   registry.register({ app: "openai", operation: "create_completion", kind: "action", run: mockOpenAi });
   registry.register({ app: "gmail", operation: "send_email", kind: "action", run: mockGmail });

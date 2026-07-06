@@ -122,6 +122,16 @@ export function createApp(store: ApiStore, options: ApiOptions = {}) {
     res.json(await store.listConnections());
   }));
 
+  // Validate credentials against the live API before saving.
+  app.post("/connections/test", h(async (req, res) => {
+    const body = req.body ?? {};
+    if (!body.appKey) {
+      res.status(400).json({ error: "appKey is required" });
+      return;
+    }
+    res.json(await store.testConnection(body.appKey, body.credentials));
+  }));
+
   app.post("/connections", h(async (req, res) => {
     const body = req.body ?? {};
     if (!body.appKey || !body.name) {

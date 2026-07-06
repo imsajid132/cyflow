@@ -42,6 +42,7 @@ export function ConnectionModal({ mode, existing, onClose }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [oauth, setOauth] = useState<{ loading: boolean; message?: string; authUrl?: string; configured?: boolean }>({ loading: false });
+  const [test, setTest] = useState<{ loading: boolean; ok?: boolean; message?: string }>({ loading: false });
 
   const app = findApp(appKey);
   const authType = app?.auth;
@@ -86,6 +87,20 @@ export function ConnectionModal({ mode, existing, onClose }: Props) {
       setOauth({ loading: false, configured: res.configured, message: res.message, authUrl: res.authUrl });
     } catch (e) {
       setOauth({ loading: false, configured: false, message: String((e as Error).message) });
+    }
+  };
+
+  const testConn = async () => {
+    setTest({ loading: true });
+    if (!apiEnabled) {
+      setTest({ loading: false, ok: false, message: "Testing needs a running API (set VITE_CYFLOW_API_URL)." });
+      return;
+    }
+    try {
+      const r = await api.testConnection(appKey, creds);
+      setTest({ loading: false, ok: r.ok, message: r.message });
+    } catch (e) {
+      setTest({ loading: false, ok: false, message: String((e as Error).message) });
     }
   };
 
@@ -203,7 +218,18 @@ export function ConnectionModal({ mode, existing, onClose }: Props) {
             ))
           )}
 
-          {!isOAuth ? <span className="hint">Encrypted with AES-256-GCM at rest. Never displayed again after saving.</span> : null}
+          {!isOAuth ? (
+            <div className="field">
+              <Button variant="ghost" onClick={testConn} disabled={test.loading}>
+                {test.loading ? "Testing…" : "Test connection"}
+              </Button>
+              {test.message ? (
+                <div className={`oauth-note${test.ok ? " is-ok" : ""}`}>{test.ok ? "✓ " : "⚠ "}{test.message}</div>
+              ) : (
+                <span className="hint">Encrypted with AES-256-GCM at rest. Never displayed again after saving.</span>
+              )}
+            </div>
+          ) : null}
           {error ? <div className="oauth-note">⚠ {error}</div> : null}
         </>
       )}

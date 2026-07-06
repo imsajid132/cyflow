@@ -1,5 +1,5 @@
 import type { Blueprint, Bundle, StoredExecution } from "@cyflow/shared";
-import { buildExecutionSteps, createDefaultRegistry, InMemoryDataStore, runScenario } from "engine";
+import { buildExecutionSteps, createDefaultRegistry, InMemoryDataStore, runScenario, type TestConnectionResult } from "engine";
 import type {
   AppAuthDTO,
   AppSummary,
@@ -16,7 +16,7 @@ import type {
   UpdateConnectionBody,
   UpdateScenarioBody,
 } from "./types";
-import { appAuthDTO, appSummaries } from "./apps";
+import { appAuthDTO, appSummaries, testAppConnection } from "./apps";
 import { oauthCallback, oauthStart } from "./oauth";
 
 /** Default sample trigger bundle used by run-once when the caller sends none. */
@@ -48,6 +48,7 @@ export interface ApiStore {
   createConnection(body: CreateConnectionBody): Promise<ConnectionSummary>;
   updateConnection(id: string, patch: UpdateConnectionBody): Promise<ConnectionSummary | null>;
   deleteConnection(id: string): Promise<boolean>;
+  testConnection(appKey: string, credentials: Record<string, unknown> | undefined): Promise<TestConnectionResult>;
   listApps(): Promise<AppSummary[]>;
   getAppAuth(key: string): Promise<AppAuthDTO | null>;
   oauthStart(provider: string): Promise<OAuthStartDTO>;
@@ -197,6 +198,10 @@ export class InMemoryApiStore implements ApiStore {
     this.connectionSummaries = this.connectionSummaries.filter((c) => c.id !== id);
     this.secrets.delete(id);
     return this.connectionSummaries.length < before;
+  }
+
+  async testConnection(appKey: string, credentials: Record<string, unknown> | undefined): Promise<TestConnectionResult> {
+    return testAppConnection(appKey, credentials);
   }
 
   async listApps(): Promise<AppSummary[]> {

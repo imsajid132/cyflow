@@ -2,7 +2,7 @@
  * App directory for the connection UI. Combines the engine's built-in apps with
  * the connectors, exposing their auth requirements (never their credentials).
  */
-import type { App } from "engine";
+import type { App, TestConnectionResult } from "engine";
 import { builtInApps } from "engine";
 import { connectorApps } from "@cyflow/connectors";
 import { validateCredentials } from "@cyflow/connections";
@@ -10,6 +10,17 @@ import type { AuthSchema, AuthType } from "@cyflow/shared";
 import type { AppAuthDTO, AppSummary } from "./types";
 
 const ALL_APPS: App[] = [...builtInApps, ...connectorApps];
+
+/** Validate credentials against the app's live API (if it supports it). */
+export async function testAppConnection(
+  appKey: string,
+  credentials: Record<string, unknown> | undefined,
+): Promise<TestConnectionResult> {
+  const app = ALL_APPS.find((a) => a.key === appKey);
+  if (!app) return { ok: false, message: `Unknown app: ${appKey}` };
+  if (!app.testConnection) return { ok: false, message: `${app.name} doesn't support connection testing.` };
+  return app.testConnection(credentials ?? {});
+}
 
 export function appSummaries(): AppSummary[] {
   return ALL_APPS.map((a) => ({

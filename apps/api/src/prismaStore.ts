@@ -34,7 +34,7 @@ import type {
   UpdateScenarioBody,
 } from "./types";
 import { DEFAULT_TRIGGER, type ApiStore } from "./store";
-import { appAuthDTO, appSummaries } from "./apps";
+import { appAuthDTO, appSummaries, testAppConnection } from "./apps";
 import { oauthCallback, oauthStart } from "./oauth";
 
 const DEMO_EMAIL = "demo@cyflow.dev";
@@ -268,6 +268,10 @@ export class PrismaApiStore implements ApiStore {
     if (!exists) return false;
     await this.connections.delete(id);
     return true;
+  }
+
+  async testConnection(appKey: string, credentials: Record<string, unknown> | undefined) {
+    return testAppConnection(appKey, credentials);
   }
 
   async listApps(): Promise<AppSummary[]> {

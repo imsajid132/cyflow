@@ -124,10 +124,91 @@ export const CATALOG: CatalogApp[] = [
         name: "Send a message",
         kind: "action",
         params: [
-          { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+          { key: "chatId", label: "Chat ID", type: "text", mappable: true, placeholder: "@channel or -100…" },
           { key: "text", label: "Message text", type: "textarea", mappable: true },
+          { key: "parseMode", label: "Parse mode", type: "select", options: ["", "Markdown", "MarkdownV2", "HTML"] },
         ],
       },
+      { operation: "send_photo", name: "Send a photo", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "photo", label: "Photo (URL or file_id)", type: "text", mappable: true },
+        { key: "caption", label: "Caption", type: "textarea", mappable: true },
+      ] },
+      { operation: "send_document", name: "Send a document", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "document", label: "Document (URL or file_id)", type: "text", mappable: true },
+        { key: "caption", label: "Caption", type: "textarea", mappable: true },
+      ] },
+      { operation: "send_video", name: "Send a video", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "video", label: "Video (URL or file_id)", type: "text", mappable: true },
+        { key: "caption", label: "Caption", type: "textarea", mappable: true },
+      ] },
+      { operation: "send_location", name: "Send a location", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "latitude", label: "Latitude", type: "number", mappable: true },
+        { key: "longitude", label: "Longitude", type: "number", mappable: true },
+      ] },
+      { operation: "send_poll", name: "Send a poll", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "question", label: "Question", type: "text", mappable: true },
+        { key: "options", label: "Options (map an array)", type: "text", mappable: true, placeholder: "{{2.options}}" },
+      ] },
+      { operation: "edit_message_text", name: "Edit a message", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "messageId", label: "Message ID", type: "number", mappable: true },
+        { key: "text", label: "New text", type: "textarea", mappable: true },
+        { key: "parseMode", label: "Parse mode", type: "select", options: ["", "Markdown", "MarkdownV2", "HTML"] },
+      ] },
+      { operation: "delete_message", name: "Delete a message", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "messageId", label: "Message ID", type: "number", mappable: true },
+      ] },
+      { operation: "forward_message", name: "Forward a message", kind: "action", params: [
+        { key: "chatId", label: "To chat ID", type: "text", mappable: true },
+        { key: "fromChatId", label: "From chat ID", type: "text", mappable: true },
+        { key: "messageId", label: "Message ID", type: "number", mappable: true },
+      ] },
+      { operation: "copy_message", name: "Copy a message", kind: "action", params: [
+        { key: "chatId", label: "To chat ID", type: "text", mappable: true },
+        { key: "fromChatId", label: "From chat ID", type: "text", mappable: true },
+        { key: "messageId", label: "Message ID", type: "number", mappable: true },
+      ] },
+      { operation: "answer_callback_query", name: "Answer a callback query", kind: "action", params: [
+        { key: "callbackQueryId", label: "Callback query ID", type: "text", mappable: true },
+        { key: "text", label: "Text", type: "text", mappable: true },
+      ] },
+      { operation: "pin_message", name: "Pin a message", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "messageId", label: "Message ID", type: "number", mappable: true },
+      ] },
+      { operation: "unpin_message", name: "Unpin a message", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "messageId", label: "Message ID (optional)", type: "number", mappable: true },
+      ] },
+      { operation: "create_invite_link", name: "Create an invite link", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "memberLimit", label: "Member limit", type: "number" },
+      ] },
+      { operation: "get_chat", name: "Get a chat", kind: "search", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+      ] },
+      { operation: "get_chat_member", name: "Get a chat member", kind: "search", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "userId", label: "User ID", type: "number", mappable: true },
+      ] },
+      { operation: "get_file", name: "Get a file (download link)", kind: "search", params: [
+        { key: "fileId", label: "File ID", type: "text", mappable: true },
+      ] },
+      { operation: "get_updates", name: "Get updates (polling)", kind: "search", params: [
+        { key: "offset", label: "Offset", type: "number" },
+        { key: "limit", label: "Limit", type: "number" },
+      ] },
+      { operation: "set_webhook", name: "Set webhook", kind: "action", params: [
+        { key: "url", label: "Webhook URL", type: "text", mappable: true, placeholder: "https://api…/hooks/scn_id" },
+      ] },
+      { operation: "delete_webhook", name: "Delete webhook", kind: "action", params: [] },
+      { operation: "get_webhook_info", name: "Get webhook info", kind: "search", params: [] },
     ],
   },
   {

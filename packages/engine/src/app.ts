@@ -29,6 +29,13 @@ export interface ModuleDef {
   run: OperationRunner;
 }
 
+/** Result of validating a connection's credentials against the live API. */
+export interface TestConnectionResult {
+  ok: boolean;
+  /** Human message — the account/bot name on success, or the API error. */
+  message: string;
+}
+
 /** A connector: a keyed bundle of modules plus its auth requirements. */
 export interface App {
   /** Stable app key, e.g. "http". Matches `ModuleNode.app` in a blueprint. */
@@ -38,4 +45,9 @@ export interface App {
   auth?: AuthSchema;
   /** Modules keyed by their `ModuleDef.key`. */
   modules: Record<string, ModuleDef>;
+  /**
+   * Validate decrypted credentials against the live API (a cheap identity call).
+   * Server-side only — powers "Test connection" and expired-token detection.
+   */
+  testConnection?: (credentials: Record<string, unknown>) => Promise<TestConnectionResult>;
 }
