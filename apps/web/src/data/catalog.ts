@@ -759,6 +759,93 @@ export const CATALOG: CatalogApp[] = [
       { operation: "list_event_types", name: "List event types", kind: "search", params: [{ key: "user", label: "User URI", type: "text", mappable: true }] },
     ],
   },
+  {
+    key: "twilio",
+    name: "Twilio",
+    category: "Communication",
+    auth: "custom",
+    modules: [
+      { operation: "send_sms", name: "Send an SMS", kind: "action", params: [
+        { key: "from", label: "From number", type: "text", mappable: true },
+        { key: "to", label: "To number", type: "text", mappable: true },
+        { key: "body", label: "Message", type: "textarea", mappable: true },
+      ] },
+      { operation: "list_messages", name: "List messages", kind: "search", params: [
+        { key: "to", label: "To number", type: "text", mappable: true },
+        { key: "from", label: "From number", type: "text", mappable: true },
+      ] },
+      { operation: "get_message", name: "Get a message", kind: "search", params: [{ key: "messageSid", label: "Message SID", type: "text", mappable: true }] },
+      { operation: "make_call", name: "Make a call", kind: "action", params: [
+        { key: "from", label: "From number", type: "text", mappable: true },
+        { key: "to", label: "To number", type: "text", mappable: true },
+        { key: "url", label: "TwiML URL", type: "text", mappable: true },
+      ] },
+    ],
+  },
+  {
+    key: "stripe",
+    name: "Stripe",
+    category: "Data",
+    auth: "api_key",
+    modules: [
+      { operation: "list_customers", name: "List customers", kind: "search", params: [
+        { key: "email", label: "Email filter", type: "text", mappable: true },
+        { key: "limit", label: "Limit", type: "number" },
+      ] },
+      { operation: "get_customer", name: "Get a customer", kind: "search", params: [{ key: "customerId", label: "Customer ID", type: "text", mappable: true }] },
+      { operation: "create_customer", name: "Create a customer", kind: "action", params: [
+        { key: "email", label: "Email", type: "text", mappable: true },
+        { key: "name", label: "Name", type: "text", mappable: true },
+        { key: "description", label: "Description", type: "text", mappable: true },
+      ] },
+      { operation: "create_payment_intent", name: "Create a payment intent", kind: "action", params: [
+        { key: "amount", label: "Amount (cents)", type: "number", mappable: true },
+        { key: "currency", label: "Currency", type: "text", placeholder: "usd" },
+        { key: "customer", label: "Customer ID", type: "text", mappable: true },
+      ] },
+      { operation: "list_payment_intents", name: "List payment intents", kind: "search", params: [{ key: "customer", label: "Customer ID", type: "text", mappable: true }] },
+      { operation: "create_refund", name: "Refund a payment", kind: "action", params: [
+        { key: "paymentIntent", label: "Payment intent ID", type: "text", mappable: true },
+        { key: "amount", label: "Amount (cents)", type: "number", mappable: true },
+      ] },
+    ],
+  },
+  {
+    key: "shopify",
+    name: "Shopify",
+    category: "Data",
+    auth: "custom",
+    modules: [
+      { operation: "list_products", name: "List products", kind: "search", params: [{ key: "limit", label: "Limit", type: "number" }] },
+      { operation: "get_product", name: "Get a product", kind: "search", params: [{ key: "productId", label: "Product ID", type: "text", mappable: true }] },
+      { operation: "create_product", name: "Create a product", kind: "action", params: [{ key: "product", label: "Product (map an object)", type: "text", mappable: true }] },
+      { operation: "list_orders", name: "List orders", kind: "search", params: [{ key: "status", label: "Status", type: "text", placeholder: "any" }] },
+      { operation: "get_order", name: "Get an order", kind: "search", params: [{ key: "orderId", label: "Order ID", type: "text", mappable: true }] },
+      { operation: "list_customers", name: "List customers", kind: "search", params: [{ key: "limit", label: "Limit", type: "number" }] },
+      { operation: "create_customer", name: "Create a customer", kind: "action", params: [{ key: "customer", label: "Customer (map an object)", type: "text", mappable: true }] },
+    ],
+  },
+  {
+    key: "woocommerce",
+    name: "WooCommerce",
+    category: "Data",
+    auth: "custom",
+    modules: [
+      { operation: "list_products", name: "List products", kind: "search", params: [
+        { key: "search", label: "Search", type: "text", mappable: true },
+        { key: "perPage", label: "Per page", type: "number" },
+      ] },
+      { operation: "get_product", name: "Get a product", kind: "search", params: [{ key: "productId", label: "Product ID", type: "text", mappable: true }] },
+      { operation: "create_product", name: "Create a product", kind: "action", params: [{ key: "product", label: "Product (map an object)", type: "text", mappable: true }] },
+      { operation: "list_orders", name: "List orders", kind: "search", params: [{ key: "status", label: "Status", type: "text", mappable: true }] },
+      { operation: "get_order", name: "Get an order", kind: "search", params: [{ key: "orderId", label: "Order ID", type: "text", mappable: true }] },
+      { operation: "update_order", name: "Update an order", kind: "action", params: [
+        { key: "orderId", label: "Order ID", type: "text", mappable: true },
+        { key: "fields", label: "Fields (map an object)", type: "text", mappable: true },
+      ] },
+      { operation: "list_customers", name: "List customers", kind: "search", params: [{ key: "perPage", label: "Per page", type: "number" }] },
+    ],
+  },
 ];
 
 export function findApp(appKey: string): CatalogApp | undefined {

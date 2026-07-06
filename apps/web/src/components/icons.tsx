@@ -243,6 +243,41 @@ export function CalendlyIcon(p: IconProps) {
     </Glyph>
   );
 }
+export function TwilioIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="9.5" cy="9.5" r="1.4" />
+      <circle cx="14.5" cy="9.5" r="1.4" />
+      <circle cx="9.5" cy="14.5" r="1.4" />
+      <circle cx="14.5" cy="14.5" r="1.4" />
+    </Glyph>
+  );
+}
+export function StripeIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="3" />
+      <path d="M9 10.5c0-1 4-1.4 4 .3 0 1.6-4 1-4 2.8 0 1.3 3 1.3 4 .4" />
+    </Glyph>
+  );
+}
+export function ShopifyIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <path d="M14 4.5c-.6 0-1.2.4-1.6 1-.5-.3-1-.4-1.5-.3L6 6.5 5 20l10 1.5L16 6l-2-1.5Z" />
+      <path d="M12 9c-1.6 0-2.4 1-2.4 2 0 1.6 2.6 1.6 2.6 3 0 .8-.8 1.2-1.7.9" />
+    </Glyph>
+  );
+}
+export function WooIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <rect x="2.5" y="6.5" width="19" height="11" rx="3" />
+      <path d="M7 10.5l1.2 4 1.3-4M11 10.5l1.2 4 1.3-4M15.5 10.5l1.2 4 1.3-4" />
+    </Glyph>
+  );
+}
 export function DriveIcon(p: IconProps) {
   return (
     <Glyph {...p}>

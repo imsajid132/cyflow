@@ -27,6 +27,10 @@ import {
   HubspotIcon,
   ClickupIcon,
   CalendlyIcon,
+  TwilioIcon,
+  StripeIcon,
+  ShopifyIcon,
+  WooIcon,
 } from "./icons";
 
 /** Maps a module's app/operation to its app icon. */
@@ -53,6 +57,10 @@ export function ModuleIcon({ app, operation, sw }: { app: string; operation: str
   if (app === "hubspot") return <HubspotIcon sw={sw} />;
   if (app === "clickup") return <ClickupIcon sw={sw} />;
   if (app === "calendly") return <CalendlyIcon sw={sw} />;
+  if (app === "twilio") return <TwilioIcon sw={sw} />;
+  if (app === "stripe") return <StripeIcon sw={sw} />;
+  if (app === "shopify") return <ShopifyIcon sw={sw} />;
+  if (app === "woocommerce") return <WooIcon sw={sw} />;
   if (app === "core") return <DelayIcon sw={sw} />;
   if (app === "utils") return <BracesIcon sw={sw} />;
   if (app === "datastore") return <DataStoreIcon sw={sw} />;

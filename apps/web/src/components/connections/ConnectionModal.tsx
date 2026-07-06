@@ -24,6 +24,25 @@ function defaultAuthFields(authType?: string, appKey?: string): AuthFieldDTO[] {
       { key: "token", label: "Token", type: "password", required: true },
     ];
   }
+  if (appKey === "twilio") {
+    return [
+      { key: "accountSid", label: "Account SID", type: "text", required: true },
+      { key: "authToken", label: "Auth Token", type: "password", required: true },
+    ];
+  }
+  if (appKey === "shopify") {
+    return [
+      { key: "shop", label: "Shop (mystore or mystore.myshopify.com)", type: "text", required: true },
+      { key: "accessToken", label: "Admin API access token", type: "password", required: true },
+    ];
+  }
+  if (appKey === "woocommerce") {
+    return [
+      { key: "storeUrl", label: "Store URL", type: "text", required: true },
+      { key: "consumerKey", label: "Consumer key", type: "text", required: true },
+      { key: "consumerSecret", label: "Consumer secret", type: "password", required: true },
+    ];
+  }
   switch (authType) {
     case "api_key":
       return [{ key: "token", label: "API key", type: "password", required: true }];

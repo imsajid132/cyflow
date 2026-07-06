@@ -51,6 +51,20 @@ export function compact<T extends Record<string, unknown>>(obj: T): Partial<T> {
   return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined && v !== null && v !== "")) as Partial<T>;
 }
 
+/** Encode a flat object as application/x-www-form-urlencoded (Twilio/Stripe style). */
+export function toForm(obj: Record<string, unknown>): string {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(obj)) {
+    if (v !== undefined && v !== null && v !== "") p.set(k, String(v));
+  }
+  return p.toString();
+}
+
+/** HTTP Basic auth header value from a username/password pair. */
+export function basicAuth(user: string, pass: string): string {
+  return `Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}`;
+}
+
 interface ApiOptions {
   method: string;
   url: string;

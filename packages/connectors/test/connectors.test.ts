@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExecutionContext } from "@cyflow/shared";
 import { createDefaultRegistry } from "engine";
-import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, driveApp, calendarApp, slackApp, discordApp, notionApp, airtableApp, githubApp, gitlabApp, dropboxApp, cloudflareApp, supabaseApp, trelloApp, asanaApp, hubspotApp, clickupApp, calendlyApp, utilsApp, parseCsv, toCsv } from "../src/index";
+import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, driveApp, calendarApp, slackApp, discordApp, notionApp, airtableApp, githubApp, gitlabApp, dropboxApp, cloudflareApp, supabaseApp, trelloApp, asanaApp, hubspotApp, clickupApp, calendlyApp, twilioApp, stripeApp, shopifyApp, woocommerceApp, utilsApp, parseCsv, toCsv } from "../src/index";
 
 function makeCtx(connection: Record<string, unknown> | null): ExecutionContext {
   return {
@@ -539,6 +539,63 @@ describe("Calendly (mocked)", () => {
     const out = await calendlyApp.modules.list_events.run({}, { user: "https://api.calendly.com/users/ME" }, ctx());
     expect(new URL(m.mock.calls[0][0] as string).searchParams.get("user")).toBe("https://api.calendly.com/users/ME");
     expect(out[0]).toMatchObject({ events: [{ uri: "e1" }], nextPageToken: "n2" });
+  });
+});
+
+describe("Twilio (mocked)", () => {
+  const ctx = () => makeCtx({ accountSid: "ACxxx", authToken: "tok" });
+  it("send_sms posts form-encoded with Basic auth", async () => {
+    const m = stubGoogle(() => ({ body: { sid: "SM1", status: "queued" } }));
+    const out = await twilioApp.modules.send_sms.run({}, { from: "+1", to: "+2", body: "hi" }, ctx());
+    expect(m.mock.calls[0][0]).toContain("/Accounts/ACxxx/Messages.json");
+    const init = m.mock.calls[0][1] as { headers: Record<string, string>; body: string };
+    expect(init.headers["content-type"]).toBe("application/x-www-form-urlencoded");
+    expect(init.headers.authorization).toBe(`Basic ${Buffer.from("ACxxx:tok").toString("base64")}`);
+    expect(new URLSearchParams(init.body).get("Body")).toBe("hi");
+    expect(out[0]).toEqual({ sid: "SM1", status: "queued" });
+  });
+});
+
+describe("Stripe (mocked)", () => {
+  const ctx = () => makeCtx({ token: "sk_test" });
+  it("create_customer posts form-encoded with a Bearer key", async () => {
+    const m = stubGoogle(() => ({ body: { id: "cus_1", email: "a@b.com" } }));
+    await stripeApp.modules.create_customer.run({}, { email: "a@b.com", name: "Ada" }, ctx());
+    const init = m.mock.calls[0][1] as { headers: Record<string, string>; body: string };
+    expect(init.headers.authorization).toBe("Bearer sk_test");
+    expect(init.headers["content-type"]).toBe("application/x-www-form-urlencoded");
+    expect(new URLSearchParams(init.body).get("email")).toBe("a@b.com");
+  });
+  it("create_payment_intent sends amount + currency", async () => {
+    const m = stubGoogle(() => ({ body: { id: "pi_1" } }));
+    await stripeApp.modules.create_payment_intent.run({}, { amount: 1500, currency: "usd" }, ctx());
+    const form = new URLSearchParams((m.mock.calls[0][1] as { body: string }).body);
+    expect(form.get("amount")).toBe("1500");
+    expect(form.get("currency")).toBe("usd");
+  });
+});
+
+describe("Shopify (mocked)", () => {
+  it("normalises the shop domain + sends the access token header", async () => {
+    const m = stubGoogle(() => ({ body: { products: [{ id: 1 }] } }));
+    const out = await shopifyApp.modules.list_products.run({}, { limit: 10 }, makeCtx({ shop: "mystore", accessToken: "shpat_x" }));
+    const url = new URL(m.mock.calls[0][0] as string);
+    expect(url.host).toBe("mystore.myshopify.com");
+    expect(url.pathname).toBe("/admin/api/2024-01/products.json");
+    expect((m.mock.calls[0][1] as { headers: Record<string, string> }).headers["x-shopify-access-token"]).toBe("shpat_x");
+    expect(out[0]).toMatchObject({ products: [{ id: 1 }] });
+  });
+});
+
+describe("WooCommerce (mocked)", () => {
+  it("list_products uses the store URL + Basic auth", async () => {
+    const m = stubGoogle(() => ({ body: [{ id: 1 }, { id: 2 }] }));
+    const out = await woocommerceApp.modules.list_products.run({}, { perPage: 5 }, makeCtx({ storeUrl: "https://shop.example", consumerKey: "ck", consumerSecret: "cs" }));
+    const url = new URL(m.mock.calls[0][0] as string);
+    expect(url.origin + url.pathname).toBe("https://shop.example/wp-json/wc/v3/products");
+    expect(url.searchParams.get("per_page")).toBe("5");
+    expect((m.mock.calls[0][1] as { headers: Record<string, string> }).headers.authorization).toBe(`Basic ${Buffer.from("ck:cs").toString("base64")}`);
+    expect(out[0]).toMatchObject({ products: [{ id: 1 }, { id: 2 }] });
   });
 });
 

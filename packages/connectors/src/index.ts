@@ -19,6 +19,10 @@ import { asanaApp } from "./asana";
 import { hubspotApp } from "./hubspot";
 import { clickupApp } from "./clickup";
 import { calendlyApp } from "./calendly";
+import { twilioApp } from "./twilio";
+import { stripeApp } from "./stripe";
+import { shopifyApp } from "./shopify";
+import { woocommerceApp } from "./woocommerce";
 import { utilsApp } from "./utils";
 
 export { telegramApp } from "./telegram";
@@ -41,6 +45,10 @@ export { asanaApp } from "./asana";
 export { hubspotApp } from "./hubspot";
 export { clickupApp } from "./clickup";
 export { calendlyApp } from "./calendly";
+export { twilioApp } from "./twilio";
+export { stripeApp } from "./stripe";
+export { shopifyApp } from "./shopify";
+export { woocommerceApp } from "./woocommerce";
 export { utilsApp, parseCsv, toCsv } from "./utils";
 
 /**
@@ -70,5 +78,9 @@ export const connectorApps: App[] = [
   hubspotApp,
   clickupApp,
   calendlyApp,
+  twilioApp,
+  stripeApp,
+  shopifyApp,
+  woocommerceApp,
   utilsApp,
 ];
