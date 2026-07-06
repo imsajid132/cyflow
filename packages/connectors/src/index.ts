@@ -26,6 +26,9 @@ import { woocommerceApp } from "./woocommerce";
 import { rssApp } from "./rss";
 import { whatsappApp } from "./whatsapp";
 import { twitterApp } from "./twitter";
+import { googleContactsApp } from "./google-contacts";
+import { googleTasksApp } from "./google-tasks";
+import { youtubeApp } from "./youtube";
 import { utilsApp } from "./utils";
 
 export { telegramApp } from "./telegram";
@@ -55,6 +58,9 @@ export { woocommerceApp } from "./woocommerce";
 export { rssApp, parseFeed } from "./rss";
 export { whatsappApp } from "./whatsapp";
 export { twitterApp } from "./twitter";
+export { googleContactsApp } from "./google-contacts";
+export { googleTasksApp } from "./google-tasks";
+export { youtubeApp } from "./youtube";
 export { utilsApp, parseCsv, toCsv } from "./utils";
 
 /**
@@ -91,5 +97,8 @@ export const connectorApps: App[] = [
   rssApp,
   whatsappApp,
   twitterApp,
+  googleContactsApp,
+  googleTasksApp,
+  youtubeApp,
   utilsApp,
 ];

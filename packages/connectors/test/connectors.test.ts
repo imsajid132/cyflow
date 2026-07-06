@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExecutionContext } from "@cyflow/shared";
 import { createDefaultRegistry } from "engine";
-import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, driveApp, calendarApp, slackApp, discordApp, notionApp, airtableApp, githubApp, gitlabApp, dropboxApp, cloudflareApp, supabaseApp, trelloApp, asanaApp, hubspotApp, clickupApp, calendlyApp, twilioApp, stripeApp, shopifyApp, woocommerceApp, rssApp, whatsappApp, twitterApp, parseFeed, utilsApp, parseCsv, toCsv } from "../src/index";
+import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, driveApp, calendarApp, slackApp, discordApp, notionApp, airtableApp, githubApp, gitlabApp, dropboxApp, cloudflareApp, supabaseApp, trelloApp, asanaApp, hubspotApp, clickupApp, calendlyApp, twilioApp, stripeApp, shopifyApp, woocommerceApp, rssApp, whatsappApp, twitterApp, googleContactsApp, googleTasksApp, youtubeApp, parseFeed, utilsApp, parseCsv, toCsv } from "../src/index";
 
 function makeCtx(connection: Record<string, unknown> | null): ExecutionContext {
   return {
@@ -649,6 +649,43 @@ describe("X / Twitter (mocked)", () => {
     expect(url.searchParams.get("query")).toBe("#cyflow");
     expect(url.searchParams.get("max_results")).toBe("25");
     expect(out[0]).toMatchObject({ resultCount: 1 });
+  });
+});
+
+describe("Google Contacts (mocked)", () => {
+  it("list_contacts requests personFields + unwraps connections", async () => {
+    const m = stubGoogle(() => ({ body: { connections: [{ resourceName: "people/1" }], nextPageToken: "n", totalPeople: 1 } }));
+    const out = await googleContactsApp.modules.list_contacts.run({}, {}, gctx());
+    expect(new URL(m.mock.calls[0][0] as string).searchParams.get("personFields")).toContain("emailAddresses");
+    expect(out[0]).toMatchObject({ contacts: [{ resourceName: "people/1" }], total: 1 });
+  });
+  it("create_contact builds names/emails/phones", async () => {
+    const m = stubGoogle(() => ({ body: { resourceName: "people/9" } }));
+    await googleContactsApp.modules.create_contact.run({}, { givenName: "Ada", email: "a@b.com" }, gctx());
+    const body = JSON.parse((m.mock.calls[0][1] as { body: string }).body);
+    expect(body.names[0].givenName).toBe("Ada");
+    expect(body.emailAddresses[0].value).toBe("a@b.com");
+  });
+});
+
+describe("Google Tasks (mocked)", () => {
+  it("create_task posts to the list", async () => {
+    const m = stubGoogle(() => ({ body: { id: "t1", title: "Do" } }));
+    await googleTasksApp.modules.create_task.run({}, { tasklist: "L1", title: "Do", due: "2026-07-08T00:00:00Z" }, gctx());
+    expect(m.mock.calls[0][0]).toContain("/lists/L1/tasks");
+    expect(JSON.parse((m.mock.calls[0][1] as { body: string }).body)).toMatchObject({ title: "Do", due: "2026-07-08T00:00:00Z" });
+  });
+});
+
+describe("YouTube (mocked)", () => {
+  it("search requests part=snippet + query", async () => {
+    const m = stubGoogle(() => ({ body: { items: [{ id: { videoId: "v1" } }], nextPageToken: "n" } }));
+    const out = await youtubeApp.modules.search.run({}, { query: "cyflow demo", maxResults: 5 }, gctx());
+    const url = new URL(m.mock.calls[0][0] as string);
+    expect(url.searchParams.get("part")).toBe("snippet");
+    expect(url.searchParams.get("q")).toBe("cyflow demo");
+    expect(url.searchParams.get("type")).toBe("video");
+    expect(out[0]).toMatchObject({ items: [{ id: { videoId: "v1" } }], nextPageToken: "n" });
   });
 });
 

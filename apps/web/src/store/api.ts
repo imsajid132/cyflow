@@ -127,7 +127,7 @@ export const api = {
 };
 
 /** Google apps share one OAuth provider. */
-export const GOOGLE_APPS = new Set(["gmail", "sheets", "drive", "calendar"]);
+export const GOOGLE_APPS = new Set(["gmail", "sheets", "drive", "calendar", "contacts", "tasks", "youtube"]);
 
 /** Execution JSON arrives with ISO date strings; restore Date fields. */
 export function normalizeExecution(execution: StoredExecution): StoredExecution {

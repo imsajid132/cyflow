@@ -8,7 +8,7 @@ import type { ConnectionService } from "./service";
  * Client secret lives ONLY here (server-side); the frontend never sees it.
  */
 
-export const GOOGLE_APPS = new Set(["gmail", "sheets", "drive", "calendar"]);
+export const GOOGLE_APPS = new Set(["gmail", "sheets", "drive", "calendar", "contacts", "tasks", "youtube"]);
 const IDENTITY = ["openid", "https://www.googleapis.com/auth/userinfo.email"];
 
 export const GOOGLE_SCOPES: Record<string, string[]> = {
@@ -17,6 +17,9 @@ export const GOOGLE_SCOPES: Record<string, string[]> = {
   sheets: [...IDENTITY, "https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.metadata.readonly"],
   drive: [...IDENTITY, "https://www.googleapis.com/auth/drive"],
   calendar: [...IDENTITY, "https://www.googleapis.com/auth/calendar"],
+  contacts: [...IDENTITY, "https://www.googleapis.com/auth/contacts"],
+  tasks: [...IDENTITY, "https://www.googleapis.com/auth/tasks"],
+  youtube: [...IDENTITY, "https://www.googleapis.com/auth/youtube"],
 };
 
 export const GOOGLE_LABELS: Record<string, string> = {
@@ -24,6 +27,9 @@ export const GOOGLE_LABELS: Record<string, string> = {
   sheets: "Google Sheets",
   drive: "Google Drive",
   calendar: "Google Calendar",
+  contacts: "Google Contacts",
+  tasks: "Google Tasks",
+  youtube: "YouTube",
 };
 
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";

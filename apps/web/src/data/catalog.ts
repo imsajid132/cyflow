@@ -894,6 +894,73 @@ export const CATALOG: CatalogApp[] = [
       ] },
     ],
   },
+  {
+    key: "contacts",
+    name: "Google Contacts",
+    category: "Productivity",
+    auth: "oauth2",
+    modules: [
+      { operation: "list_contacts", name: "List contacts", kind: "search", params: [{ key: "pageSize", label: "Page size", type: "number" }] },
+      { operation: "get_contact", name: "Get a contact", kind: "search", params: [{ key: "resourceName", label: "Resource name", type: "text", mappable: true, placeholder: "people/c123" }] },
+      { operation: "search_contacts", name: "Search contacts", kind: "search", params: [{ key: "query", label: "Query", type: "text", mappable: true }] },
+      { operation: "create_contact", name: "Create a contact", kind: "action", params: [
+        { key: "givenName", label: "First name", type: "text", mappable: true },
+        { key: "familyName", label: "Last name", type: "text", mappable: true },
+        { key: "email", label: "Email", type: "text", mappable: true },
+        { key: "phone", label: "Phone", type: "text", mappable: true },
+      ] },
+      { operation: "delete_contact", name: "Delete a contact", kind: "action", params: [{ key: "resourceName", label: "Resource name", type: "text", mappable: true }] },
+    ],
+  },
+  {
+    key: "tasks",
+    name: "Google Tasks",
+    category: "Productivity",
+    auth: "oauth2",
+    modules: [
+      { operation: "list_tasklists", name: "List task lists", kind: "search", params: [] },
+      { operation: "list_tasks", name: "List tasks", kind: "search", params: [{ key: "tasklist", label: "Task list ID", type: "text", mappable: true }] },
+      { operation: "get_task", name: "Get a task", kind: "search", params: [
+        { key: "tasklist", label: "Task list ID", type: "text", mappable: true },
+        { key: "task", label: "Task ID", type: "text", mappable: true },
+      ] },
+      { operation: "create_task", name: "Create a task", kind: "action", params: [
+        { key: "tasklist", label: "Task list ID", type: "text", mappable: true },
+        { key: "title", label: "Title", type: "text", mappable: true },
+        { key: "notes", label: "Notes", type: "textarea", mappable: true },
+        { key: "due", label: "Due (RFC3339)", type: "text", mappable: true },
+      ] },
+      { operation: "update_task", name: "Update a task", kind: "action", params: [
+        { key: "tasklist", label: "Task list ID", type: "text", mappable: true },
+        { key: "task", label: "Task ID", type: "text", mappable: true },
+        { key: "status", label: "Status", type: "select", options: ["needsAction", "completed"] },
+      ] },
+      { operation: "delete_task", name: "Delete a task", kind: "action", params: [
+        { key: "tasklist", label: "Task list ID", type: "text", mappable: true },
+        { key: "task", label: "Task ID", type: "text", mappable: true },
+      ] },
+    ],
+  },
+  {
+    key: "youtube",
+    name: "YouTube",
+    category: "Communication",
+    auth: "oauth2",
+    modules: [
+      { operation: "search", name: "Search", kind: "search", params: [
+        { key: "query", label: "Query", type: "text", mappable: true },
+        { key: "type", label: "Type", type: "select", options: ["video", "channel", "playlist"] },
+        { key: "maxResults", label: "Max results", type: "number" },
+      ] },
+      { operation: "get_video", name: "Get a video", kind: "search", params: [{ key: "videoId", label: "Video ID", type: "text", mappable: true }] },
+      { operation: "get_channel", name: "Get a channel", kind: "search", params: [
+        { key: "channelId", label: "Channel ID", type: "text", mappable: true },
+        { key: "forUsername", label: "Username", type: "text", mappable: true },
+      ] },
+      { operation: "list_my_playlists", name: "List my playlists", kind: "search", params: [{ key: "maxResults", label: "Max results", type: "number" }] },
+      { operation: "list_playlist_items", name: "List playlist items", kind: "search", params: [{ key: "playlistId", label: "Playlist ID", type: "text", mappable: true }] },
+    ],
+  },
 ];
 
 export function findApp(appKey: string): CatalogApp | undefined {

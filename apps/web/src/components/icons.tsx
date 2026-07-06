@@ -301,6 +301,31 @@ export function TwitterIcon(p: IconProps) {
     </Glyph>
   );
 }
+export function ContactsIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <circle cx="12" cy="10.5" r="2.2" />
+      <path d="M8.5 16a3.5 3.5 0 0 1 7 0" />
+    </Glyph>
+  );
+}
+export function TasksIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <path d="M4 7l2 2 3-3M4 13l2 2 3-3M4 19l2 2 3-3" />
+      <path d="M13 7h7M13 13h7M13 19h7" />
+    </Glyph>
+  );
+}
+export function YoutubeIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <rect x="3" y="6" width="18" height="12" rx="3" />
+      <path d="M11 9.5v5l4-2.5-4-2.5Z" />
+    </Glyph>
+  );
+}
 export function DriveIcon(p: IconProps) {
   return (
     <Glyph {...p}>
