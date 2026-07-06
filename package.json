@@ -1,0 +1,10 @@
+{
+  "name": "cyflow",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Cyflow — self-hosted Make.com clone. Bundle-based automation engine.",
+  "engines": {
+    "node": ">=18"
+  },
+  "packageManager": "pnpm@9.15.0"
+}
