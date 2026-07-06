@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExecutionContext } from "@cyflow/shared";
 import { createDefaultRegistry } from "engine";
-import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, driveApp, calendarApp, slackApp, utilsApp, parseCsv, toCsv } from "../src/index";
+import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, driveApp, calendarApp, slackApp, discordApp, notionApp, airtableApp, githubApp, utilsApp, parseCsv, toCsv } from "../src/index";
 
 function makeCtx(connection: Record<string, unknown> | null): ExecutionContext {
   return {
@@ -311,6 +311,89 @@ describe("Google testConnection", () => {
       const r = await app.testConnection!({ access_token: "ya29.x" });
       expect(r).toEqual({ ok: true, message: "Connected as ada@gmail.com" });
     }
+  });
+});
+
+describe("Discord (mocked)", () => {
+  const ctx = () => makeCtx({ token: "BOT" });
+  it("send_message posts to the channel with a Bot token", async () => {
+    const m = stubGoogle(() => ({ body: { id: "1", content: "hi" } }));
+    await discordApp.modules.send_message.run({}, { channelId: "C1", content: "hi" }, ctx());
+    expect(m.mock.calls[0][0]).toContain("/channels/C1/messages");
+    expect((m.mock.calls[0][1] as { headers: Record<string, string> }).headers.authorization).toBe("Bot BOT");
+    expect(JSON.parse((m.mock.calls[0][1] as { body: string }).body)).toEqual({ content: "hi" });
+  });
+  it("delete_message issues a DELETE", async () => {
+    const m = stubGoogle(() => ({ status: 204, text: "" }));
+    const out = await discordApp.modules.delete_message.run({}, { channelId: "C1", messageId: "M1" }, ctx());
+    expect((m.mock.calls[0][1] as { method: string }).method).toBe("DELETE");
+    expect(out[0]).toEqual({ deleted: true, messageId: "M1" });
+  });
+  it("testConnection uses users/@me", async () => {
+    stubGoogle(() => ({ body: { username: "cyflowbot" } }));
+    expect(await discordApp.testConnection!({ token: "BOT" })).toEqual({ ok: true, message: "Connected as cyflowbot" });
+  });
+});
+
+describe("Notion (mocked)", () => {
+  const ctx = () => makeCtx({ token: "secret_x" });
+  it("query_database posts with the notion-version header", async () => {
+    const m = stubGoogle(() => ({ body: { results: [{ id: "p1" }], next_cursor: "c2", has_more: true } }));
+    const out = await notionApp.modules.query_database.run({}, { databaseId: "DB1", pageSize: 10 }, ctx());
+    expect(m.mock.calls[0][0]).toContain("/databases/DB1/query");
+    expect((m.mock.calls[0][1] as { headers: Record<string, string> }).headers["notion-version"]).toBe("2022-06-28");
+    expect(out[0]).toMatchObject({ results: [{ id: "p1" }], nextCursor: "c2", hasMore: true });
+  });
+  it("create_page nests parent.database_id", async () => {
+    const m = stubGoogle(() => ({ body: { id: "page1" } }));
+    await notionApp.modules.create_page.run({}, { databaseId: "DB1", properties: { Name: { title: [] } } }, ctx());
+    expect(JSON.parse((m.mock.calls[0][1] as { body: string }).body).parent).toEqual({ database_id: "DB1" });
+  });
+  it("testConnection uses users/me", async () => {
+    stubGoogle(() => ({ body: { name: "Cyflow" } }));
+    expect((await notionApp.testConnection!({ token: "x" })).message).toContain("Cyflow");
+  });
+});
+
+describe("Airtable (mocked)", () => {
+  const ctx = () => makeCtx({ token: "pat_x" });
+  it("list_records builds the query URL", async () => {
+    const m = stubGoogle(() => ({ body: { records: [{ id: "rec1" }], offset: "off2" } }));
+    const out = await airtableApp.modules.list_records.run({}, { baseId: "app1", tableId: "Table 1", maxRecords: 5 }, ctx());
+    const url = new URL(m.mock.calls[0][0] as string);
+    expect(url.pathname).toContain("/app1/Table%201");
+    expect(url.searchParams.get("maxRecords")).toBe("5");
+    expect(out[0]).toMatchObject({ records: [{ id: "rec1" }], offset: "off2" });
+  });
+  it("create_record wraps fields", async () => {
+    const m = stubGoogle(() => ({ body: { id: "rec9" } }));
+    await airtableApp.modules.create_record.run({}, { baseId: "app1", tableId: "T", fields: { Name: "Ada" } }, ctx());
+    expect(JSON.parse((m.mock.calls[0][1] as { body: string }).body)).toEqual({ fields: { Name: "Ada" } });
+  });
+});
+
+describe("GitHub (mocked)", () => {
+  const ctx = () => makeCtx({ token: "ghp_x" });
+  it("create_issue posts a title/body with a Bearer token", async () => {
+    const m = stubGoogle(() => ({ body: { number: 5, html_url: "http://gh/5" } }));
+    await githubApp.modules.create_issue.run({}, { owner: "o", repo: "r", title: "Bug", body: "desc", labels: ["bug"] }, ctx());
+    expect(m.mock.calls[0][0]).toContain("/repos/o/r/issues");
+    expect((m.mock.calls[0][1] as { headers: Record<string, string> }).headers.authorization).toBe("Bearer ghp_x");
+    expect(JSON.parse((m.mock.calls[0][1] as { body: string }).body)).toMatchObject({ title: "Bug", body: "desc", labels: ["bug"] });
+  });
+  it("list_issues defaults to open + returns a count", async () => {
+    const m = stubGoogle(() => ({ body: [{ id: 1 }, { id: 2 }] }));
+    const out = await githubApp.modules.list_issues.run({}, { owner: "o", repo: "r" }, ctx());
+    expect(new URL(m.mock.calls[0][0] as string).searchParams.get("state")).toBe("open");
+    expect(out[0]).toMatchObject({ count: 2 });
+  });
+  it("surfaces GitHub errors", async () => {
+    stubGoogle(() => ({ ok: false, status: 404, body: { message: "Not Found" } }));
+    await expect(githubApp.modules.get_repo.run({}, { owner: "o", repo: "nope" }, ctx())).rejects.toThrow(/Not Found/);
+  });
+  it("testConnection reports the login", async () => {
+    stubGoogle(() => ({ body: { login: "ada" } }));
+    expect((await githubApp.testConnection!({ token: "x" })).message).toContain("ada");
   });
 });
 

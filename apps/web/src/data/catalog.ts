@@ -36,6 +36,7 @@ export const CATEGORIES = [
   "Communication",
   "AI",
   "Productivity",
+  "Developer",
 ] as const;
 
 export const CATALOG: CatalogApp[] = [
@@ -389,6 +390,145 @@ export const CATALOG: CatalogApp[] = [
       { operation: "delete_event", name: "Delete an event", kind: "action", params: [
         { key: "calendarId", label: "Calendar ID", type: "text", placeholder: "primary" },
         { key: "eventId", label: "Event ID", type: "text", mappable: true },
+      ] },
+    ],
+  },
+  {
+    key: "discord",
+    name: "Discord",
+    category: "Communication",
+    auth: "api_key",
+    modules: [
+      { operation: "send_message", name: "Send a message", kind: "action", params: [
+        { key: "channelId", label: "Channel ID", type: "text", mappable: true },
+        { key: "content", label: "Message", type: "textarea", mappable: true },
+      ] },
+      { operation: "edit_message", name: "Edit a message", kind: "action", params: [
+        { key: "channelId", label: "Channel ID", type: "text", mappable: true },
+        { key: "messageId", label: "Message ID", type: "text", mappable: true },
+        { key: "content", label: "Message", type: "textarea", mappable: true },
+      ] },
+      { operation: "delete_message", name: "Delete a message", kind: "action", params: [
+        { key: "channelId", label: "Channel ID", type: "text", mappable: true },
+        { key: "messageId", label: "Message ID", type: "text", mappable: true },
+      ] },
+      { operation: "get_channel", name: "Get a channel", kind: "search", params: [{ key: "channelId", label: "Channel ID", type: "text", mappable: true }] },
+      { operation: "list_messages", name: "List messages", kind: "search", params: [
+        { key: "channelId", label: "Channel ID", type: "text", mappable: true },
+        { key: "limit", label: "Limit", type: "number" },
+      ] },
+      { operation: "add_reaction", name: "Add a reaction", kind: "action", params: [
+        { key: "channelId", label: "Channel ID", type: "text", mappable: true },
+        { key: "messageId", label: "Message ID", type: "text", mappable: true },
+        { key: "emoji", label: "Emoji", type: "text", mappable: true },
+      ] },
+    ],
+  },
+  {
+    key: "notion",
+    name: "Notion",
+    category: "Productivity",
+    auth: "api_key",
+    modules: [
+      { operation: "query_database", name: "Query a database", kind: "search", params: [
+        { key: "databaseId", label: "Database ID", type: "text", mappable: true },
+        { key: "filter", label: "Filter (map an object)", type: "text", mappable: true },
+      ] },
+      { operation: "get_page", name: "Get a page", kind: "search", params: [{ key: "pageId", label: "Page ID", type: "text", mappable: true }] },
+      { operation: "create_page", name: "Create a page", kind: "action", params: [
+        { key: "databaseId", label: "Database ID", type: "text", mappable: true },
+        { key: "properties", label: "Properties (map an object)", type: "text", mappable: true },
+      ] },
+      { operation: "update_page", name: "Update a page", kind: "action", params: [
+        { key: "pageId", label: "Page ID", type: "text", mappable: true },
+        { key: "properties", label: "Properties (map an object)", type: "text", mappable: true },
+      ] },
+      { operation: "search", name: "Search", kind: "search", params: [{ key: "query", label: "Query", type: "text", mappable: true }] },
+      { operation: "get_block_children", name: "Get block children", kind: "search", params: [{ key: "blockId", label: "Block/Page ID", type: "text", mappable: true }] },
+    ],
+  },
+  {
+    key: "airtable",
+    name: "Airtable",
+    category: "Data",
+    auth: "api_key",
+    modules: [
+      { operation: "list_records", name: "List records", kind: "search", params: [
+        { key: "baseId", label: "Base ID", type: "text", mappable: true },
+        { key: "tableId", label: "Table name/ID", type: "text", mappable: true },
+        { key: "filterByFormula", label: "Filter formula", type: "text", mappable: true },
+        { key: "maxRecords", label: "Max records", type: "number" },
+      ] },
+      { operation: "get_record", name: "Get a record", kind: "search", params: [
+        { key: "baseId", label: "Base ID", type: "text", mappable: true },
+        { key: "tableId", label: "Table name/ID", type: "text", mappable: true },
+        { key: "recordId", label: "Record ID", type: "text", mappable: true },
+      ] },
+      { operation: "create_record", name: "Create a record", kind: "action", params: [
+        { key: "baseId", label: "Base ID", type: "text", mappable: true },
+        { key: "tableId", label: "Table name/ID", type: "text", mappable: true },
+        { key: "fields", label: "Fields (map an object)", type: "text", mappable: true },
+      ] },
+      { operation: "update_record", name: "Update a record", kind: "action", params: [
+        { key: "baseId", label: "Base ID", type: "text", mappable: true },
+        { key: "tableId", label: "Table name/ID", type: "text", mappable: true },
+        { key: "recordId", label: "Record ID", type: "text", mappable: true },
+        { key: "fields", label: "Fields (map an object)", type: "text", mappable: true },
+      ] },
+      { operation: "delete_record", name: "Delete a record", kind: "action", params: [
+        { key: "baseId", label: "Base ID", type: "text", mappable: true },
+        { key: "tableId", label: "Table name/ID", type: "text", mappable: true },
+        { key: "recordId", label: "Record ID", type: "text", mappable: true },
+      ] },
+    ],
+  },
+  {
+    key: "github",
+    name: "GitHub",
+    category: "Developer",
+    auth: "api_key",
+    modules: [
+      { operation: "get_repo", name: "Get a repository", kind: "search", params: [
+        { key: "owner", label: "Owner", type: "text", mappable: true },
+        { key: "repo", label: "Repo", type: "text", mappable: true },
+      ] },
+      { operation: "list_issues", name: "List issues", kind: "search", params: [
+        { key: "owner", label: "Owner", type: "text", mappable: true },
+        { key: "repo", label: "Repo", type: "text", mappable: true },
+        { key: "state", label: "State", type: "select", options: ["open", "closed", "all"] },
+      ] },
+      { operation: "get_issue", name: "Get an issue", kind: "search", params: [
+        { key: "owner", label: "Owner", type: "text", mappable: true },
+        { key: "repo", label: "Repo", type: "text", mappable: true },
+        { key: "number", label: "Issue number", type: "number", mappable: true },
+      ] },
+      { operation: "create_issue", name: "Create an issue", kind: "action", params: [
+        { key: "owner", label: "Owner", type: "text", mappable: true },
+        { key: "repo", label: "Repo", type: "text", mappable: true },
+        { key: "title", label: "Title", type: "text", mappable: true },
+        { key: "body", label: "Body", type: "textarea", mappable: true },
+      ] },
+      { operation: "create_comment", name: "Comment on an issue", kind: "action", params: [
+        { key: "owner", label: "Owner", type: "text", mappable: true },
+        { key: "repo", label: "Repo", type: "text", mappable: true },
+        { key: "number", label: "Issue number", type: "number", mappable: true },
+        { key: "body", label: "Comment", type: "textarea", mappable: true },
+      ] },
+      { operation: "list_pull_requests", name: "List pull requests", kind: "search", params: [
+        { key: "owner", label: "Owner", type: "text", mappable: true },
+        { key: "repo", label: "Repo", type: "text", mappable: true },
+        { key: "state", label: "State", type: "select", options: ["open", "closed", "all"] },
+      ] },
+      { operation: "list_commits", name: "List commits", kind: "search", params: [
+        { key: "owner", label: "Owner", type: "text", mappable: true },
+        { key: "repo", label: "Repo", type: "text", mappable: true },
+      ] },
+      { operation: "search_issues", name: "Search issues & PRs", kind: "search", params: [{ key: "query", label: "Query", type: "text", mappable: true }] },
+      { operation: "create_release", name: "Create a release", kind: "action", params: [
+        { key: "owner", label: "Owner", type: "text", mappable: true },
+        { key: "repo", label: "Repo", type: "text", mappable: true },
+        { key: "tagName", label: "Tag", type: "text", mappable: true },
+        { key: "name", label: "Name", type: "text", mappable: true },
       ] },
     ],
   },

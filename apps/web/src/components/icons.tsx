@@ -136,6 +136,41 @@ export function DataStoreIcon(p: IconProps) {
   );
 }
 
+export function DiscordIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <path d="M7 6.5C9 5.7 15 5.7 17 6.5c2 3 2.5 6.5 2 11-1.4 1-3 1.7-4.5 2l-1-2c.8-.2 1.6-.5 2.3-1M6.5 15.7c.7.5 1.5.8 2.3 1l-1 2C6.3 18.2 4.7 17.5 3 16.5c-.5-4.5 0-8 2-11" />
+      <circle cx="9.5" cy="13" r="1.1" />
+      <circle cx="14.5" cy="13" r="1.1" />
+    </Glyph>
+  );
+}
+export function NotionIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <rect x="5" y="3" width="14" height="18" rx="2" />
+      <path d="M9 8v8M9 8l6 8M15 8v8" />
+    </Glyph>
+  );
+}
+export function AirtableIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+      <path d="M3.5 10h17M9 10v9.5" />
+    </Glyph>
+  );
+}
+export function GithubIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <circle cx="6.5" cy="6" r="2.2" />
+      <circle cx="6.5" cy="18" r="2.2" />
+      <circle cx="17.5" cy="6" r="2.2" />
+      <path d="M6.5 8.2v7.6M17.5 8.2V11a4 4 0 0 1-4 4H8.7" />
+    </Glyph>
+  );
+}
 export function DriveIcon(p: IconProps) {
   return (
     <Glyph {...p}>

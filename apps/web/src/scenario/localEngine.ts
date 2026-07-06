@@ -11,6 +11,7 @@ import {
   runScenario,
   type Registry,
 } from "engine";
+import { CATALOG } from "../data/catalog";
 
 /**
  * Local "Run Once" adapter. Runs the REAL Cyflow engine in the browser — real
@@ -47,41 +48,6 @@ const mockTelegram: OperationRunner = async (_input, params) => {
   return [{ ok: true, messageId: 1001, chatId: p.chatId, sent: p.text }];
 };
 
-/** Offline mock for the rest of the Telegram Bot API surface (demo mode). */
-const mockTelegramGeneric: OperationRunner = async (_input, params) => [
-  { ok: true, message_id: 1001, mock: true, ...(params as Record<string, unknown>) },
-];
-
-/** Every Telegram operation the catalog exposes (kept in sync with the connector). */
-const TELEGRAM_OPS: { op: string; kind: "action" | "search" }[] = [
-  { op: "send_photo", kind: "action" },
-  { op: "send_document", kind: "action" },
-  { op: "send_video", kind: "action" },
-  { op: "send_animation", kind: "action" },
-  { op: "send_audio", kind: "action" },
-  { op: "send_voice", kind: "action" },
-  { op: "send_location", kind: "action" },
-  { op: "send_contact", kind: "action" },
-  { op: "send_poll", kind: "action" },
-  { op: "send_media_group", kind: "action" },
-  { op: "edit_message_text", kind: "action" },
-  { op: "delete_message", kind: "action" },
-  { op: "forward_message", kind: "action" },
-  { op: "copy_message", kind: "action" },
-  { op: "answer_callback_query", kind: "action" },
-  { op: "pin_message", kind: "action" },
-  { op: "unpin_message", kind: "action" },
-  { op: "create_invite_link", kind: "action" },
-  { op: "set_my_commands", kind: "action" },
-  { op: "get_chat", kind: "search" },
-  { op: "get_chat_member", kind: "search" },
-  { op: "get_file", kind: "search" },
-  { op: "get_updates", kind: "search" },
-  { op: "set_webhook", kind: "action" },
-  { op: "delete_webhook", kind: "action" },
-  { op: "get_webhook_info", kind: "search" },
-];
-
 const mockSlack: OperationRunner = async (_input, params) => {
   const p = params as { channel?: unknown; text?: unknown };
   return [{ ok: true, channel: p.channel, ts: "1700000000.0001", text: p.text }];
@@ -97,20 +63,12 @@ const mockOpenAi: OperationRunner = async (_input, params) => {
   ];
 };
 
-/** Offline mock for the Google connectors (real calls only run server-side). */
-const mockGoogle: OperationRunner = async (_input, params) => [
+/**
+ * Offline mock for network connectors (real calls only run server-side). Echoes
+ * the params so mappings resolve; the shape is a stand-in, not the real API.
+ */
+const mockConnector: OperationRunner = async (_input, params) => [
   { ok: true, mock: true, ...(params as Record<string, unknown>) },
-];
-
-const GOOGLE_OPS: { app: string; op: string; kind: "action" | "search" }[] = [
-  ...["search_emails", "read_email", "list_labels"].map((op) => ({ app: "gmail", op, kind: "search" as const })),
-  ...["send_email", "reply_email", "create_draft", "add_label", "remove_label"].map((op) => ({ app: "gmail", op, kind: "action" as const })),
-  ...["list_spreadsheets", "list_sheets", "read_range", "search_rows"].map((op) => ({ app: "sheets", op, kind: "search" as const })),
-  ...["append_row", "update_range"].map((op) => ({ app: "sheets", op, kind: "action" as const })),
-  ...["search_files", "get_file", "download_file"].map((op) => ({ app: "drive", op, kind: "search" as const })),
-  ...["upload_file", "create_folder", "move_file", "copy_file", "delete_file"].map((op) => ({ app: "drive", op, kind: "action" as const })),
-  ...["list_calendars", "list_events"].map((op) => ({ app: "calendar", op, kind: "search" as const })),
-  ...["create_event", "update_event", "delete_event"].map((op) => ({ app: "calendar", op, kind: "action" as const })),
 ];
 
 // JSON / CSV utilities are pure transforms — run the real logic offline too.
@@ -177,15 +135,26 @@ const utilRunners: Record<string, OperationRunner> = {
 // A single data store instance so datastore modules persist across runs.
 const dataStore = new InMemoryDataStore();
 
+// Built-in engine apps (real runners) + apps with dedicated demo mocks below.
+const BUILTIN_APPS = new Set(["webhook", "http", "core", "flow", "datastore", "utils"]);
+const SPECIFIC_MOCKS = new Set(["http.make_request", "telegram.send_message", "slack.send_message", "openai.create_completion"]);
+
 function createBrowserRegistry(): Registry {
   const registry = createDefaultRegistry();
   registry.register({ app: "http", operation: "make_request", kind: "action", run: mockHttp });
   registry.register({ app: "telegram", operation: "send_message", kind: "action", run: mockTelegram });
-  for (const { op, kind } of TELEGRAM_OPS) registry.register({ app: "telegram", operation: op, kind, run: mockTelegramGeneric });
   registry.register({ app: "slack", operation: "send_message", kind: "action", run: mockSlack });
   registry.register({ app: "openai", operation: "create_completion", kind: "action", run: mockOpenAi });
-  for (const { app, op, kind } of GOOGLE_OPS) registry.register({ app, operation: op, kind, run: mockGoogle });
   for (const [op, run] of Object.entries(utilRunners)) registry.register({ app: "utils", operation: op, kind: "action", run });
+  // Every other connector module in the catalog gets a generic offline mock, so
+  // "Run once" works for any connector in the browser without a network call.
+  for (const app of CATALOG) {
+    if (BUILTIN_APPS.has(app.key)) continue;
+    for (const mod of app.modules) {
+      if (SPECIFIC_MOCKS.has(`${app.key}.${mod.operation}`)) continue;
+      registry.register({ app: app.key, operation: mod.operation, kind: mod.kind, run: mockConnector });
+    }
+  }
   return registry;
 }
 

@@ -6,6 +6,10 @@ import { sheetsApp } from "./sheets";
 import { driveApp } from "./drive";
 import { calendarApp } from "./calendar";
 import { slackApp } from "./slack";
+import { discordApp } from "./discord";
+import { notionApp } from "./notion";
+import { airtableApp } from "./airtable";
+import { githubApp } from "./github";
 import { utilsApp } from "./utils";
 
 export { telegramApp } from "./telegram";
@@ -15,6 +19,10 @@ export { sheetsApp } from "./sheets";
 export { driveApp } from "./drive";
 export { calendarApp } from "./calendar";
 export { slackApp } from "./slack";
+export { discordApp } from "./discord";
+export { notionApp } from "./notion";
+export { airtableApp } from "./airtable";
+export { githubApp } from "./github";
 export { utilsApp, parseCsv, toCsv } from "./utils";
 
 /**
@@ -31,5 +39,9 @@ export const connectorApps: App[] = [
   driveApp,
   calendarApp,
   slackApp,
+  discordApp,
+  notionApp,
+  airtableApp,
+  githubApp,
   utilsApp,
 ];

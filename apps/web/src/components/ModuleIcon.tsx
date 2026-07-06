@@ -14,6 +14,10 @@ import {
   BracesIcon,
   DriveIcon,
   CalendarIcon,
+  DiscordIcon,
+  NotionIcon,
+  AirtableIcon,
+  GithubIcon,
 } from "./icons";
 
 /** Maps a module's app/operation to its app icon. */
@@ -27,6 +31,10 @@ export function ModuleIcon({ app, operation, sw }: { app: string; operation: str
   if (app === "sheets") return <SheetsIcon sw={sw} />;
   if (app === "drive") return <DriveIcon sw={sw} />;
   if (app === "calendar") return <CalendarIcon sw={sw} />;
+  if (app === "discord") return <DiscordIcon sw={sw} />;
+  if (app === "notion") return <NotionIcon sw={sw} />;
+  if (app === "airtable") return <AirtableIcon sw={sw} />;
+  if (app === "github") return <GithubIcon sw={sw} />;
   if (app === "core") return <DelayIcon sw={sw} />;
   if (app === "utils") return <BracesIcon sw={sw} />;
   if (app === "datastore") return <DataStoreIcon sw={sw} />;
