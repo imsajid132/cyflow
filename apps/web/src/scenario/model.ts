@@ -1,4 +1,5 @@
 import type { Blueprint, ModuleNode } from "@cyflow/shared";
+import { findApp, findModule } from "../data/catalog";
 
 /** A blueprint module prepared for the canvas: its node + display metadata. */
 export interface UiModule {
@@ -35,7 +36,12 @@ const META: Record<string, { label: string; sub: string }> = {
 };
 
 export function nodeMeta(node: ModuleNode): { label: string; sub: string } {
-  return META[`${node.app}.${node.operation}`] ?? { label: node.app, sub: node.operation };
+  const explicit = META[`${node.app}.${node.operation}`];
+  if (explicit) return explicit;
+  // Fall back to the catalog so every connector module shows a real label.
+  const app = findApp(node.app);
+  const mod = findModule(node.app, node.operation);
+  return { label: app?.name ?? node.app, sub: mod?.name ?? node.operation.replace(/_/g, " ") };
 }
 const metaFor = nodeMeta;
 

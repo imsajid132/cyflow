@@ -97,15 +97,21 @@ const mockOpenAi: OperationRunner = async (_input, params) => {
   ];
 };
 
-const mockGmail: OperationRunner = async (_input, params) => {
-  const p = params as { to?: unknown; subject?: unknown };
-  return [{ id: "m_mock", threadId: "t_mock", to: p.to, subject: p.subject }];
-};
+/** Offline mock for the Google connectors (real calls only run server-side). */
+const mockGoogle: OperationRunner = async (_input, params) => [
+  { ok: true, mock: true, ...(params as Record<string, unknown>) },
+];
 
-const mockSheets: OperationRunner = async (_input, params) => {
-  const p = params as { range?: unknown };
-  return [{ updatedRange: `${String(p.range ?? "Sheet1!A1")}`, updatedRows: 1 }];
-};
+const GOOGLE_OPS: { app: string; op: string; kind: "action" | "search" }[] = [
+  ...["search_emails", "read_email", "list_labels"].map((op) => ({ app: "gmail", op, kind: "search" as const })),
+  ...["send_email", "reply_email", "create_draft", "add_label", "remove_label"].map((op) => ({ app: "gmail", op, kind: "action" as const })),
+  ...["list_spreadsheets", "list_sheets", "read_range", "search_rows"].map((op) => ({ app: "sheets", op, kind: "search" as const })),
+  ...["append_row", "update_range"].map((op) => ({ app: "sheets", op, kind: "action" as const })),
+  ...["search_files", "get_file", "download_file"].map((op) => ({ app: "drive", op, kind: "search" as const })),
+  ...["upload_file", "create_folder", "move_file", "copy_file", "delete_file"].map((op) => ({ app: "drive", op, kind: "action" as const })),
+  ...["list_calendars", "list_events"].map((op) => ({ app: "calendar", op, kind: "search" as const })),
+  ...["create_event", "update_event", "delete_event"].map((op) => ({ app: "calendar", op, kind: "action" as const })),
+];
 
 // JSON / CSV utilities are pure transforms — run the real logic offline too.
 function parseCsv(text: string, delimiter = ","): string[][] {
@@ -178,8 +184,7 @@ function createBrowserRegistry(): Registry {
   for (const { op, kind } of TELEGRAM_OPS) registry.register({ app: "telegram", operation: op, kind, run: mockTelegramGeneric });
   registry.register({ app: "slack", operation: "send_message", kind: "action", run: mockSlack });
   registry.register({ app: "openai", operation: "create_completion", kind: "action", run: mockOpenAi });
-  registry.register({ app: "gmail", operation: "send_email", kind: "action", run: mockGmail });
-  registry.register({ app: "sheets", operation: "append_row", kind: "action", run: mockSheets });
+  for (const { app, op, kind } of GOOGLE_OPS) registry.register({ app, operation: op, kind, run: mockGoogle });
   for (const [op, run] of Object.entries(utilRunners)) registry.register({ app: "utils", operation: op, kind: "action", run });
   return registry;
 }

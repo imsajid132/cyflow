@@ -248,16 +248,37 @@ export const CATALOG: CatalogApp[] = [
     category: "Communication",
     auth: "oauth2",
     modules: [
-      {
-        operation: "send_email",
-        name: "Send an email",
-        kind: "action",
-        params: [
-          { key: "to", label: "To", type: "text", mappable: true },
-          { key: "subject", label: "Subject", type: "text", mappable: true },
-          { key: "body", label: "Body", type: "textarea", mappable: true },
-        ],
-      },
+      { operation: "search_emails", name: "Search emails", kind: "search", params: [
+        { key: "query", label: "Gmail query", type: "text", mappable: true, placeholder: "from:ada is:unread" },
+        { key: "maxResults", label: "Max results", type: "number", placeholder: "20" },
+      ] },
+      { operation: "read_email", name: "Read an email", kind: "search", params: [{ key: "messageId", label: "Message ID", type: "text", mappable: true }] },
+      { operation: "send_email", name: "Send an email", kind: "action", params: [
+        { key: "to", label: "To", type: "text", mappable: true },
+        { key: "cc", label: "Cc", type: "text", mappable: true },
+        { key: "subject", label: "Subject", type: "text", mappable: true },
+        { key: "body", label: "Body", type: "textarea", mappable: true },
+      ] },
+      { operation: "reply_email", name: "Reply to an email", kind: "action", params: [
+        { key: "threadId", label: "Thread ID", type: "text", mappable: true },
+        { key: "to", label: "To", type: "text", mappable: true },
+        { key: "subject", label: "Subject", type: "text", mappable: true },
+        { key: "body", label: "Body", type: "textarea", mappable: true },
+      ] },
+      { operation: "create_draft", name: "Create a draft", kind: "action", params: [
+        { key: "to", label: "To", type: "text", mappable: true },
+        { key: "subject", label: "Subject", type: "text", mappable: true },
+        { key: "body", label: "Body", type: "textarea", mappable: true },
+      ] },
+      { operation: "list_labels", name: "List labels", kind: "search", params: [] },
+      { operation: "add_label", name: "Add a label", kind: "action", params: [
+        { key: "messageId", label: "Message ID", type: "text", mappable: true },
+        { key: "labelId", label: "Label ID", type: "text", mappable: true },
+      ] },
+      { operation: "remove_label", name: "Remove a label", kind: "action", params: [
+        { key: "messageId", label: "Message ID", type: "text", mappable: true },
+        { key: "labelId", label: "Label ID", type: "text", mappable: true },
+      ] },
     ],
   },
   {
@@ -284,21 +305,93 @@ export const CATALOG: CatalogApp[] = [
     category: "Productivity",
     auth: "oauth2",
     modules: [
-      {
-        operation: "append_row",
-        name: "Append a row",
-        kind: "action",
-        params: [
-          { key: "spreadsheetId", label: "Spreadsheet ID", type: "text", mappable: true },
-          { key: "range", label: "Range", type: "text", placeholder: "Sheet1!A1" },
-        ],
-      },
+      { operation: "list_spreadsheets", name: "List spreadsheets", kind: "search", params: [{ key: "query", label: "Name contains", type: "text", mappable: true }] },
+      { operation: "list_sheets", name: "List sheets", kind: "search", params: [{ key: "spreadsheetId", label: "Spreadsheet ID", type: "text", mappable: true }] },
+      { operation: "read_range", name: "Read a range", kind: "search", params: [
+        { key: "spreadsheetId", label: "Spreadsheet ID", type: "text", mappable: true },
+        { key: "range", label: "Range", type: "text", placeholder: "Sheet1!A1:C10", mappable: true },
+      ] },
+      { operation: "append_row", name: "Append a row", kind: "action", params: [
+        { key: "spreadsheetId", label: "Spreadsheet ID", type: "text", mappable: true },
+        { key: "range", label: "Range", type: "text", placeholder: "Sheet1!A1" },
+        { key: "values", label: "Row values (map an array)", type: "text", mappable: true, placeholder: "{{2.rows}}" },
+      ] },
+      { operation: "update_range", name: "Update a range", kind: "action", params: [
+        { key: "spreadsheetId", label: "Spreadsheet ID", type: "text", mappable: true },
+        { key: "range", label: "Range", type: "text", placeholder: "Sheet1!A1:B2" },
+        { key: "values", label: "Values (map a 2-D array)", type: "text", mappable: true },
+      ] },
+      { operation: "search_rows", name: "Search rows", kind: "search", params: [
+        { key: "spreadsheetId", label: "Spreadsheet ID", type: "text", mappable: true },
+        { key: "range", label: "Range", type: "text", placeholder: "Sheet1!A:C" },
+        { key: "column", label: "Column index (0-based)", type: "number" },
+        { key: "value", label: "Match value", type: "text", mappable: true },
+      ] },
     ],
   },
-  // Google Drive/Calendar: connectable via real Google OAuth now (Phase B).
-  // Their action modules land in Phase C, so they carry no scenario modules yet.
-  { key: "drive", name: "Google Drive", category: "Productivity", auth: "oauth2", modules: [] },
-  { key: "calendar", name: "Google Calendar", category: "Productivity", auth: "oauth2", modules: [] },
+  {
+    key: "drive",
+    name: "Google Drive",
+    category: "Productivity",
+    auth: "oauth2",
+    modules: [
+      { operation: "search_files", name: "Search files", kind: "search", params: [
+        { key: "query", label: "Drive query", type: "text", mappable: true, placeholder: "name contains 'report'" },
+        { key: "pageSize", label: "Page size", type: "number" },
+      ] },
+      { operation: "get_file", name: "Get a file", kind: "search", params: [{ key: "fileId", label: "File ID", type: "text", mappable: true }] },
+      { operation: "upload_file", name: "Upload a file", kind: "action", params: [
+        { key: "name", label: "File name", type: "text", mappable: true },
+        { key: "content", label: "Content", type: "textarea", mappable: true },
+        { key: "mimeType", label: "MIME type", type: "text", placeholder: "text/plain" },
+        { key: "parents", label: "Parent folder ID", type: "text", mappable: true },
+      ] },
+      { operation: "download_file", name: "Download a file", kind: "search", params: [{ key: "fileId", label: "File ID", type: "text", mappable: true }] },
+      { operation: "create_folder", name: "Create a folder", kind: "action", params: [
+        { key: "name", label: "Folder name", type: "text", mappable: true },
+        { key: "parents", label: "Parent folder ID", type: "text", mappable: true },
+      ] },
+      { operation: "move_file", name: "Move a file", kind: "action", params: [
+        { key: "fileId", label: "File ID", type: "text", mappable: true },
+        { key: "destinationFolderId", label: "Destination folder ID", type: "text", mappable: true },
+      ] },
+      { operation: "copy_file", name: "Copy a file", kind: "action", params: [
+        { key: "fileId", label: "File ID", type: "text", mappable: true },
+        { key: "name", label: "New name", type: "text", mappable: true },
+      ] },
+      { operation: "delete_file", name: "Delete a file", kind: "action", params: [{ key: "fileId", label: "File ID", type: "text", mappable: true }] },
+    ],
+  },
+  {
+    key: "calendar",
+    name: "Google Calendar",
+    category: "Productivity",
+    auth: "oauth2",
+    modules: [
+      { operation: "list_calendars", name: "List calendars", kind: "search", params: [] },
+      { operation: "list_events", name: "List events", kind: "search", params: [
+        { key: "calendarId", label: "Calendar ID", type: "text", mappable: true, placeholder: "primary" },
+        { key: "timeMin", label: "Time min (RFC3339)", type: "text", mappable: true },
+        { key: "timeMax", label: "Time max (RFC3339)", type: "text", mappable: true },
+      ] },
+      { operation: "create_event", name: "Create an event", kind: "action", params: [
+        { key: "calendarId", label: "Calendar ID", type: "text", placeholder: "primary" },
+        { key: "summary", label: "Title", type: "text", mappable: true },
+        { key: "description", label: "Description", type: "textarea", mappable: true },
+        { key: "start", label: "Start (map { dateTime })", type: "text", mappable: true, placeholder: "{{1.start}}" },
+        { key: "end", label: "End (map { dateTime })", type: "text", mappable: true, placeholder: "{{1.end}}" },
+      ] },
+      { operation: "update_event", name: "Update an event", kind: "action", params: [
+        { key: "calendarId", label: "Calendar ID", type: "text", placeholder: "primary" },
+        { key: "eventId", label: "Event ID", type: "text", mappable: true },
+        { key: "summary", label: "Title", type: "text", mappable: true },
+      ] },
+      { operation: "delete_event", name: "Delete an event", kind: "action", params: [
+        { key: "calendarId", label: "Calendar ID", type: "text", placeholder: "primary" },
+        { key: "eventId", label: "Event ID", type: "text", mappable: true },
+      ] },
+    ],
+  },
 ];
 
 export function findApp(appKey: string): CatalogApp | undefined {

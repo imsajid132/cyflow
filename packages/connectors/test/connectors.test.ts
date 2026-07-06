@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExecutionContext } from "@cyflow/shared";
 import { createDefaultRegistry } from "engine";
-import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, slackApp, utilsApp, parseCsv, toCsv } from "../src/index";
+import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, driveApp, calendarApp, slackApp, utilsApp, parseCsv, toCsv } from "../src/index";
 
 function makeCtx(connection: Record<string, unknown> | null): ExecutionContext {
   return {
@@ -99,31 +99,8 @@ describe("connector execution (mocked)", () => {
     expect(out).toEqual([{ ok: true, channel: "C1", ts: "123.45", text: "hey" }]);
   });
 
-  it("Gmail sends a base64url raw message via OAuth2 access token", async () => {
-    const fetchMock = stubFetch({ id: "m1", threadId: "t1" });
-    const out = await gmailApp.modules.send_email.run(
-      {},
-      { to: "a@b.com", subject: "Hi", body: "Body" },
-      makeCtx({ access_token: "ya29.token" }),
-    );
-    const init = fetchMock.mock.calls[0][1] as { headers: Record<string, string>; body: string };
-    expect(init.headers.authorization).toBe("Bearer ya29.token");
-    expect(typeof JSON.parse(init.body).raw).toBe("string");
-    expect(out).toEqual([{ id: "m1", threadId: "t1", to: "a@b.com", subject: "Hi" }]);
-  });
-
-  it("Google Sheets appends a row via OAuth2 access token", async () => {
-    const fetchMock = stubFetch({ updates: { updatedRange: "Sheet1!A1:B1", updatedRows: 1 } });
-    const out = await sheetsApp.modules.append_row.run(
-      {},
-      { spreadsheetId: "SS1", range: "Sheet1!A1", values: ["Ada", "Lovelace"] },
-      makeCtx({ access_token: "ya29.token" }),
-    );
-    const url = fetchMock.mock.calls[0][0] as string;
-    expect(url).toContain("/spreadsheets/SS1/values/");
-    expect(url).toContain(":append?valueInputOption=USER_ENTERED");
-    expect(out).toEqual([{ updatedRange: "Sheet1!A1:B1", updatedRows: 1 }]);
-  });
+  // (Gmail send + Sheets append are covered in depth by the "Gmail/Sheets (mocked)"
+  // suites below, which exercise the real OAuth2 connectors + response parsing.)
 });
 
 describe("Telegram Bot API (production)", () => {
@@ -177,6 +154,163 @@ describe("Telegram Bot API (production)", () => {
   it("throws a descriptive error on an API failure", async () => {
     stubFetch({ ok: false, description: "chat not found" }, false, 400);
     await expect(telegramApp.modules.send_message.run({}, { chatId: "x", text: "hi" }, makeCtx({ token: "T" }))).rejects.toThrow(/chat not found/);
+  });
+});
+
+/** A URL/method-aware fetch stub for Google (gapi uses res.text()). */
+function stubGoogle(handler: (url: string, init: { method?: string; body?: string }) => { ok?: boolean; status?: number; body?: unknown; text?: string }) {
+  const mock = vi.fn(async (url: unknown, init?: unknown) => {
+    const r = handler(String(url), (init ?? {}) as { method?: string; body?: string });
+    const text = r.text ?? (r.body !== undefined ? JSON.stringify(r.body) : "");
+    return {
+      ok: r.ok ?? true,
+      status: r.status ?? 200,
+      statusText: "OK",
+      text: async () => text,
+      arrayBuffer: async () => Buffer.from(text, "utf8"),
+      headers: { get: () => "text/plain" },
+    };
+  });
+  vi.stubGlobal("fetch", mock);
+  return mock;
+}
+const b64url = (s: string) => Buffer.from(s, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const gctx = () => makeCtx({ access_token: "ya29.token" });
+
+describe("Gmail (mocked)", () => {
+  it("search_emails calls messages?q and returns the list", async () => {
+    const m = stubGoogle(() => ({ body: { messages: [{ id: "m1", threadId: "t1" }], nextPageToken: "np" } }));
+    const out = await gmailApp.modules.search_emails.run({}, { query: "from:ada is:unread", maxResults: 5 }, gctx());
+    const url = new URL(m.mock.calls[0][0] as string);
+    expect(url.pathname).toContain("/messages");
+    expect(url.searchParams.get("q")).toBe("from:ada is:unread");
+    expect(out[0]).toMatchObject({ messages: [{ id: "m1", threadId: "t1" }], nextPageToken: "np", count: 1 });
+  });
+
+  it("read_email parses headers + body", async () => {
+    stubGoogle(() => ({
+      body: { id: "m1", threadId: "t1", labelIds: ["INBOX"], snippet: "Hi", payload: { headers: [{ name: "From", value: "a@b.com" }, { name: "Subject", value: "Hey" }], body: { data: b64url("Hello world") } } },
+    }));
+    const out = await gmailApp.modules.read_email.run({}, { messageId: "m1" }, gctx());
+    expect(out[0]).toMatchObject({ from: "a@b.com", subject: "Hey", body: "Hello world", labelIds: ["INBOX"] });
+  });
+
+  it("send_email posts a base64url MIME with the right headers", async () => {
+    const m = stubGoogle(() => ({ body: { id: "m9", threadId: "t9" } }));
+    const out = await gmailApp.modules.send_email.run({}, { to: "x@y.com", subject: "Hi", body: "Body", cc: "c@y.com" }, gctx());
+    expect(m.mock.calls[0][0]).toContain("/messages/send");
+    const raw = (JSON.parse((m.mock.calls[0][1] as { body: string }).body) as { raw: string }).raw;
+    const mime = Buffer.from(raw.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+    expect(mime).toContain("To: x@y.com");
+    expect(mime).toContain("Cc: c@y.com");
+    expect(mime).toContain("Subject: Hi");
+    expect(out[0]).toMatchObject({ id: "m9", threadId: "t9" });
+  });
+
+  it("add_label posts modify with addLabelIds", async () => {
+    const m = stubGoogle(() => ({ body: { id: "m1", labelIds: ["INBOX", "STARRED"] } }));
+    await gmailApp.modules.add_label.run({}, { messageId: "m1", labelId: "STARRED" }, gctx());
+    expect(m.mock.calls[0][0]).toContain("/messages/m1/modify");
+    expect(JSON.parse((m.mock.calls[0][1] as { body: string }).body)).toEqual({ addLabelIds: ["STARRED"] });
+  });
+
+  it("surfaces Google API errors", async () => {
+    stubGoogle(() => ({ ok: false, status: 403, body: { error: { message: "insufficientPermissions" } } }));
+    await expect(gmailApp.modules.list_labels.run({}, {}, gctx())).rejects.toThrow(/insufficientPermissions/);
+  });
+});
+
+describe("Google Sheets (mocked)", () => {
+  it("read_range fetches values", async () => {
+    const m = stubGoogle(() => ({ body: { range: "Sheet1!A1:B2", values: [["a", "b"], ["c", "d"]] } }));
+    const out = await sheetsApp.modules.read_range.run({}, { spreadsheetId: "SS", range: "Sheet1!A1:B2" }, gctx());
+    expect(m.mock.calls[0][0]).toContain("/spreadsheets/SS/values/");
+    expect(out[0]).toMatchObject({ rowCount: 2, values: [["a", "b"], ["c", "d"]] });
+  });
+
+  it("append_row wraps the values in a single row + USER_ENTERED", async () => {
+    const m = stubGoogle(() => ({ body: { updates: { updatedRange: "Sheet1!A3", updatedRows: 1 } } }));
+    await sheetsApp.modules.append_row.run({}, { spreadsheetId: "SS", range: "Sheet1!A1", values: ["Ada", 42] }, gctx());
+    expect(m.mock.calls[0][0]).toContain(":append");
+    expect(m.mock.calls[0][0]).toContain("USER_ENTERED");
+    expect(JSON.parse((m.mock.calls[0][1] as { body: string }).body)).toEqual({ values: [["Ada", 42]] });
+  });
+
+  it("search_rows filters by a column value", async () => {
+    stubGoogle(() => ({ body: { values: [["Ada", "London"], ["Grace", "NYC"], ["Kay", "London"]] } }));
+    const out = await sheetsApp.modules.search_rows.run({}, { spreadsheetId: "SS", range: "A:B", column: 1, value: "London" }, gctx());
+    expect(out[0]).toMatchObject({ count: 2 });
+    expect((out[0] as { matches: { index: number }[] }).matches.map((x) => x.index)).toEqual([0, 2]);
+  });
+});
+
+describe("Google Drive (mocked)", () => {
+  it("search_files passes q + pagination fields", async () => {
+    const m = stubGoogle(() => ({ body: { files: [{ id: "f1", name: "doc" }], nextPageToken: "n2" } }));
+    const out = await driveApp.modules.search_files.run({}, { query: "name contains 'report'", pageSize: 10 }, gctx());
+    expect(new URL(m.mock.calls[0][0] as string).searchParams.get("q")).toBe("name contains 'report'");
+    expect(out[0]).toMatchObject({ files: [{ id: "f1", name: "doc" }], nextPageToken: "n2" });
+  });
+
+  it("upload_file sends a multipart/related body", async () => {
+    const m = stubGoogle(() => ({ body: { id: "f2", name: "note.txt" } }));
+    await driveApp.modules.upload_file.run({}, { name: "note.txt", content: "hello", mimeType: "text/plain" }, gctx());
+    expect(m.mock.calls[0][0]).toContain("uploadType=multipart");
+    const init = m.mock.calls[0][1] as { headers: Record<string, string>; body: string };
+    expect(init.headers["content-type"]).toContain("multipart/related");
+    expect(init.body).toContain('"name":"note.txt"');
+    expect(init.body).toContain("hello");
+  });
+
+  it("move_file reads current parents then re-parents", async () => {
+    const m = stubGoogle((url, init) => (init.method === "GET" ? { body: { parents: ["oldFolder"] } } : { body: { id: "f1", parents: ["newFolder"] } }));
+    await driveApp.modules.move_file.run({}, { fileId: "f1", destinationFolderId: "newFolder" }, gctx());
+    const patchUrl = m.mock.calls[1][0] as string;
+    expect(patchUrl).toContain("addParents=newFolder");
+    expect(patchUrl).toContain("removeParents=oldFolder");
+  });
+
+  it("delete_file issues a DELETE", async () => {
+    const m = stubGoogle(() => ({ status: 204, text: "" }));
+    const out = await driveApp.modules.delete_file.run({}, { fileId: "f1" }, gctx());
+    expect((m.mock.calls[0][1] as { method: string }).method).toBe("DELETE");
+    expect(out[0]).toEqual({ deleted: true, fileId: "f1" });
+  });
+});
+
+describe("Google Calendar (mocked)", () => {
+  it("create_event maps attendee emails + posts to the calendar", async () => {
+    const m = stubGoogle(() => ({ body: { id: "e1", htmlLink: "http://cal/e1", status: "confirmed" } }));
+    await calendarApp.modules.create_event.run(
+      {},
+      { summary: "Sync", start: { dateTime: "2026-07-08T10:00:00Z" }, end: { dateTime: "2026-07-08T10:30:00Z" }, attendees: ["a@b.com", "c@d.com"] },
+      gctx(),
+    );
+    expect(m.mock.calls[0][0]).toContain("/calendars/primary/events");
+    expect(JSON.parse((m.mock.calls[0][1] as { body: string }).body).attendees).toEqual([{ email: "a@b.com" }, { email: "c@d.com" }]);
+  });
+
+  it("list_events requests singleEvents + orderBy", async () => {
+    const m = stubGoogle(() => ({ body: { items: [{ id: "e1" }] } }));
+    const out = await calendarApp.modules.list_events.run({}, { timeMin: "2026-07-01T00:00:00Z" }, gctx());
+    expect(m.mock.calls[0][0]).toContain("singleEvents=true");
+    expect(out[0]).toMatchObject({ events: [{ id: "e1" }] });
+  });
+
+  it("delete_event issues a DELETE", async () => {
+    const m = stubGoogle(() => ({ status: 204, text: "" }));
+    await calendarApp.modules.delete_event.run({}, { eventId: "e1" }, gctx());
+    expect((m.mock.calls[0][1] as { method: string }).method).toBe("DELETE");
+  });
+});
+
+describe("Google testConnection", () => {
+  it("validates the token via userinfo", async () => {
+    stubGoogle(() => ({ body: { email: "ada@gmail.com" } }));
+    for (const app of [gmailApp, sheetsApp, driveApp, calendarApp]) {
+      const r = await app.testConnection!({ access_token: "ya29.x" });
+      expect(r).toEqual({ ok: true, message: "Connected as ada@gmail.com" });
+    }
   });
 });
 

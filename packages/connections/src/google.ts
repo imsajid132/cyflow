@@ -13,7 +13,8 @@ const IDENTITY = ["openid", "https://www.googleapis.com/auth/userinfo.email"];
 
 export const GOOGLE_SCOPES: Record<string, string[]> = {
   gmail: [...IDENTITY, "https://www.googleapis.com/auth/gmail.modify"],
-  sheets: [...IDENTITY, "https://www.googleapis.com/auth/spreadsheets"],
+  // Sheets + drive.metadata.readonly so "List spreadsheets" can enumerate files.
+  sheets: [...IDENTITY, "https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.metadata.readonly"],
   drive: [...IDENTITY, "https://www.googleapis.com/auth/drive"],
   calendar: [...IDENTITY, "https://www.googleapis.com/auth/calendar"],
 };
