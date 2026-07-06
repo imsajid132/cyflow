@@ -1,15 +1,18 @@
 import { AppStoreProvider, useStore } from "./store/appStore";
 import { AppShell } from "./components/AppShell";
 import { ScenarioBuilder } from "./components/builder/ScenarioBuilder";
+import { ExecutionReplay } from "./components/replay/ExecutionReplay";
 
 /**
  * Cyflow — Make-style automation product. A glass SaaS shell (sidebar,
- * dashboard, scenarios, connections, executions, data stores) plus the
- * full-screen scenario builder that runs the real engine for "Run once".
+ * dashboard, scenarios, connections, executions, data stores), the full-screen
+ * scenario builder, and the execution replay screen.
  */
 function Router() {
   const { view } = useStore();
-  return view === "builder" ? <ScenarioBuilder /> : <AppShell />;
+  if (view === "builder") return <ScenarioBuilder />;
+  if (view === "replay") return <ExecutionReplay />;
+  return <AppShell />;
 }
 
 export default function App() {

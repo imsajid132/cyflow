@@ -122,9 +122,37 @@ function emptyExecution(scenarioId: string, status: "SUCCESS" | "FAILED", operat
   };
 }
 
+/** A fully-populated demo execution (so the replay is usable on first load). */
+function leadsExecution(): StoredExecution {
+  const started = new Date(Date.now() - 6 * 60_000);
+  const trigger = { body: { leads: [{ email: "ada@lovelace.dev" }, { email: "grace@hopper.dev" }, { email: "kay@johnson.dev" }] } };
+  const iter = [0, 1, 2].map((i) => ({ value: { email: trigger.body.leads[i].email }, index: i, total: 3 }));
+  const http = iter.map((b) => ({
+    statusCode: 200,
+    headers: { "content-type": "application/json", "x-request-id": "req_8f2a", "cache-control": "no-store" },
+    data: { name: b.value.email.split("@")[0], score: 42 },
+  }));
+  return {
+    id: "exec_demo",
+    scenarioId: "scn_leads",
+    status: "SUCCESS",
+    operations: 9,
+    error: null,
+    startedAt: started,
+    finishedAt: new Date(started.getTime() + 247),
+    steps: [
+      { moduleNodeId: "1", status: "success", operations: 1, input: [trigger], output: [trigger], ms: 2, order: 0 },
+      { moduleNodeId: "2", status: "success", operations: 1, input: [trigger], output: iter, ms: 5, order: 1 },
+      { moduleNodeId: "3", status: "success", operations: 3, input: iter, output: http, ms: 186, order: 2 },
+      { moduleNodeId: "4", status: "success", operations: 3, input: http, output: [{ array: http.map((h) => h.data.name) }], ms: 3, order: 3 },
+      { moduleNodeId: "5", status: "success", operations: 1, input: [{ array: http.map((h) => h.data.name) }], output: [{ ok: true, messageId: 1024 }], ms: 51, order: 4 },
+    ],
+  };
+}
+
 function seedExecutions(): ExecutionEntry[] {
   return [
-    { scenarioId: "scn_leads", scenarioName: "Enrich leads → Telegram digest", ranAt: iso(6), execution: emptyExecution("scn_leads", "SUCCESS", 7) },
+    { scenarioId: "scn_leads", scenarioName: "Enrich leads → Telegram digest", ranAt: iso(6), execution: leadsExecution(), blueprint: sampleBlueprint },
     { scenarioId: "scn_signup", scenarioName: "New signup → Slack alert", ranAt: iso(48), execution: emptyExecution("scn_signup", "SUCCESS", 2) },
     { scenarioId: "scn_sales", scenarioName: "Daily sales summary", ranAt: iso(1440), execution: emptyExecution("scn_sales", "FAILED", 3) },
   ];
@@ -149,22 +177,25 @@ interface AppStore {
   mode: "api" | "local";
   view: ViewName;
   selectedScenarioId: string | null;
+  selectedExecutionId: string | null;
   search: string;
   scenarios: Scenario[];
   connections: Connection[];
   executions: ExecutionEntry[];
   setSearch: (s: string) => void;
-  navigate: (view: ViewName, scenarioId?: string | null) => void;
+  navigate: (view: ViewName, id?: string | null) => void;
+  openExecution: (executionId: string) => void;
   createScenario: () => string;
   updateScenario: (id: string, patch: Partial<Scenario>) => void;
   duplicateScenario: (id: string) => void;
   deleteScenario: (id: string) => void;
-  recordExecution: (scenarioId: string, execution: StoredExecution) => void;
+  recordExecution: (scenarioId: string, execution: StoredExecution, blueprint?: Blueprint) => void;
   runOnce: (scenarioId: string, blueprint: Blueprint) => Promise<StoredExecution>;
   createConnection: (input: { appKey: string; name: string; credentials?: Record<string, unknown> }) => Promise<Connection>;
   updateConnection: (id: string, patch: { name?: string; credentials?: Record<string, unknown> }) => Promise<void>;
   deleteConnection: (id: string) => Promise<void>;
   scenarioById: (id: string | null) => Scenario | undefined;
+  executionById: (id: string | null) => ExecutionEntry | undefined;
 }
 
 const Ctx = createContext<AppStore | null>(null);
@@ -173,6 +204,7 @@ function parseHash(): { view: ViewName; id: string | null } {
   const raw = window.location.hash.replace(/^#\/?/, "");
   const parts = raw.split("/").filter(Boolean);
   if (parts[0] === "scenario" && parts[1]) return { view: "builder", id: parts[1] };
+  if (parts[0] === "execution" && parts[1]) return { view: "replay", id: parts[1] };
   const views: ViewName[] = [
     "dashboard",
     "scenarios",
@@ -220,20 +252,35 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
   const initial = parseHash();
   const [view, setView] = useState<ViewName>(initial.view);
-  const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(initial.id);
+  const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(
+    initial.view === "replay" ? null : initial.id,
+  );
+  const [selectedExecutionId, setSelectedExecutionId] = useState<string | null>(
+    initial.view === "replay" ? initial.id : null,
+  );
 
-  const navigate = useCallback((next: ViewName, scenarioId: string | null = null) => {
+  const navigate = useCallback((next: ViewName, id: string | null = null) => {
     setView(next);
-    setSelectedScenarioId(scenarioId);
-    const hash = next === "builder" && scenarioId ? `#/scenario/${scenarioId}` : `#/${next}`;
+    if (next === "builder") {
+      setSelectedScenarioId(id);
+    } else if (next === "replay") {
+      setSelectedExecutionId(id);
+    } else {
+      setSelectedScenarioId(id);
+    }
+    const hash =
+      next === "builder" && id ? `#/scenario/${id}` : next === "replay" && id ? `#/execution/${id}` : `#/${next}`;
     if (window.location.hash !== hash) window.location.hash = hash;
   }, []);
+
+  const openExecution = useCallback((executionId: string) => navigate("replay", executionId), [navigate]);
 
   useEffect(() => {
     const onHash = () => {
       const parsed = parseHash();
       setView(parsed.view);
-      setSelectedScenarioId(parsed.id);
+      if (parsed.view === "replay") setSelectedExecutionId(parsed.id);
+      else setSelectedScenarioId(parsed.id);
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -289,7 +336,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const recordExecution = useCallback(
-    (scenarioId: string, execution: StoredExecution) => {
+    (scenarioId: string, execution: StoredExecution, blueprint?: Blueprint) => {
       setScenarios((prev) =>
         prev.map((s) =>
           s.id === scenarioId
@@ -306,7 +353,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         const known = prev.find((e) => e.scenarioId === scenarioId)?.scenarioName;
         const name = known ?? scenarios.find((s) => s.id === scenarioId)?.name ?? "Scenario";
         return [
-          { scenarioId, scenarioName: name, ranAt: new Date().toISOString(), execution },
+          { scenarioId, scenarioName: name, ranAt: new Date().toISOString(), execution, blueprint },
           ...prev,
         ].slice(0, 50);
       });
@@ -325,7 +372,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       } else {
         execution = await localRunOnce(blueprint);
       }
-      recordExecution(scenarioId, execution);
+      recordExecution(scenarioId, execution, blueprint);
       return execution;
     },
     [recordExecution],
@@ -372,18 +419,25 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     [scenarios],
   );
 
+  const executionById = useCallback(
+    (id: string | null) => executions.find((e) => e.execution.id === id),
+    [executions],
+  );
+
   const value = useMemo<AppStore>(
     () => ({
       workspace: "Cyflow Team",
       mode: apiEnabled ? "api" : "local",
       view,
       selectedScenarioId,
+      selectedExecutionId,
       search,
       scenarios,
       connections,
       executions,
       setSearch,
       navigate,
+      openExecution,
       createScenario,
       updateScenario,
       duplicateScenario,
@@ -394,15 +448,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       updateConnection,
       deleteConnection,
       scenarioById,
+      executionById,
     }),
     [
       view,
       selectedScenarioId,
+      selectedExecutionId,
       search,
       scenarios,
       connections,
       executions,
       navigate,
+      openExecution,
       createScenario,
       updateScenario,
       duplicateScenario,
@@ -413,6 +470,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       updateConnection,
       deleteConnection,
       scenarioById,
+      executionById,
     ],
   );
 

@@ -1,4 +1,27 @@
+import type { StoredExecution } from "@cyflow/shared";
 import type { Schedule } from "../store/types";
+
+/** Wall-clock duration of an execution in ms (0 if not finished). */
+export function durationOf(execution: StoredExecution): number {
+  if (!execution.finishedAt) return 0;
+  return Math.max(0, +new Date(execution.finishedAt) - +new Date(execution.startedAt));
+}
+
+/** Human duration: "820ms" / "1.24s" / "1m 3s". */
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(s < 10 ? 2 : 1)}s`;
+  const m = Math.floor(s / 60);
+  return `${m}m ${Math.round(s - m * 60)}s`;
+}
+
+/** Local clock time, e.g. "14:03:52". */
+export function clockTime(value?: string | Date | null): string {
+  if (!value) return "—";
+  const d = new Date(value);
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
 
 export function timeAgo(iso?: string): string {
   if (!iso) return "never";

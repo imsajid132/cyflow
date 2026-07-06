@@ -240,18 +240,31 @@ export function ScenarioBuilder() {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
       >
-        {(isRunning || execution) && (
-          <div className={`statusbar${isRunning ? " is-running" : execution?.status === "FAILED" ? " is-failed" : ""}`}>
-            <span className="dot" />
-            {isRunning ? "Running…" : execution?.status === "FAILED" ? "Failed" : "Success"}
-            {!isRunning && execution ? (
-              <>
-                <span>·</span>
-                <span className="n">{ops} operations</span>
-              </>
-            ) : null}
-          </div>
-        )}
+        {(isRunning || execution) && (() => {
+          const done = Object.values(statuses).filter((s) => s === "success" || s === "error").length;
+          const active = Object.values(statuses).filter((s) => s === "running").length;
+          const totalModules = layout.nodes.length;
+          const queued = Math.max(0, totalModules - done - active);
+          return (
+            <div className={`statusbar${isRunning ? " is-running" : execution?.status === "FAILED" ? " is-failed" : ""}`}>
+              <span className="dot" />
+              {isRunning ? "Running…" : execution?.status === "FAILED" ? "Failed" : "Success"}
+              {isRunning ? (
+                <>
+                  <span>·</span>
+                  <span className="n">{Math.min(done + active, totalModules)}/{totalModules}</span>
+                  <span className="statusbar__prog"><span style={{ width: `${(done / Math.max(totalModules, 1)) * 100}%` }} /></span>
+                  {queued > 0 ? <span className="muted" style={{ color: "rgba(255,255,255,.6)" }}>{queued} queued</span> : null}
+                </>
+              ) : execution ? (
+                <>
+                  <span>·</span>
+                  <span className="n">{ops} operations</span>
+                </>
+              ) : null}
+            </div>
+          );
+        })()}
 
         {layout.nodes.length === 0 ? (
           <div className="builder__empty">

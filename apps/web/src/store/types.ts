@@ -37,6 +37,9 @@ export interface ExecutionEntry {
   scenarioId: string;
   scenarioName: string;
   ranAt: string;
+  /** Blueprint snapshot at run time (local runs) — lets the replay render even
+   *  if the scenario was later edited or deleted. */
+  blueprint?: Blueprint;
 }
 
 export type ViewName =
@@ -47,4 +50,5 @@ export type ViewName =
   | "executions"
   | "datastores"
   | "settings"
-  | "builder";
+  | "builder"
+  | "replay";
