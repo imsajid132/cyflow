@@ -18,6 +18,12 @@ function defaultAuthFields(authType?: string, appKey?: string): AuthFieldDTO[] {
       { key: "serviceKey", label: "Service role key", type: "password", required: true },
     ];
   }
+  if (appKey === "trello") {
+    return [
+      { key: "apiKey", label: "API key", type: "text", required: true },
+      { key: "token", label: "Token", type: "password", required: true },
+    ];
+  }
   switch (authType) {
     case "api_key":
       return [{ key: "token", label: "API key", type: "password", required: true }];

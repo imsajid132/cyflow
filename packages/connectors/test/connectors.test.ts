@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExecutionContext } from "@cyflow/shared";
 import { createDefaultRegistry } from "engine";
-import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, driveApp, calendarApp, slackApp, discordApp, notionApp, airtableApp, githubApp, gitlabApp, dropboxApp, cloudflareApp, supabaseApp, utilsApp, parseCsv, toCsv } from "../src/index";
+import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, driveApp, calendarApp, slackApp, discordApp, notionApp, airtableApp, githubApp, gitlabApp, dropboxApp, cloudflareApp, supabaseApp, trelloApp, asanaApp, hubspotApp, clickupApp, calendlyApp, utilsApp, parseCsv, toCsv } from "../src/index";
 
 function makeCtx(connection: Record<string, unknown> | null): ExecutionContext {
   return {
@@ -471,6 +471,74 @@ describe("Supabase (mocked)", () => {
     const m = stubGoogle(() => ({ body: [{ id: 9 }] }));
     await supabaseApp.modules.insert.run({}, { table: "users", rows: { name: "Ada" } }, ctx());
     expect((m.mock.calls[0][1] as { headers: Record<string, string> }).headers.prefer).toBe("return=representation");
+  });
+});
+
+describe("Trello (mocked)", () => {
+  const ctx = () => makeCtx({ apiKey: "K", token: "T" });
+  it("create_card passes key+token+idList as query", async () => {
+    const m = stubGoogle(() => ({ body: { id: "c1", name: "Do" } }));
+    await trelloApp.modules.create_card.run({}, { listId: "L1", name: "Do" }, ctx());
+    const url = new URL(m.mock.calls[0][0] as string);
+    expect(url.searchParams.get("key")).toBe("K");
+    expect(url.searchParams.get("token")).toBe("T");
+    expect(url.searchParams.get("idList")).toBe("L1");
+    expect(url.searchParams.get("name")).toBe("Do");
+  });
+  it("testConnection reports the username", async () => {
+    stubGoogle(() => ({ body: { username: "ada" } }));
+    expect((await trelloApp.testConnection!({ apiKey: "K", token: "T" })).message).toContain("ada");
+  });
+});
+
+describe("Asana (mocked)", () => {
+  const ctx = () => makeCtx({ token: "asa" });
+  it("create_task wraps the body in { data } and unwraps the response", async () => {
+    const m = stubGoogle(() => ({ body: { data: { gid: "9", name: "Task" } } }));
+    const out = await asanaApp.modules.create_task.run({}, { name: "Task", projects: ["p1"] }, ctx());
+    expect(JSON.parse((m.mock.calls[0][1] as { body: string }).body)).toEqual({ data: { name: "Task", projects: ["p1"] } });
+    expect(out[0]).toEqual({ gid: "9", name: "Task" });
+  });
+});
+
+describe("HubSpot (mocked)", () => {
+  const ctx = () => makeCtx({ token: "hub" });
+  it("create_contact posts properties with a Bearer token", async () => {
+    const m = stubGoogle(() => ({ body: { id: "1", properties: { email: "a@b.com" } } }));
+    await hubspotApp.modules.create_contact.run({}, { properties: { email: "a@b.com" } }, ctx());
+    expect(m.mock.calls[0][0]).toContain("/crm/v3/objects/contacts");
+    expect((m.mock.calls[0][1] as { headers: Record<string, string> }).headers.authorization).toBe("Bearer hub");
+    expect(JSON.parse((m.mock.calls[0][1] as { body: string }).body)).toEqual({ properties: { email: "a@b.com" } });
+  });
+  it("search_contacts posts to the search endpoint", async () => {
+    const m = stubGoogle(() => ({ body: { results: [{ id: "1" }], total: 1 } }));
+    const out = await hubspotApp.modules.search_contacts.run({}, { query: "ada" }, ctx());
+    expect(m.mock.calls[0][0]).toContain("/contacts/search");
+    expect(out[0]).toMatchObject({ total: 1 });
+  });
+});
+
+describe("ClickUp (mocked)", () => {
+  const ctx = () => makeCtx({ token: "pk_123" });
+  it("create_task uses the raw Authorization header (no Bearer)", async () => {
+    const m = stubGoogle(() => ({ body: { id: "t1", name: "Do" } }));
+    await clickupApp.modules.create_task.run({}, { listId: "L1", name: "Do" }, ctx());
+    expect(m.mock.calls[0][0]).toContain("/list/L1/task");
+    expect((m.mock.calls[0][1] as { headers: Record<string, string> }).headers.authorization).toBe("pk_123");
+  });
+  it("testConnection reports the username", async () => {
+    stubGoogle(() => ({ body: { user: { username: "ada" } } }));
+    expect((await clickupApp.testConnection!({ token: "x" })).message).toContain("ada");
+  });
+});
+
+describe("Calendly (mocked)", () => {
+  const ctx = () => makeCtx({ token: "cal" });
+  it("list_events passes the user + count and unwraps the collection", async () => {
+    const m = stubGoogle(() => ({ body: { collection: [{ uri: "e1" }], pagination: { next_page_token: "n2" } } }));
+    const out = await calendlyApp.modules.list_events.run({}, { user: "https://api.calendly.com/users/ME" }, ctx());
+    expect(new URL(m.mock.calls[0][0] as string).searchParams.get("user")).toBe("https://api.calendly.com/users/ME");
+    expect(out[0]).toMatchObject({ events: [{ uri: "e1" }], nextPageToken: "n2" });
   });
 });
 

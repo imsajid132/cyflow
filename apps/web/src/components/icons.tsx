@@ -200,6 +200,49 @@ export function SupabaseIcon(p: IconProps) {
     </Glyph>
   );
 }
+export function TrelloIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <rect x="3.5" y="4" width="17" height="16" rx="2" />
+      <rect x="6.5" y="7" width="4" height="9" rx="1" />
+      <rect x="13.5" y="7" width="4" height="5" rx="1" />
+    </Glyph>
+  );
+}
+export function AsanaIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <circle cx="12" cy="6.5" r="2.6" />
+      <circle cx="6.5" cy="15" r="2.6" />
+      <circle cx="17.5" cy="15" r="2.6" />
+    </Glyph>
+  );
+}
+export function HubspotIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <circle cx="17" cy="8" r="2.4" />
+      <circle cx="7" cy="16" r="3" />
+      <path d="M17 10.4V13a3.5 3.5 0 0 1-3.5 3.5H10M17 5.6V4" />
+    </Glyph>
+  );
+}
+export function ClickupIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <path d="M4 15.5 8 11l4 3.5L16 10l4 5.5" />
+      <path d="M8 7l4-3 4 3" />
+    </Glyph>
+  );
+}
+export function CalendlyIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <circle cx="12" cy="12" r="8" />
+      <path d="M15 9.5a4 4 0 1 0 0 5" />
+    </Glyph>
+  );
+}
 export function DriveIcon(p: IconProps) {
   return (
     <Glyph {...p}>

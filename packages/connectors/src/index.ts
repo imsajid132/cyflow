@@ -14,6 +14,11 @@ import { gitlabApp } from "./gitlab";
 import { dropboxApp } from "./dropbox";
 import { cloudflareApp } from "./cloudflare";
 import { supabaseApp } from "./supabase";
+import { trelloApp } from "./trello";
+import { asanaApp } from "./asana";
+import { hubspotApp } from "./hubspot";
+import { clickupApp } from "./clickup";
+import { calendlyApp } from "./calendly";
 import { utilsApp } from "./utils";
 
 export { telegramApp } from "./telegram";
@@ -31,6 +36,11 @@ export { gitlabApp } from "./gitlab";
 export { dropboxApp } from "./dropbox";
 export { cloudflareApp } from "./cloudflare";
 export { supabaseApp } from "./supabase";
+export { trelloApp } from "./trello";
+export { asanaApp } from "./asana";
+export { hubspotApp } from "./hubspot";
+export { clickupApp } from "./clickup";
+export { calendlyApp } from "./calendly";
 export { utilsApp, parseCsv, toCsv } from "./utils";
 
 /**
@@ -55,5 +65,10 @@ export const connectorApps: App[] = [
   dropboxApp,
   cloudflareApp,
   supabaseApp,
+  trelloApp,
+  asanaApp,
+  hubspotApp,
+  clickupApp,
+  calendlyApp,
   utilsApp,
 ];

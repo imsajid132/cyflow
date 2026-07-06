@@ -22,6 +22,11 @@ import {
   DropboxIcon,
   CloudflareIcon,
   SupabaseIcon,
+  TrelloIcon,
+  AsanaIcon,
+  HubspotIcon,
+  ClickupIcon,
+  CalendlyIcon,
 } from "./icons";
 
 /** Maps a module's app/operation to its app icon. */
@@ -43,6 +48,11 @@ export function ModuleIcon({ app, operation, sw }: { app: string; operation: str
   if (app === "dropbox") return <DropboxIcon sw={sw} />;
   if (app === "cloudflare") return <CloudflareIcon sw={sw} />;
   if (app === "supabase") return <SupabaseIcon sw={sw} />;
+  if (app === "trello") return <TrelloIcon sw={sw} />;
+  if (app === "asana") return <AsanaIcon sw={sw} />;
+  if (app === "hubspot") return <HubspotIcon sw={sw} />;
+  if (app === "clickup") return <ClickupIcon sw={sw} />;
+  if (app === "calendly") return <CalendlyIcon sw={sw} />;
   if (app === "core") return <DelayIcon sw={sw} />;
   if (app === "utils") return <BracesIcon sw={sw} />;
   if (app === "datastore") return <DataStoreIcon sw={sw} />;

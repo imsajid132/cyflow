@@ -646,6 +646,119 @@ export const CATALOG: CatalogApp[] = [
       ] },
     ],
   },
+  {
+    key: "trello",
+    name: "Trello",
+    category: "Productivity",
+    auth: "custom",
+    modules: [
+      { operation: "get_board", name: "Get a board", kind: "search", params: [{ key: "boardId", label: "Board ID", type: "text", mappable: true }] },
+      { operation: "list_lists", name: "List lists", kind: "search", params: [{ key: "boardId", label: "Board ID", type: "text", mappable: true }] },
+      { operation: "list_cards", name: "List cards", kind: "search", params: [{ key: "listId", label: "List ID", type: "text", mappable: true }] },
+      { operation: "create_card", name: "Create a card", kind: "action", params: [
+        { key: "listId", label: "List ID", type: "text", mappable: true },
+        { key: "name", label: "Name", type: "text", mappable: true },
+        { key: "desc", label: "Description", type: "textarea", mappable: true },
+      ] },
+      { operation: "update_card", name: "Update a card", kind: "action", params: [
+        { key: "cardId", label: "Card ID", type: "text", mappable: true },
+        { key: "name", label: "Name", type: "text", mappable: true },
+        { key: "desc", label: "Description", type: "textarea", mappable: true },
+      ] },
+      { operation: "move_card", name: "Move a card", kind: "action", params: [
+        { key: "cardId", label: "Card ID", type: "text", mappable: true },
+        { key: "listId", label: "Destination list ID", type: "text", mappable: true },
+      ] },
+      { operation: "add_comment", name: "Comment on a card", kind: "action", params: [
+        { key: "cardId", label: "Card ID", type: "text", mappable: true },
+        { key: "text", label: "Comment", type: "textarea", mappable: true },
+      ] },
+    ],
+  },
+  {
+    key: "asana",
+    name: "Asana",
+    category: "Productivity",
+    auth: "api_key",
+    modules: [
+      { operation: "list_workspaces", name: "List workspaces", kind: "search", params: [] },
+      { operation: "list_projects", name: "List projects", kind: "search", params: [{ key: "workspace", label: "Workspace GID", type: "text", mappable: true }] },
+      { operation: "list_tasks", name: "List tasks", kind: "search", params: [{ key: "project", label: "Project GID", type: "text", mappable: true }] },
+      { operation: "get_task", name: "Get a task", kind: "search", params: [{ key: "taskGid", label: "Task GID", type: "text", mappable: true }] },
+      { operation: "create_task", name: "Create a task", kind: "action", params: [
+        { key: "name", label: "Name", type: "text", mappable: true },
+        { key: "notes", label: "Notes", type: "textarea", mappable: true },
+        { key: "workspace", label: "Workspace GID", type: "text", mappable: true },
+      ] },
+      { operation: "update_task", name: "Update a task", kind: "action", params: [
+        { key: "taskGid", label: "Task GID", type: "text", mappable: true },
+        { key: "name", label: "Name", type: "text", mappable: true },
+      ] },
+      { operation: "add_comment", name: "Comment on a task", kind: "action", params: [
+        { key: "taskGid", label: "Task GID", type: "text", mappable: true },
+        { key: "text", label: "Comment", type: "textarea", mappable: true },
+      ] },
+    ],
+  },
+  {
+    key: "hubspot",
+    name: "HubSpot",
+    category: "Productivity",
+    auth: "api_key",
+    modules: [
+      { operation: "list_contacts", name: "List contacts", kind: "search", params: [{ key: "limit", label: "Limit", type: "number" }] },
+      { operation: "get_contact", name: "Get a contact", kind: "search", params: [{ key: "contactId", label: "Contact ID", type: "text", mappable: true }] },
+      { operation: "create_contact", name: "Create a contact", kind: "action", params: [{ key: "properties", label: "Properties (map an object)", type: "text", mappable: true }] },
+      { operation: "update_contact", name: "Update a contact", kind: "action", params: [
+        { key: "contactId", label: "Contact ID", type: "text", mappable: true },
+        { key: "properties", label: "Properties (map an object)", type: "text", mappable: true },
+      ] },
+      { operation: "search_contacts", name: "Search contacts", kind: "search", params: [{ key: "query", label: "Query", type: "text", mappable: true }] },
+      { operation: "create_deal", name: "Create a deal", kind: "action", params: [{ key: "properties", label: "Properties (map an object)", type: "text", mappable: true }] },
+      { operation: "create_company", name: "Create a company", kind: "action", params: [{ key: "properties", label: "Properties (map an object)", type: "text", mappable: true }] },
+    ],
+  },
+  {
+    key: "clickup",
+    name: "ClickUp",
+    category: "Productivity",
+    auth: "api_key",
+    modules: [
+      { operation: "list_spaces", name: "List spaces", kind: "search", params: [{ key: "teamId", label: "Team ID", type: "text", mappable: true }] },
+      { operation: "list_tasks", name: "List tasks", kind: "search", params: [{ key: "listId", label: "List ID", type: "text", mappable: true }] },
+      { operation: "get_task", name: "Get a task", kind: "search", params: [{ key: "taskId", label: "Task ID", type: "text", mappable: true }] },
+      { operation: "create_task", name: "Create a task", kind: "action", params: [
+        { key: "listId", label: "List ID", type: "text", mappable: true },
+        { key: "name", label: "Name", type: "text", mappable: true },
+        { key: "description", label: "Description", type: "textarea", mappable: true },
+      ] },
+      { operation: "update_task", name: "Update a task", kind: "action", params: [
+        { key: "taskId", label: "Task ID", type: "text", mappable: true },
+        { key: "name", label: "Name", type: "text", mappable: true },
+        { key: "status", label: "Status", type: "text", mappable: true },
+      ] },
+      { operation: "create_comment", name: "Comment on a task", kind: "action", params: [
+        { key: "taskId", label: "Task ID", type: "text", mappable: true },
+        { key: "commentText", label: "Comment", type: "textarea", mappable: true },
+      ] },
+    ],
+  },
+  {
+    key: "calendly",
+    name: "Calendly",
+    category: "Productivity",
+    auth: "api_key",
+    modules: [
+      { operation: "get_current_user", name: "Get current user", kind: "search", params: [] },
+      { operation: "list_events", name: "List scheduled events", kind: "search", params: [
+        { key: "user", label: "User URI", type: "text", mappable: true },
+        { key: "status", label: "Status", type: "select", options: ["active", "canceled"] },
+      ] },
+      { operation: "get_event", name: "Get an event", kind: "search", params: [{ key: "eventUuid", label: "Event UUID", type: "text", mappable: true }] },
+      { operation: "list_invitees", name: "List invitees", kind: "search", params: [{ key: "eventUuid", label: "Event UUID", type: "text", mappable: true }] },
+      { operation: "list_event_types", name: "List event types", kind: "search", params: [{ key: "user", label: "User URI", type: "text", mappable: true }] },
+    ],
+  },
 ];
 
 export function findApp(appKey: string): CatalogApp | undefined {
