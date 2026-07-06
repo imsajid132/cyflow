@@ -38,6 +38,7 @@ export const sampleBlueprint: Blueprint = {
         url: "https://api.example.com/enrich",
         query: { email: "{{2.value.email}}" },
       },
+      connectionId: "conn_enrich_api",
       next: "4",
     },
     {

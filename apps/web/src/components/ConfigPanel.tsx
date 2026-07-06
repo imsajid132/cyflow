@@ -86,6 +86,19 @@ export function ConfigPanel({ module, number, label, step }: ConfigPanelProps) {
           </div>
         </div>
 
+        {module.connectionId ? (
+          <div className="field">
+            <label htmlFor="conn">Connection</label>
+            <select className="input" id="conn" defaultValue={module.connectionId}>
+              <option value={module.connectionId}>Enrich API · bearer token</option>
+              <option value="new">Add a new connection…</option>
+            </select>
+            <span className="hint">
+              Credentials are encrypted at rest and decrypted only at run time.
+            </span>
+          </div>
+        ) : null}
+
         <div className="field">
           <label>Parameters</label>
           <div className="kv">

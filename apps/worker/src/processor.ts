@@ -5,6 +5,7 @@ import type {
   ScenarioRepository,
   StoredExecution,
 } from "@cyflow/shared";
+import { redactSecrets } from "@cyflow/shared";
 import { buildExecutionSteps, runScenario, type Registry } from "engine";
 
 /** The persisted `Execution.steps` snapshot builder (lives in the engine). */
@@ -21,6 +22,8 @@ export interface WorkerDeps {
   scenarios: ScenarioRepository;
   executions: ExecutionRepository;
   registry: Registry;
+  /** Resolves a module's connectionId → decrypted credentials (Phase 7). */
+  getConnection?: (connectionId: string) => Promise<Record<string, unknown> | null>;
 }
 
 /**
@@ -41,9 +44,19 @@ export async function runScenarioJob(job: RunJob, deps: WorkerDeps): Promise<Sto
     scenario.blueprint,
     job.triggerBundles,
     deps.registry,
+    {
+      scenarioId: scenario.id,
+      executionId: execution.id,
+      getConnection: deps.getConnection,
+    },
   );
 
-  const steps = toStepSnapshots(record, scenario.blueprint, job.triggerBundles);
+  // Redact any secret-keyed values before the snapshots are persisted.
+  const steps = toStepSnapshots(record, scenario.blueprint, job.triggerBundles).map((s) => ({
+    ...s,
+    input: redactSecrets(s.input),
+    output: redactSecrets(s.output),
+  }));
 
   return deps.executions.complete(execution.id, {
     status: record.status,

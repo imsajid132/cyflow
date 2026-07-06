@@ -1,4 +1,4 @@
-import type { ModuleKind, OperationRunner } from "@cyflow/shared";
+import type { AuthSchema, ModuleKind, OperationRunner } from "@cyflow/shared";
 import type { ZodTypeAny } from "zod";
 
 /**
@@ -8,27 +8,11 @@ import type { ZodTypeAny } from "zod";
  * it, and the engine only ever reaches modules through the registry seam
  * `registry.get(app, operation).run(...)`.
  *
- * Phase 2 defines the shape and ports the three built-ins onto it. Auth is a
- * declared-but-inert placeholder here; Phase 7 gives it teeth (encrypted
- * Connections, OAuth2 refresh, etc.).
+ * Auth (`App.auth`) is declared here and given teeth in Phase 7 (encrypted
+ * Connections, OAuth2). The auth type definitions live in @cyflow/shared and
+ * are re-exported for convenience.
  */
-
-/** How a user connects their own account for this app (Phase 7). */
-export type AuthType = "none" | "api_key" | "oauth2" | "basic" | "custom";
-
-/** One field a Connection collects (for api_key / basic / custom auth). */
-export interface AuthField {
-  key: string;
-  label: string;
-  type?: "text" | "password";
-  required?: boolean;
-}
-
-/** Declares what a Connection for this app needs. Inert until Phase 7. */
-export interface AuthSchema {
-  type: AuthType;
-  fields?: AuthField[];
-}
+export type { AuthType, AuthField, AuthSchema } from "@cyflow/shared";
 
 /** One module (operation) an app exposes. */
 export interface ModuleDef {

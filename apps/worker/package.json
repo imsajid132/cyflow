@@ -13,6 +13,7 @@
     "start": "tsx src/main.ts"
   },
   "dependencies": {
+    "@cyflow/connections": "workspace:*",
     "@cyflow/db": "workspace:*",
     "@cyflow/shared": "workspace:*",
     "bullmq": "^5.34.5",

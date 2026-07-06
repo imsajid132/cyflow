@@ -9,6 +9,34 @@ interface HttpParams {
 }
 
 /**
+ * Build auth headers from a decrypted connection's credentials (Phase 7).
+ * The credentials self-describe their `type`. Operates on plain values only —
+ * no crypto here — so it is browser-safe. Returns {} when no connection.
+ */
+export function buildAuthHeaders(
+  connection: Record<string, unknown> | null | undefined,
+): Record<string, string> {
+  if (!connection) return {};
+  const type = connection.type;
+
+  if (type === "bearer_token" && typeof connection.token === "string") {
+    return { authorization: `Bearer ${connection.token}` };
+  }
+  if (type === "api_key" && typeof connection.key === "string") {
+    const header = typeof connection.header === "string" ? connection.header : "x-api-key";
+    return { [header]: connection.key };
+  }
+  if (
+    type === "basic_auth" &&
+    typeof connection.username === "string" &&
+    typeof connection.password === "string"
+  ) {
+    return { authorization: `Basic ${btoa(`${connection.username}:${connection.password}`)}` };
+  }
+  return {};
+}
+
+/**
  * http.make_request — perform an HTTP call, return a single bundle
  * `{ statusCode, headers, data }`.
  *
@@ -16,7 +44,7 @@ interface HttpParams {
  * the user to branch on). Only network-level failures (DNS, refused, timeout)
  * and body-parse failures throw → the module errors and the run stops.
  */
-export const makeRequest: OperationRunner = async (_inputBundle, params): Promise<Bundle[]> => {
+export const makeRequest: OperationRunner = async (_inputBundle, params, ctx): Promise<Bundle[]> => {
   const { method = "GET", url, headers, body, query } = params as HttpParams;
 
   if (!url || typeof url !== "string") {
@@ -37,7 +65,11 @@ export const makeRequest: OperationRunner = async (_inputBundle, params): Promis
   }
 
   const upperMethod = method.toUpperCase();
-  const requestHeaders: Record<string, string> = { ...(headers ?? {}) };
+  // Explicit headers first, then auth from the module's connection (Phase 7).
+  const requestHeaders: Record<string, string> = {
+    ...(headers ?? {}),
+    ...buildAuthHeaders(ctx.connection),
+  };
   const init: RequestInit = { method: upperMethod, headers: requestHeaders };
 
   if (body !== undefined && upperMethod !== "GET" && upperMethod !== "HEAD") {

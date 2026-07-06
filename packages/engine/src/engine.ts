@@ -79,20 +79,30 @@ function applyFilter(
  * - Stop-on-error: the first throw marks that module `error`, sets the run
  *   `FAILED`, and returns immediately with the results gathered so far.
  */
+export interface RunScenarioOptions {
+  scenarioId?: string;
+  executionId?: string;
+  /** Resolves a module's connectionId → decrypted credentials (Phase 7). */
+  getConnection?: ExecutionContext["getConnection"];
+}
+
 export async function runScenario(
   blueprint: Blueprint,
   triggerBundles: Bundle[],
   registry: Registry,
+  options: RunScenarioOptions = {},
 ): Promise<ExecutionRecord> {
   const byId = new Map<string, ModuleNode>();
   for (const mod of blueprint.modules) byId.set(mod.id, mod);
 
   const ctx: ExecutionContext = {
-    scenarioId: "phase1-scenario",
-    executionId: "phase1-execution",
+    scenarioId: options.scenarioId ?? "phase1-scenario",
+    executionId: options.executionId ?? "phase1-execution",
     operations: 0,
     steps: {},
     trigger: triggerBundles,
+    getConnection: options.getConnection,
+    connection: null,
   };
 
   const first = blueprint.modules[0];
@@ -134,6 +144,11 @@ export async function runScenario(
 
     try {
       const registered = registry.get(mod.app, mod.operation); // throws on miss
+
+      // Resolve this module's connection credentials (Phase 7). Null when the
+      // module has no connectionId or no resolver is wired (e.g. browser replay).
+      ctx.connection =
+        mod.connectionId && ctx.getConnection ? await ctx.getConnection(mod.connectionId) : null;
 
       if (mod.kind === "aggregator") {
         // Aggregators break the per-bundle recursion (ARCHITECTURE §2): one run

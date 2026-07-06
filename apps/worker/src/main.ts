@@ -7,7 +7,8 @@
  * Needs Postgres + Redis (see docker-compose.yml) and DATABASE_URL / REDIS_URL.
  */
 import { createDefaultRegistry } from "engine";
-import { createPrismaRepositories } from "@cyflow/db";
+import { createPrismaRepositories, PrismaConnectionStore, prisma } from "@cyflow/db";
+import { ConnectionService, encryptionFromEnv } from "@cyflow/connections";
 import { createExecutionWorker, EXECUTIONS_QUEUE } from "./queue";
 
 function redisConnection() {
@@ -23,7 +24,15 @@ function main(): void {
   const { scenarios, executions } = createPrismaRepositories();
   const registry = createDefaultRegistry();
 
-  const worker = createExecutionWorker(redisConnection(), { scenarios, executions, registry });
+  // Connections vault: decrypts a module's credentials at run time only.
+  const connections = new ConnectionService(new PrismaConnectionStore(prisma), encryptionFromEnv());
+
+  const worker = createExecutionWorker(redisConnection(), {
+    scenarios,
+    executions,
+    registry,
+    getConnection: connections.toGetConnection(),
+  });
 
   worker.on("completed", (job) => {
     console.log(`[worker] execution completed for scenario ${job.data.scenarioId}`);

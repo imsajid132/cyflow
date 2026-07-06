@@ -46,8 +46,14 @@ export interface ExecutionContext {
   steps: Record<string, ModuleResult>;
   /** The trigger bundles that started this run. */
   trigger: Bundle[];
-  /** Resolves a Connection's decrypted credentials (Phase 7; stubbed earlier). */
+  /** Resolves a Connection's decrypted credentials (Phase 7). */
   getConnection?: (connectionId: string) => Promise<Record<string, unknown> | null>;
+  /**
+   * Decrypted credentials for the CURRENT module, resolved by the walker from
+   * the module's `connectionId` via `getConnection`. Null when the module has
+   * no connection (or no resolver is wired, e.g. the in-browser replay).
+   */
+  connection?: Record<string, unknown> | null;
 }
 
 /**
@@ -164,4 +170,99 @@ export interface ExecutionRepository {
   /** Finalise: set status/operations/error, finishedAt now, persist steps. */
   complete(executionId: string, input: CompleteExecutionInput): Promise<StoredExecution>;
   findById(id: string): Promise<StoredExecution | null>;
+}
+
+/* ============================================================
+   Phase 7 — auth framework + connections (bring-your-own-API).
+   ============================================================ */
+
+/** How a user connects their own account for an app. */
+export type AuthType =
+  | "none"
+  | "api_key"
+  | "bearer_token"
+  | "basic_auth"
+  | "oauth2"
+  | "custom";
+
+/** One field a Connection collects (for api_key / basic / custom auth). */
+export interface AuthField {
+  key: string;
+  label: string;
+  type?: "text" | "password";
+  required?: boolean;
+}
+
+/** Declares what a Connection for an app needs. */
+export interface AuthSchema {
+  type: AuthType;
+  fields?: AuthField[];
+}
+
+/** A stored connection row (credentials encrypted at rest). */
+export interface ConnectionRow {
+  id: string;
+  userId: string;
+  appKey: string;
+  name: string;
+  /** AES-256-GCM ciphertext of the JSON credentials — never plaintext. */
+  encryptedData: string;
+  createdAt: Date;
+}
+
+export interface CreateConnectionRow {
+  id?: string;
+  userId: string;
+  appKey: string;
+  name: string;
+  encryptedData: string;
+}
+
+/** Low-level encrypted-connection persistence (implemented by @cyflow/db). */
+export interface ConnectionStore {
+  create(row: CreateConnectionRow): Promise<ConnectionRow>;
+  findById(id: string): Promise<ConnectionRow | null>;
+  update(id: string, patch: { name?: string; encryptedData?: string }): Promise<ConnectionRow>;
+  delete(id: string): Promise<void>;
+  listByUser(userId: string): Promise<ConnectionRow[]>;
+}
+
+/** A connection as shown to users — no secrets. */
+export interface ConnectionSummary {
+  id: string;
+  appKey: string;
+  name: string;
+  createdAt: Date;
+}
+
+/**
+ * Deep-copy a value, masking known-secret keys with "[REDACTED]". Used before
+ * persisting execution snapshots or logging, so credentials never leak.
+ */
+export const DEFAULT_SECRET_KEYS = [
+  "password",
+  "token",
+  "access_token",
+  "refresh_token",
+  "apikey",
+  "api_key",
+  "secret",
+  "client_secret",
+  "authorization",
+];
+
+export function redactSecrets<T>(value: T, secretKeys: string[] = DEFAULT_SECRET_KEYS): T {
+  const secret = new Set(secretKeys.map((k) => k.toLowerCase()));
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === "object") {
+      const out: Record<string, unknown> = {};
+      for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+        out[k] = secret.has(k.toLowerCase()) ? "[REDACTED]" : walk(val);
+      }
+      return out;
+    }
+    return v;
+  };
+  return walk(value) as T;
 }
