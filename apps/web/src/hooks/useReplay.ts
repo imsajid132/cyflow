@@ -16,12 +16,22 @@ interface ReplayArgs {
  */
 export function useReplay({ steps, pathForPair, packetRef, reducedRef }: ReplayArgs) {
   const total = steps.length;
-  const [cursor, setCursor] = useState(0);
+  // Debug mode: a failed run opens focused on the failed step, not the trigger.
+  const failedIndex = steps.findIndex((s) => s.status === "error");
+  const initialCursor = failedIndex >= 0 ? failedIndex : 0;
+  const [cursor, setCursor] = useState(initialCursor);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const speedRef = useRef(speed);
   speedRef.current = speed;
   const rafId = useRef<number | null>(null);
+
+  // Re-focus (and stop) whenever a different execution is loaded.
+  useEffect(() => {
+    setPlaying(false);
+    const fi = steps.findIndex((s) => s.status === "error");
+    setCursor(fi >= 0 ? fi : 0);
+  }, [steps]);
 
   const statuses = useMemo(() => {
     const map: Record<string, NodeStatus> = {};

@@ -150,11 +150,39 @@ function leadsExecution(): StoredExecution {
   };
 }
 
+/** A failed demo execution: the HTTP module errors, OpenAI never runs. */
+function salesFailedExecution(): StoredExecution {
+  const started = new Date(Date.now() - 1440 * 60_000);
+  const trigger = { body: { date: "2026-07-06", source: "cron" } };
+  return {
+    id: "exec_sales_fail",
+    scenarioId: "scn_sales",
+    status: "FAILED",
+    operations: 2,
+    error: "http.make_request network error",
+    startedAt: started,
+    finishedAt: new Date(started.getTime() + 132),
+    steps: [
+      { moduleNodeId: "1", status: "success", operations: 1, input: [trigger], output: [trigger], ms: 2, order: 0 },
+      {
+        moduleNodeId: "2",
+        status: "error",
+        operations: 1,
+        input: [trigger],
+        output: [],
+        error: "make_request failed: connect ECONNREFUSED api.example.com:443",
+        ms: 118,
+        order: 1,
+      },
+    ],
+  };
+}
+
 function seedExecutions(): ExecutionEntry[] {
   return [
     { scenarioId: "scn_leads", scenarioName: "Enrich leads → Telegram digest", ranAt: iso(6), execution: leadsExecution(), blueprint: sampleBlueprint },
     { scenarioId: "scn_signup", scenarioName: "New signup → Slack alert", ranAt: iso(48), execution: emptyExecution("scn_signup", "SUCCESS", 2) },
-    { scenarioId: "scn_sales", scenarioName: "Daily sales summary", ranAt: iso(1440), execution: emptyExecution("scn_sales", "FAILED", 3) },
+    { scenarioId: "scn_sales", scenarioName: "Daily sales summary", ranAt: iso(1440), execution: salesFailedExecution(), blueprint: salesSummary },
   ];
 }
 

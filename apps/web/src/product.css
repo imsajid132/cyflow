@@ -322,6 +322,7 @@ textarea.input { resize: vertical; font-family: var(--font-body); line-height: 1
 /* ---------- execution replay ---------- */
 .statusbar__prog { display: inline-block; width: 90px; height: 5px; border-radius: 999px; background: rgba(255, 255, 255, 0.22); overflow: hidden; }
 .statusbar__prog > span { display: block; height: 100%; background: var(--lime-bright); transition: width 0.2s ease; }
+.statusbar.is-failed .statusbar__prog > span { background: var(--danger); }
 
 .playbar { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--radius-pill); background: var(--ink-70); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 8px 24px rgba(10, 10, 10, 0.3); }
 .playbar .chrome__btn { width: 30px; height: 30px; border-radius: 50%; background: none; border: none; color: var(--white); cursor: pointer; font-size: 1.1rem; display: grid; place-items: center; }

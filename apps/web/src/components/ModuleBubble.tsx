@@ -2,7 +2,7 @@ import type { KeyboardEvent } from "react";
 import type { UiModule } from "../scenario/model";
 import type { NodeStatus } from "../hooks/useRunOnce";
 import { ModuleIcon } from "./ModuleIcon";
-import { CheckIcon } from "./icons";
+import { CheckIcon, XIcon } from "./icons";
 
 interface ModuleBubbleProps {
   module: UiModule;
@@ -49,7 +49,7 @@ export function ModuleBubble({ module, status, selected, onSelect, bubbleRef }: 
       <div className="bubble" ref={bubbleRef} tabIndex={-1}>
         <ModuleIcon app={module.node.app} operation={module.node.operation} sw={1.7} />
         <div className="node__badge" aria-hidden="true">
-          <CheckIcon sw={3} width={13} height={13} />
+          {status === "error" ? <XIcon sw={3.2} width={12} height={12} /> : <CheckIcon sw={3} width={13} height={13} />}
         </div>
       </div>
       <div className="node__label">{module.label}</div>

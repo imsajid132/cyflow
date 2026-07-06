@@ -270,6 +270,7 @@ body{
 }
 .node__badge svg{ width:13px; height:13px; }
 .node.is-success .node__badge{ opacity:1; transform:scale(1); }
+.node.is-error .node__badge{ opacity:1; transform:scale(1); color:var(--danger); }
 
 /* ops meter floating on the canvas */
 .opsmeter{
