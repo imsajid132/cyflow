@@ -9,8 +9,8 @@ interface ModuleBubbleProps {
   status: NodeStatus;
   selected: boolean;
   onSelect: () => void;
-  /** Callback ref to the .bubble element, used for connector geometry. */
-  bubbleRef: (el: HTMLDivElement | null) => void;
+  /** Callback ref to the .bubble element (optional). */
+  bubbleRef?: (el: HTMLDivElement | null) => void;
 }
 
 /**

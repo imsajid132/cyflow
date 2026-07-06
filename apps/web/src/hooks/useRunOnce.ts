@@ -4,40 +4,37 @@ import type { StoredExecution } from "@cyflow/shared";
 export type NodeStatus = "idle" | "running" | "success" | "error";
 
 interface RunOnceArgs {
-  /** Module ids in chain order (index i ↔ bubble i). */
-  moduleIds: string[];
+  /** All module ids (used to reset statuses). */
+  order: string[];
   /** Runs the real engine and returns a persisted-style Execution. */
   execute: () => Promise<StoredExecution>;
-  /** DOM refs to each connector <path> (length moduleIds.length - 1). */
-  pathRefs: MutableRefObject<(SVGPathElement | null)[]>;
   /** DOM ref to the travelling packet <circle>. */
   packetRef: MutableRefObject<SVGCircleElement | null>;
-  /** Latest `prefers-reduced-motion` value, read imperatively. */
+  /** Resolve the connector <path> between two modules (for the packet). */
+  pathForPair: (fromId: string, toId: string) => SVGPathElement | null;
   reducedRef: MutableRefObject<boolean>;
-  /** Selection follows the active module during a run (Make behaviour). */
-  onSelect: (index: number) => void;
-  /** Publishes the finished execution so the inspector can read snapshots. */
+  /** Selection follows the active module during the replay. */
+  onSelect: (moduleId: string) => void;
   onExecution: (execution: StoredExecution | null) => void;
 }
 
 /**
- * The "Run Once" replay controller. It runs the REAL engine, then walks the
- * execution's steps: each module lights up (running glow), settles to
- * success/error, the operations counter advances by that step's real operation
- * count (so a fan-out jumps accordingly), and a lime packet travels to the next
- * module. Reduced motion drops the travelling glow and resolves near-instantly.
+ * Branch-aware "Run once" replay. Runs the real engine, then walks the
+ * execution's steps in order: each module lights up, settles to success/error,
+ * the operations counter advances by that step's real count, and a lime packet
+ * travels the connector to the next module (when a direct edge exists — across a
+ * branch jump it simply advances). Reduced motion skips the packet.
  */
 export function useRunOnce({
-  moduleIds,
+  order,
   execute,
-  pathRefs,
   packetRef,
+  pathForPair,
   reducedRef,
   onSelect,
   onExecution,
 }: RunOnceArgs) {
-  const count = moduleIds.length;
-  const [statuses, setStatuses] = useState<NodeStatus[]>(() => Array(count).fill("idle"));
+  const [statuses, setStatuses] = useState<Record<string, NodeStatus>>({});
   const [ops, setOps] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
 
@@ -53,32 +50,20 @@ export function useRunOnce({
       rafId.current = null;
     }
   };
-
   const hidePacket = () => {
     if (packetRef.current) packetRef.current.style.opacity = "0";
   };
+  const setStatus = (id: string, value: NodeStatus) =>
+    setStatuses((prev) => ({ ...prev, [id]: value }));
 
-  const setStatus = (index: number, value: NodeStatus) =>
-    setStatuses((prev) => prev.map((s, i) => (i === index ? value : s)));
-
-  const reset = useCallback(() => {
-    if (runningRef.current) return;
-    clearTimers();
-    setStatuses(Array(count).fill("idle"));
-    setOps(0);
-    hidePacket();
-    onExecution(null);
-  }, [count]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const animatePacket = (linkIndex: number, done: () => void) => {
-    const path = pathRefs.current?.[linkIndex];
+  const animatePacket = (path: SVGPathElement | null, done: () => void) => {
     const packet = packetRef.current;
     if (reducedRef.current || !path || !packet) {
       done();
       return;
     }
     const total = path.getTotalLength();
-    const duration = 620;
+    const duration = 560;
     let start: number | null = null;
     const step = (ts: number) => {
       if (start === null) start = ts;
@@ -87,9 +72,8 @@ export function useRunOnce({
       packet.setAttribute("cx", String(p.x));
       packet.setAttribute("cy", String(p.y));
       packet.style.opacity = "1";
-      if (t < 1) {
-        rafId.current = requestAnimationFrame(step);
-      } else {
+      if (t < 1) rafId.current = requestAnimationFrame(step);
+      else {
         packet.style.opacity = "0";
         done();
       }
@@ -108,7 +92,7 @@ export function useRunOnce({
     runningRef.current = true;
     setIsRunning(true);
     clearTimers();
-    setStatuses(Array(count).fill("idle"));
+    setStatuses(Object.fromEntries(order.map((id) => [id, "idle"])));
     setOps(0);
     hidePacket();
     onExecution(null);
@@ -122,45 +106,39 @@ export function useRunOnce({
       return;
     }
 
-    const indexOf = new Map(moduleIds.map((id, i) => [id, i]));
     const steps = execution.steps;
     let opsAcc = 0;
-
     const animateStep = (k: number) => {
       if (k >= steps.length) {
         finish(execution);
         return;
       }
       const step = steps[k];
-      const index = indexOf.get(step.moduleNodeId) ?? k;
-      setStatus(index, "running");
-      onSelect(index);
-
-      const hold = reducedRef.current ? 90 : 480;
+      setStatus(step.moduleNodeId, "running");
+      onSelect(step.moduleNodeId);
+      const hold = reducedRef.current ? 90 : 460;
       const t = setTimeout(() => {
         const errored = step.status === "error";
-        setStatus(index, errored ? "error" : "success");
+        setStatus(step.moduleNodeId, errored ? "error" : "success");
         opsAcc += step.operations;
         setOps(opsAcc);
-
         if (errored) {
           finish(execution);
           return;
         }
         if (k < steps.length - 1) {
-          animatePacket(index, () => animateStep(k + 1));
+          const path = pathForPair(step.moduleNodeId, steps[k + 1].moduleNodeId);
+          animatePacket(path, () => animateStep(k + 1));
         } else {
           finish(execution);
         }
       }, hold);
       timers.current.push(t);
     };
-
     animateStep(0);
-  }, [count, execute, moduleIds, onSelect, onExecution]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [order, execute, onSelect, onExecution, pathForPair]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Clean up any in-flight timers / animation frames on unmount.
   useEffect(() => clearTimers, []);
 
-  return { statuses, ops, isRunning, run, reset };
+  return { statuses, ops, isRunning, run };
 }

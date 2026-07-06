@@ -30,8 +30,39 @@ const salesSummary: Blueprint = {
   ],
 };
 
+const ticketRouter: Blueprint = {
+  modules: [
+    { id: "1", app: "webhook", operation: "custom_webhook", kind: "trigger", params: { name: "New ticket" }, next: "2" },
+    {
+      id: "2",
+      app: "flow",
+      operation: "router",
+      kind: "router",
+      params: {},
+      routes: [
+        { label: "urgent", filter: { left: "{{1.body.priority}}", operator: "equals", right: "high" }, next: "3" },
+        { label: "normal", next: "4" },
+      ],
+      next: null,
+    },
+    { id: "3", app: "slack", operation: "send_message", kind: "action", params: { channel: "#urgent", text: "Urgent: {{1.body.subject}}" }, connectionId: "conn_slack", next: null },
+    { id: "4", app: "gmail", operation: "send_email", kind: "action", params: { to: "support@acme.dev", subject: "Ticket", body: "{{1.body.subject}}" }, next: null },
+  ],
+};
+
 function seedScenarios(): Scenario[] {
   return [
+    {
+      id: "scn_router",
+      name: "Support ticket router",
+      status: "ACTIVE",
+      schedule: { type: "manual" },
+      blueprint: ticketRouter,
+      lastRunAt: iso(20),
+      lastStatus: "SUCCESS",
+      operations: 4,
+      updatedAt: iso(20),
+    },
     {
       id: "scn_leads",
       name: "Enrich leads → Telegram digest",

@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { StoredExecution } from "@cyflow/shared";
 import { useStore } from "../../store/appStore";
 import type { Schedule } from "../../store/types";
-import { deriveModules } from "../../scenario/model";
+import { layoutScenario, NODE_W } from "../../scenario/layout";
 import { runOnce } from "../../scenario/localEngine";
 import {
   insertModule,
@@ -14,62 +14,41 @@ import {
 import { useReducedMotion } from "../../hooks/useReducedMotion";
 import { useRunOnce } from "../../hooks/useRunOnce";
 import { ModuleBubble } from "../ModuleBubble";
-import { ConnectorLinks } from "../ConnectorLinks";
 import { Button } from "../Button";
 import { StatusPill } from "../ui";
-import {
-  ArrowLeftIcon,
-  PlayIcon,
-  CalendarIcon,
-  PlusIcon,
-  MinusIcon,
-  FitIcon,
-} from "../icons";
+import { ArrowLeftIcon, PlayIcon, CalendarIcon, PlusIcon, MinusIcon, FitIcon, CheckIcon, ExecutionsIcon } from "../icons";
 import { ModuleConfigPanel } from "./ModuleConfigPanel";
 import { ModulePicker } from "./ModulePicker";
 import { ScheduleModal } from "./ScheduleModal";
+import { HistoryModal } from "./HistoryModal";
 
-interface AddPos {
-  x: number;
-  y: number;
-  afterId: string | null;
-}
-
-const clampZoom = (z: number) => Math.min(1.4, Math.max(0.4, z));
+const clampZoom = (z: number) => Math.min(1.4, Math.max(0.35, z));
 
 export function ScenarioBuilder() {
   const store = useStore();
   const scenario = store.scenarioById(store.selectedScenarioId);
 
-  const flowRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
-  const bubbleRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const pathRefs = useRef<(SVGPathElement | null)[]>([]);
   const packetRef = useRef<SVGCircleElement | null>(null);
+  const pathMap = useRef<Map<string, SVGPathElement | null>>(new Map());
 
-  const [paths, setPaths] = useState<string[]>([]);
-  const [size, setSize] = useState({ w: 0, h: 0 });
-  const [adds, setAdds] = useState<AddPos[]>([]);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
-
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [execution, setExecution] = useState<StoredExecution | null>(null);
   const [picker, setPicker] = useState<{ afterId: string | null } | null>(null);
   const [scheduling, setScheduling] = useState(false);
+  const [history, setHistory] = useState(false);
 
-  const modules = useMemo(
-    () => (scenario ? deriveModules(scenario.blueprint) : []),
+  const layout = useMemo(
+    () => (scenario ? layoutScenario(scenario.blueprint) : { nodes: [], edges: [], width: 0, height: 0 }),
     [scenario?.blueprint], // eslint-disable-line react-hooks/exhaustive-deps
   );
-  const moduleIds = useMemo(() => modules.map((m) => m.node.id), [modules]);
+  const order = useMemo(() => layout.nodes.map((n) => n.node.id), [layout]);
   const { reducedRef } = useReducedMotion();
 
-  const execute = useCallback(
-    () => runOnce(scenario!.blueprint),
-    [scenario], // eslint-disable-line react-hooks/exhaustive-deps
-  );
-
+  const execute = useCallback(() => runOnce(scenario!.blueprint), [scenario]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pathForPair = useCallback((from: string, to: string) => pathMap.current.get(`${from}->${to}`) ?? null, []);
   const onExecution = useCallback(
     (exec: StoredExecution | null) => {
       setExecution(exec);
@@ -78,106 +57,40 @@ export function ScenarioBuilder() {
     [scenario, store],
   );
 
-  const onSelectIndex = useCallback(
-    (i: number) => setSelectedId(moduleIds[i] ?? null),
-    [moduleIds],
-  );
-
   const { statuses, ops, isRunning, run } = useRunOnce({
-    moduleIds,
+    order,
     execute,
-    pathRefs,
     packetRef,
+    pathForPair,
     reducedRef,
-    onSelect: onSelectIndex,
+    onSelect: setSelectedId,
     onExecution,
   });
 
-  // ---- geometry (unscaled, zoom-compensated) ----
-  const drawLinks = useCallback(() => {
-    const flow = flowRef.current;
-    if (!flow) return;
-    const fr = flow.getBoundingClientRect();
-    const z = zoom || 1;
-    const nextPaths: string[] = [];
-    const nextAdds: AddPos[] = [];
-
-    const centre = (el: HTMLElement) => {
-      const r = el.getBoundingClientRect();
-      return {
-        x: (r.left - fr.left + r.width / 2) / z,
-        y: (r.top - fr.top + r.height / 2) / z,
-        rad: r.width / 2 / z,
-      };
-    };
-
-    for (let i = 0; i < modules.length - 1; i++) {
-      const a = bubbleRefs.current[i];
-      const b = bubbleRefs.current[i + 1];
-      if (!a || !b) {
-        nextPaths.push("");
-        continue;
-      }
-      const ca = centre(a);
-      const cb = centre(b);
-      const x1 = ca.x + ca.rad + 2;
-      const x2 = cb.x - cb.rad - 2;
-      const mx = (x1 + x2) / 2;
-      nextPaths.push(`M ${x1} ${ca.y} C ${mx} ${ca.y} ${mx} ${cb.y} ${x2} ${cb.y}`);
-      nextAdds.push({ x: (x1 + x2) / 2, y: (ca.y + cb.y) / 2, afterId: modules[i].node.id });
-    }
-
-    // end (append) button
-    const last = bubbleRefs.current[modules.length - 1];
-    if (last) {
-      const cl = centre(last);
-      nextAdds.push({ x: cl.x + cl.rad + 44, y: cl.y, afterId: modules[modules.length - 1].node.id });
-    }
-
-    setPaths(nextPaths);
-    setAdds(nextAdds);
-    setSize({ w: fr.width / z, h: fr.height / z });
-  }, [modules, zoom]);
-
-  useLayoutEffect(() => {
-    drawLinks();
-  }, [drawLinks]);
-
-  useEffect(() => {
-    const onResize = () => drawLinks();
-    window.addEventListener("resize", onResize);
-    if (document.fonts?.ready) document.fonts.ready.then(drawLinks).catch(() => {});
-    return () => window.removeEventListener("resize", onResize);
-  }, [drawLinks]);
-
+  // fit-to-screen from the computed layout size (no DOM measurement)
   const fit = useCallback(() => {
     const stage = stageRef.current;
-    const flow = flowRef.current;
-    if (!stage || !flow) return;
-    const flowW = flow.scrollWidth / (zoom || 1);
-    const stageW = stage.clientWidth;
-    const next = clampZoom(Math.min(1, (stageW - 120) / Math.max(flowW, 1)));
-    setZoom(next);
+    if (!stage || layout.width === 0) return;
+    const zw = (stage.clientWidth - 90) / layout.width;
+    const zh = (stage.clientHeight - 90) / layout.height;
+    setZoom(clampZoom(Math.min(1, zw, zh)));
     setPan({ x: 0, y: 0 });
-  }, [zoom]);
+  }, [layout.width, layout.height]);
 
-  // fit when the scenario / module count changes
   useEffect(() => {
-    const t = setTimeout(fit, 60);
+    const t = setTimeout(fit, 40);
     return () => clearTimeout(t);
-  }, [scenario?.id, modules.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [scenario?.id, layout.width, layout.height]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ---- pan ----
+  // pan
   const dragging = useRef<{ x: number; y: number } | null>(null);
   const onPointerDown = (e: React.PointerEvent) => {
-    const target = e.target as HTMLElement;
-    if (target.closest(".node, .addbtn, .chrome, .statusbar, .dockpanel")) return;
+    if ((e.target as HTMLElement).closest(".node, .addbtn, .chrome, .statusbar, .dockpanel")) return;
     dragging.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
   const onPointerMove = (e: React.PointerEvent) => {
-    if (!dragging.current) return;
-    setPan({ x: e.clientX - dragging.current.x, y: e.clientY - dragging.current.y });
+    if (dragging.current) setPan({ x: e.clientX - dragging.current.x, y: e.clientY - dragging.current.y });
   };
   const onPointerUp = () => {
     dragging.current = null;
@@ -204,8 +117,14 @@ export function ScenarioBuilder() {
     setPicker(null);
   };
 
-  const selectedModule = modules.find((m) => m.node.id === selectedId);
-  const selectedIdx = modules.findIndex((m) => m.node.id === selectedId);
+  const fromIds = new Set(layout.edges.map((e) => e.fromId));
+  const leaves = layout.nodes.filter(
+    (n) => !fromIds.has(n.node.id) && !(n.node.routes && n.node.routes.length),
+  );
+
+  const selectedNode = layout.nodes.find((n) => n.node.id === selectedId);
+  const predecessorId = layout.edges.find((e) => e.toId === selectedId)?.fromId ?? null;
+  const upstream = selectedNode ? layout.nodes.filter((n) => n.number < selectedNode.number) : [];
   const selectedStep = execution?.steps.find((s) => s.moduleNodeId === selectedId);
 
   const worldStyle: React.CSSProperties = {
@@ -213,6 +132,8 @@ export function ScenarioBuilder() {
     top: "50%",
     transformOrigin: "center",
     transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+    width: layout.width,
+    height: layout.height,
   };
 
   return (
@@ -229,18 +150,18 @@ export function ScenarioBuilder() {
         />
         <div className="builder__status">
           <StatusPill status={scenario.status} />
+          <span className="muted" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <CheckIcon sw={2.4} width={13} height={13} /> Saved
+          </span>
         </div>
         <div className="builder__actions">
+          <Button variant="ghost" icon={<ExecutionsIcon width={15} height={15} />} onClick={() => setHistory(true)}>
+            History
+          </Button>
           <Button variant="ghost" icon={<CalendarIcon width={15} height={15} />} onClick={() => setScheduling(true)}>
             Schedule
           </Button>
-          <Button
-            variant="ghost"
-            onClick={() => store.updateScenario(scenario.id, { status: scenario.status === "DRAFT" ? "ACTIVE" : scenario.status })}
-          >
-            Save
-          </Button>
-          <Button variant="primary" icon={<PlayIcon width={15} height={15} />} onClick={run} disabled={isRunning || modules.length === 0}>
+          <Button variant="primary" icon={<PlayIcon width={15} height={15} />} onClick={run} disabled={isRunning || layout.nodes.length === 0}>
             Run once
           </Button>
         </div>
@@ -266,50 +187,62 @@ export function ScenarioBuilder() {
           </div>
         )}
 
-        {modules.length === 0 ? (
+        {layout.nodes.length === 0 ? (
           <div className="builder__empty">
             <div style={{ textAlign: "center" }}>
-              <button className="addbtn" style={{ width: 56, height: 56, margin: "0 auto 12px", position: "static" }} onClick={() => setPicker({ afterId: null })} aria-label="Add first module">
+              <button className="addbtn" style={{ position: "static", width: 56, height: 56, margin: "0 auto 12px" }} onClick={() => setPicker({ afterId: null })} aria-label="Add first module">
                 <PlusIcon width={22} height={22} />
               </button>
-              <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: "1.05rem" }}>
-                Add your first module
-              </div>
+              <div style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: "1.05rem" }}>Add your first module</div>
               <div className="muted">Start with a trigger, like a Webhook.</div>
             </div>
           </div>
         ) : (
           <div className="world" style={worldStyle}>
-            <div className="flow" ref={flowRef}>
-              <ConnectorLinks paths={paths} width={size.w} height={size.h} pathRefs={pathRefs} packetRef={packetRef} />
-              {modules.map((m, i) => (
-                <ModuleBubble
-                  key={m.node.id}
-                  module={m}
-                  status={statuses[i]}
-                  selected={selectedId === m.node.id}
-                  onSelect={() => setSelectedId(m.node.id)}
-                  bubbleRef={(el) => {
-                    bubbleRefs.current[i] = el;
-                  }}
-                />
+            <div className="flow" style={{ width: layout.width, height: layout.height }}>
+              <svg className="links" width={layout.width} height={layout.height} viewBox={`0 0 ${layout.width} ${layout.height}`} aria-hidden>
+                {layout.edges.map((e) => (
+                  <path key={e.key} d={e.d} ref={(el) => pathMap.current.set(e.key, el)} />
+                ))}
+                <circle className="packet" r={7} ref={packetRef} />
+              </svg>
+
+              {layout.nodes.map((n) => (
+                <div className="bubblewrap" key={n.node.id} style={{ left: n.x, top: n.y, width: NODE_W }}>
+                  <ModuleBubble
+                    module={n}
+                    status={statuses[n.node.id] ?? "idle"}
+                    selected={selectedId === n.node.id}
+                    onSelect={() => setSelectedId(n.node.id)}
+                  />
+                </div>
               ))}
-              {adds.map((a, i) => (
-                <button
-                  key={i}
-                  className="addbtn"
-                  style={{ position: "absolute", left: a.x, top: a.y, transform: "translate(-50%, -50%)" }}
-                  onClick={() => setPicker({ afterId: a.afterId })}
-                  aria-label="Add a module"
-                >
-                  <PlusIcon width={16} height={16} />
+
+              {layout.edges.map((e) =>
+                e.label ? (
+                  <div key={`l_${e.key}`} className={`edgelabel${e.router ? " edgelabel--router" : ""}`} style={{ left: e.midX, top: e.midY - 26 }}>
+                    {e.label}
+                  </div>
+                ) : null,
+              )}
+
+              {layout.edges
+                .filter((e) => !e.router)
+                .map((e) => (
+                  <button key={`a_${e.key}`} className="addbtn" style={{ left: e.midX, top: e.midY, transform: "translate(-50%, -50%)" }} onClick={() => setPicker({ afterId: e.fromId })} aria-label="Add a module">
+                    <PlusIcon width={15} height={15} />
+                  </button>
+                ))}
+
+              {leaves.map((n) => (
+                <button key={`e_${n.node.id}`} className="addbtn" style={{ left: n.x + NODE_W / 2 + 44 + 22, top: n.y + 44, transform: "translate(-50%, -50%)" }} onClick={() => setPicker({ afterId: n.node.id })} aria-label="Add a module">
+                  <PlusIcon width={15} height={15} />
                 </button>
               ))}
             </div>
           </div>
         )}
 
-        {/* zoom controls */}
         <div className="chrome chrome--zoom">
           <button className="chrome__btn" onClick={() => setZoom((z) => clampZoom(z - 0.1))} aria-label="Zoom out">
             <MinusIcon />
@@ -319,34 +252,32 @@ export function ScenarioBuilder() {
             <PlusIcon />
           </button>
         </div>
-        {/* mini toolbar */}
         <div className="chrome chrome--tools">
           <button className="chrome__btn" onClick={fit} aria-label="Fit to screen">
             <FitIcon />
           </button>
         </div>
 
-        {selectedModule ? (
+        {selectedNode ? (
           <div className="dockpanel">
             <ModuleConfigPanel
-              module={selectedModule.node}
-              moduleNumber={selectedIdx + 1}
-              predecessorId={selectedIdx > 0 ? modules[selectedIdx - 1].node.id : null}
+              module={selectedNode.node}
+              moduleNumber={selectedNode.number}
+              predecessorId={predecessorId}
+              upstream={upstream.map((u) => ({ id: u.node.id, label: u.label, number: u.number, node: u.node }))}
               connections={store.connections}
               step={selectedStep}
-              onSave={(params) =>
-                store.updateScenario(scenario.id, { blueprint: updateModuleParams(scenario.blueprint, selectedModule.node.id, params) })
-              }
+              onSave={(params) => store.updateScenario(scenario.id, { blueprint: updateModuleParams(scenario.blueprint, selectedNode.node.id, params) })}
               onConnection={(connId) => {
                 if (connId === "__new") {
                   store.navigate("connections");
                   return;
                 }
-                store.updateScenario(scenario.id, { blueprint: updateModuleConnection(scenario.blueprint, selectedModule.node.id, connId) });
+                store.updateScenario(scenario.id, { blueprint: updateModuleConnection(scenario.blueprint, selectedNode.node.id, connId) });
               }}
               onTest={run}
               onDelete={() => {
-                store.updateScenario(scenario.id, { blueprint: removeModule(scenario.blueprint, selectedModule.node.id) });
+                store.updateScenario(scenario.id, { blueprint: removeModule(scenario.blueprint, selectedNode.node.id) });
                 setSelectedId(null);
               }}
               onClose={() => setSelectedId(null)}
@@ -355,10 +286,7 @@ export function ScenarioBuilder() {
         ) : null}
       </div>
 
-      {picker ? (
-        <ModulePicker onPick={(app, op) => addModule(app, op, picker.afterId)} onClose={() => setPicker(null)} />
-      ) : null}
-
+      {picker ? <ModulePicker onPick={(app, op) => addModule(app, op, picker.afterId)} onClose={() => setPicker(null)} /> : null}
       {scheduling ? (
         <ScheduleModal
           schedule={scenario.schedule}
@@ -374,6 +302,7 @@ export function ScenarioBuilder() {
           onClose={() => setScheduling(false)}
         />
       ) : null}
+      {history ? <HistoryModal scenarioId={scenario.id} onClose={() => setHistory(false)} /> : null}
     </div>
   );
 }

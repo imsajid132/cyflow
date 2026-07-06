@@ -30,9 +30,10 @@ const META: Record<string, { label: string; sub: string }> = {
   "flow.router": { label: "Router", sub: "Branch routes" },
 };
 
-function metaFor(node: ModuleNode): { label: string; sub: string } {
+export function nodeMeta(node: ModuleNode): { label: string; sub: string } {
   return META[`${node.app}.${node.operation}`] ?? { label: node.app, sub: node.operation };
 }
+const metaFor = nodeMeta;
 
 /** Walk the blueprint's `next` chain into an ordered list of UI modules. */
 export function deriveModules(blueprint: Blueprint): UiModule[] {

@@ -1,12 +1,20 @@
-import { Fragment, useEffect, useState } from "react";
-import type { ModuleNode, StoredExecutionStep } from "@cyflow/shared";
+import { Fragment, useEffect, useRef, useState } from "react";
+import type { ModuleNode, StoredExecution, StoredExecutionStep } from "@cyflow/shared";
 import type { Connection } from "../../store/types";
 import { ModuleIcon } from "../ModuleIcon";
 import { StatusChip } from "../StatusChip";
 import { MappingToken } from "../MappingToken";
 import { Button } from "../Button";
 import { findApp, findModule } from "../../data/catalog";
-import { PlayIcon, XIcon } from "../icons";
+import { outputFields } from "../../scenario/outputs";
+import { PlayIcon, XIcon, ChevronRightIcon } from "../icons";
+
+export interface UpstreamModule {
+  id: string;
+  label: string;
+  number: number;
+  node: ModuleNode;
+}
 
 function TokenPreview({ value }: { value: string }) {
   const parts = value.split(/(\{\{[^}]+\}\})/g).filter((p) => p !== "");
@@ -23,8 +31,10 @@ interface Props {
   module: ModuleNode;
   moduleNumber: number;
   predecessorId: string | null;
+  upstream: UpstreamModule[];
   connections: Connection[];
   step?: StoredExecutionStep;
+  execution?: StoredExecution | null;
   onSave: (params: Record<string, unknown>) => void;
   onConnection: (connectionId: string | null) => void;
   onTest: () => void;
@@ -36,6 +46,7 @@ export function ModuleConfigPanel({
   module,
   moduleNumber,
   predecessorId,
+  upstream,
   connections,
   step,
   onSave,
@@ -47,18 +58,50 @@ export function ModuleConfigPanel({
   const app = findApp(module.app);
   const def = findModule(module.app, module.operation);
   const [params, setParams] = useState<Record<string, unknown>>({ ...module.params });
+  const [activeField, setActiveField] = useState<string | null>(null);
+  const [showMap, setShowMap] = useState(false);
+  const [tab, setTab] = useState<"output" | "input">("output");
+  const [bundleIdx, setBundleIdx] = useState(0);
+
+  const inputRefs = useRef<Record<string, HTMLInputElement | HTMLTextAreaElement | null>>({});
+  const pendingCursor = useRef<{ key: string; pos: number } | null>(null);
 
   useEffect(() => {
     setParams({ ...module.params });
+    setActiveField(null);
+    setBundleIdx(0);
   }, [module.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const appConnections = connections.filter((c) => c.appKey === module.app);
+  useEffect(() => {
+    const pc = pendingCursor.current;
+    if (pc) {
+      const el = inputRefs.current[pc.key];
+      if (el) {
+        el.focus();
+        el.setSelectionRange(pc.pos, pc.pos);
+      }
+      pendingCursor.current = null;
+    }
+  });
 
+  const mappableFields = (def?.params ?? []).filter((f) => f.mappable);
+  const appConnections = connections.filter((c) => c.appKey === module.app);
   const setField = (key: string, value: unknown) => setParams((p) => ({ ...p, [key]: value }));
-  const insertMapping = (key: string) => {
-    const token = predecessorId ? `{{${predecessorId}.}}` : "{{1.}}";
-    setField(key, `${String(params[key] ?? "")}${token}`);
+
+  const insertToken = (token: string) => {
+    const key = activeField ?? mappableFields[0]?.key;
+    if (!key) return;
+    const el = inputRefs.current[key];
+    const current = String(params[key] ?? "");
+    const start = el?.selectionStart ?? current.length;
+    const end = el?.selectionEnd ?? current.length;
+    const next = current.slice(0, start) + token + current.slice(end);
+    setField(key, next);
+    pendingCursor.current = { key, pos: start + token.length };
   };
+
+  const bundles = step ? (tab === "input" ? step.input : step.output) : [];
+  const bundle = bundles[Math.min(bundleIdx, Math.max(bundles.length - 1, 0))];
 
   return (
     <aside className="panel glass" aria-label="Module configuration">
@@ -66,10 +109,10 @@ export function ModuleConfigPanel({
         <div className="panel__icon">
           <ModuleIcon app={module.app} operation={module.operation} sw={1.8} />
         </div>
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <h2>{def?.name ?? module.operation}</h2>
           <span>
-            {app?.name ?? module.app} · module #{moduleNumber}
+            {app?.name ?? module.app} · #{moduleNumber}
           </span>
         </div>
         <button className="modal__x" onClick={onClose} aria-label="Close">
@@ -79,9 +122,7 @@ export function ModuleConfigPanel({
 
       {step ? (
         <div className="panel__status">
-          <StatusChip kind={step.status === "error" ? "failed" : "success"}>
-            {step.status === "error" ? "Failed" : "Succeeded"}
-          </StatusChip>
+          <StatusChip kind={step.status === "error" ? "failed" : "success"}>{step.status === "error" ? "Failed" : "Succeeded"}</StatusChip>
           <span className="chip">{step.operations} op{step.operations === 1 ? "" : "s"}</span>
           <span className="chip">{step.ms}ms</span>
         </div>
@@ -91,17 +132,10 @@ export function ModuleConfigPanel({
         {app?.auth ? (
           <div className="field">
             <label htmlFor="conn">Connection</label>
-            <select
-              className="input"
-              id="conn"
-              value={module.connectionId ?? ""}
-              onChange={(e) => onConnection(e.target.value || null)}
-            >
+            <select className="input" id="conn" value={module.connectionId ?? ""} onChange={(e) => onConnection(e.target.value || null)}>
               <option value="">Select a connection…</option>
               {appConnections.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
+                <option key={c.id} value={c.id}>{c.name}</option>
               ))}
               <option value="__new">Add a new connection…</option>
             </select>
@@ -109,95 +143,107 @@ export function ModuleConfigPanel({
           </div>
         ) : null}
 
-        {(def?.params ?? []).length === 0 ? (
-          <div className="field">
-            <span className="hint">This module has no parameters.</span>
-          </div>
-        ) : null}
+        {(def?.params ?? []).length === 0 ? <div className="field"><span className="hint">This module has no parameters.</span></div> : null}
 
         {(def?.params ?? []).map((field) => {
           const value = String(params[field.key] ?? "");
+          const common = {
+            id: `f_${field.key}`,
+            className: "input" + (field.mappable ? " mono" : ""),
+            value,
+            placeholder: field.placeholder,
+            onFocus: () => setActiveField(field.key),
+            ref: (el: HTMLInputElement | HTMLTextAreaElement | null) => {
+              inputRefs.current[field.key] = el;
+            },
+          };
           return (
             <div className="field" key={field.key}>
               <label htmlFor={`f_${field.key}`}>{field.label}</label>
               {field.type === "select" ? (
-                <select
-                  className="input"
-                  id={`f_${field.key}`}
-                  value={value}
-                  onChange={(e) => setField(field.key, e.target.value)}
-                >
+                <select className="input" id={`f_${field.key}`} value={value} onChange={(e) => setField(field.key, e.target.value)} onFocus={() => setActiveField(field.key)}>
                   {(field.options ?? []).map((o) => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
+                    <option key={o} value={o}>{o}</option>
                   ))}
                 </select>
               ) : field.type === "textarea" ? (
-                <textarea
-                  className="input"
-                  id={`f_${field.key}`}
-                  rows={3}
-                  value={value}
-                  placeholder={field.placeholder}
-                  onChange={(e) => setField(field.key, e.target.value)}
-                />
+                <textarea {...common} rows={3} onChange={(e) => setField(field.key, e.target.value)} />
               ) : (
-                <input
-                  className="input"
-                  id={`f_${field.key}`}
-                  type={field.type === "number" ? "number" : "text"}
-                  value={value}
-                  placeholder={field.placeholder}
-                  onChange={(e) =>
-                    setField(field.key, field.type === "number" ? Number(e.target.value) : e.target.value)
-                  }
-                />
+                <input {...common} type={field.type === "number" ? "number" : "text"} onChange={(e) => setField(field.key, field.type === "number" ? Number(e.target.value) : e.target.value)} />
               )}
-              {field.mappable ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <button className="token" type="button" onClick={() => insertMapping(field.key)}>
-                    + insert mapping
-                  </button>
-                  {value.includes("{{") ? (
-                    <span className="mapfield" style={{ flex: 1, minWidth: 120 }}>
-                      <TokenPreview value={value} />
-                    </span>
-                  ) : null}
-                </div>
+              {field.mappable && value.includes("{{") ? (
+                <span className="mapfield"><TokenPreview value={value} /></span>
               ) : null}
             </div>
           );
         })}
 
+        {mappableFields.length > 0 && upstream.length > 0 ? (
+          <div className="field">
+            <button className="mapping__toggle" onClick={() => setShowMap((s) => !s)}>
+              <ChevronRightIcon width={13} height={13} style={{ transform: showMap ? "rotate(90deg)" : "none", transition: "transform .12s" }} />
+              Mappings from earlier modules
+            </button>
+            {showMap ? (
+              <div className="mapping">
+                {activeField ? null : <span className="hint">Click a field above, then a token to insert it.</span>}
+                {upstream.map((u) => {
+                  const fields = outputFields(u.node, undefined);
+                  return (
+                    <div className="mapping__mod" key={u.id}>
+                      <div className="mapping__modhead">
+                        <span className="mapping__num">{u.number}</span>
+                        {u.label}
+                      </div>
+                      <div className="mapping__tokens">
+                        {fields.length === 0 ? <span className="muted" style={{ fontSize: ".72rem" }}>no outputs</span> : null}
+                        {fields.map((f) => (
+                          <button key={f} className="token" onClick={() => insertToken(`{{${u.id}.${f}}}`)}>
+                            {`{{${u.id}.${f}}}`}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         {step ? (
-          <>
-            <div className="field">
-              <label>Input bundles · module {moduleNumber}</label>
-              <div className="kv" style={{ whiteSpace: "pre-wrap" }}>
-                {JSON.stringify(step.input, null, 2)}
-              </div>
+          <div className="field">
+            <div className="inspector__tabs">
+              <button className={`inspector__tab${tab === "output" ? " is-active" : ""}`} onClick={() => { setTab("output"); setBundleIdx(0); }}>
+                Output
+              </button>
+              <button className={`inspector__tab${tab === "input" ? " is-active" : ""}`} onClick={() => { setTab("input"); setBundleIdx(0); }}>
+                Input
+              </button>
+              <span className="inspector__count">{bundles.length} bundle{bundles.length === 1 ? "" : "s"}</span>
             </div>
-            <div className="field">
-              <label>{step.error ? "Error" : `Output bundles · module ${moduleNumber}`}</label>
-              <div className="kv" style={{ whiteSpace: "pre-wrap" }}>
-                {step.error ? step.error : JSON.stringify(step.output, null, 2)}
-              </div>
-            </div>
-          </>
+            {step.error && tab === "output" ? (
+              <div className="kv" style={{ whiteSpace: "pre-wrap" }}>{step.error}</div>
+            ) : (
+              <>
+                {bundles.length > 1 ? (
+                  <div className="inspector__pager">
+                    <button className="chrome__btn" style={{ color: "var(--ink)" }} onClick={() => setBundleIdx((i) => Math.max(0, i - 1))} aria-label="Previous bundle">‹</button>
+                    <span className="mono">Bundle {Math.min(bundleIdx, bundles.length - 1) + 1} / {bundles.length}</span>
+                    <button className="chrome__btn" style={{ color: "var(--ink)" }} onClick={() => setBundleIdx((i) => Math.min(bundles.length - 1, i + 1))} aria-label="Next bundle">›</button>
+                  </div>
+                ) : null}
+                <div className="kv" style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(bundle ?? {}, null, 2)}</div>
+              </>
+            )}
+          </div>
         ) : null}
       </div>
 
       <div className="panel__foot" style={{ flexWrap: "wrap" }}>
-        <Button variant="ghost" icon={<PlayIcon width={14} height={14} />} onClick={onTest}>
-          Test
-        </Button>
-        <Button variant="ghost" onClick={onDelete}>
-          Delete
-        </Button>
-        <Button variant="primary" onClick={() => onSave(params)}>
-          Save
-        </Button>
+        <Button variant="ghost" icon={<PlayIcon width={14} height={14} />} onClick={onTest}>Test</Button>
+        <Button variant="ghost" onClick={onDelete}>Delete</Button>
+        <Button variant="primary" onClick={() => onSave(params)}>Save</Button>
       </div>
     </aside>
   );
