@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@cyflow/connections": "workspace:*",
+    "@cyflow/connectors": "workspace:*",
     "@cyflow/db": "workspace:*",
     "@cyflow/shared": "workspace:*",
     "bullmq": "^5.34.5",

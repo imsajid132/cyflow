@@ -21,6 +21,13 @@ const META: Record<string, { label: string; sub: string }> = {
   "http.make_request": { label: "HTTP", sub: "Enrich lead" },
   "core.sleep": { label: "Sleep", sub: "Wait" },
   "telegram.send_message": { label: "Telegram", sub: "Send message" },
+  "openai.create_completion": { label: "OpenAI", sub: "Chat completion" },
+  "slack.send_message": { label: "Slack", sub: "Send message" },
+  "gmail.send_email": { label: "Gmail", sub: "Send email" },
+  "sheets.append_row": { label: "Google Sheets", sub: "Append row" },
+  "datastore.get_record": { label: "Data store", sub: "Get record" },
+  "datastore.set_record": { label: "Data store", sub: "Set record" },
+  "flow.router": { label: "Router", sub: "Branch routes" },
 };
 
 function metaFor(node: ModuleNode): { label: string; sub: string } {

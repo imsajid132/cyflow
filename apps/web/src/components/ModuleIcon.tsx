@@ -7,6 +7,10 @@ import {
   RouterIcon,
   DataStoreIcon,
   DelayIcon,
+  OpenAiIcon,
+  SlackIcon,
+  GmailIcon,
+  SheetsIcon,
 } from "./icons";
 
 /** Maps a module's app/operation to its app icon. */
@@ -14,6 +18,10 @@ export function ModuleIcon({ app, operation, sw }: { app: string; operation: str
   if (app === "webhook") return <WebhookIcon sw={sw} />;
   if (app === "http") return <HttpIcon sw={sw} />;
   if (app === "telegram") return <TelegramIcon sw={sw} />;
+  if (app === "openai") return <OpenAiIcon sw={sw} />;
+  if (app === "slack") return <SlackIcon sw={sw} />;
+  if (app === "gmail") return <GmailIcon sw={sw} />;
+  if (app === "sheets") return <SheetsIcon sw={sw} />;
   if (app === "core") return <DelayIcon sw={sw} />;
   if (app === "datastore") return <DataStoreIcon sw={sw} />;
   if (app === "flow") {

@@ -7,6 +7,7 @@
  * Needs Postgres + Redis (see docker-compose.yml) and DATABASE_URL / REDIS_URL.
  */
 import { createDefaultRegistry } from "engine";
+import { connectorApps } from "@cyflow/connectors";
 import { createPrismaRepositories, PrismaConnectionStore, PrismaDataStore, prisma } from "@cyflow/db";
 import { ConnectionService, encryptionFromEnv } from "@cyflow/connections";
 import { createExecutionWorker, EXECUTIONS_QUEUE } from "./queue";
@@ -23,6 +24,8 @@ function redisConnection() {
 function main(): void {
   const { scenarios, executions } = createPrismaRepositories();
   const registry = createDefaultRegistry();
+  // Register the Phase 9 connectors (Telegram, OpenAI, Gmail, Sheets, Slack).
+  for (const app of connectorApps) registry.registerApp(app);
 
   // Connections vault: decrypts a module's credentials at run time only.
   const connections = new ConnectionService(new PrismaConnectionStore(prisma), encryptionFromEnv());

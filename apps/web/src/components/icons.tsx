@@ -85,6 +85,42 @@ export function AggregatorIcon(p: IconProps) {
   );
 }
 
+export function OpenAiIcon(p: IconProps) {
+  // Six-point spark — an AI mark.
+  return (
+    <Glyph {...p}>
+      <path d="M12 3v18M3 12h18M5.5 5.5l13 13M18.5 5.5l-13 13" />
+    </Glyph>
+  );
+}
+
+export function SlackIcon(p: IconProps) {
+  // Channel hash.
+  return (
+    <Glyph {...p}>
+      <path d="M9 4v16M15 4v16M4 9h16M4 15h16" />
+    </Glyph>
+  );
+}
+
+export function GmailIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M3 7l9 6 9-6" />
+    </Glyph>
+  );
+}
+
+export function SheetsIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <path d="M4 10h16M4 15h16M10 4v16" />
+    </Glyph>
+  );
+}
+
 export function DataStoreIcon(p: IconProps) {
   // Database cylinder — the built-in key-value store.
   return (

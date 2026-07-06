@@ -59,12 +59,16 @@ export function ConfigPanel({ module, number, label, step }: ConfigPanelProps) {
       <div className="panel__status">
         {step ? (
           <StatusChip kind={step.status === "error" ? "failed" : "success"}>
-            {label} · {step.status}
+            {step.status === "error" ? "Failed" : "Succeeded"}
           </StatusChip>
         ) : (
           <span className="chip">Not run yet</span>
         )}
-        {step ? <span className="chip">{step.operations} ops</span> : null}
+        {step ? (
+          <span className="chip">
+            {step.operations} op{step.operations === 1 ? "" : "s"}
+          </span>
+        ) : null}
       </div>
 
       <div className="panel__body">
@@ -123,11 +127,12 @@ export function ConfigPanel({ module, number, label, step }: ConfigPanelProps) {
               </div>
             </div>
             <div className="field">
-              <label>Output bundles · module {number}</label>
+              <label>{step.error ? "Error" : `Output bundles · module ${number}`}</label>
               <div className="kv" style={{ whiteSpace: "pre-wrap" }}>
                 {step.error ? step.error : JSON.stringify(step.output, null, 2)}
               </div>
               <span className="hint">
+                {step.error ? "This module stopped the run — " : ""}
                 {step.operations} operation{step.operations === 1 ? "" : "s"} · {step.ms}ms
               </span>
             </div>
@@ -136,8 +141,8 @@ export function ConfigPanel({ module, number, label, step }: ConfigPanelProps) {
           <div className="field">
             <label>Last run</label>
             <span className="hint">
-              Click <strong>Run once</strong> to execute the scenario, then select a bubble to
-              inspect its bundles.
+              This module hasn't run yet. Click <strong>Run once</strong> to execute the scenario,
+              then select any bubble to inspect the bundles it processed.
             </span>
           </div>
         )}
