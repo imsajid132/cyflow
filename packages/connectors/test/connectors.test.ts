@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExecutionContext } from "@cyflow/shared";
 import { createDefaultRegistry } from "engine";
-import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, driveApp, calendarApp, slackApp, discordApp, notionApp, airtableApp, githubApp, gitlabApp, dropboxApp, cloudflareApp, supabaseApp, trelloApp, asanaApp, hubspotApp, clickupApp, calendlyApp, twilioApp, stripeApp, shopifyApp, woocommerceApp, utilsApp, parseCsv, toCsv } from "../src/index";
+import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, driveApp, calendarApp, slackApp, discordApp, notionApp, airtableApp, githubApp, gitlabApp, dropboxApp, cloudflareApp, supabaseApp, trelloApp, asanaApp, hubspotApp, clickupApp, calendlyApp, twilioApp, stripeApp, shopifyApp, woocommerceApp, rssApp, whatsappApp, twitterApp, parseFeed, utilsApp, parseCsv, toCsv } from "../src/index";
 
 function makeCtx(connection: Record<string, unknown> | null): ExecutionContext {
   return {
@@ -596,6 +596,59 @@ describe("WooCommerce (mocked)", () => {
     expect(url.searchParams.get("per_page")).toBe("5");
     expect((m.mock.calls[0][1] as { headers: Record<string, string> }).headers.authorization).toBe(`Basic ${Buffer.from("ck:cs").toString("base64")}`);
     expect(out[0]).toMatchObject({ products: [{ id: 1 }, { id: 2 }] });
+  });
+});
+
+describe("RSS", () => {
+  const SAMPLE = `<?xml version="1.0"?><rss><channel><title>My Feed</title>
+    <item><title><![CDATA[First & Best]]></title><link>https://ex.com/1</link><description>Hello</description><pubDate>Mon, 06 Jul 2026</pubDate><guid>g1</guid></item>
+    <item><title>Second</title><link>https://ex.com/2</link></item>
+  </channel></rss>`;
+  it("parseFeed extracts channel title + items (CDATA + entities)", () => {
+    const feed = parseFeed(SAMPLE);
+    expect(feed.title).toBe("My Feed");
+    expect(feed.items).toHaveLength(2);
+    expect(feed.items[0]).toMatchObject({ title: "First & Best", link: "https://ex.com/1", guid: "g1" });
+  });
+  it("parses Atom <entry> with href links", () => {
+    const atom = `<feed><title>Atom</title><entry><title>A</title><link href="https://a.com/x"/><summary>S</summary><id>id1</id></entry></feed>`;
+    const feed = parseFeed(atom);
+    expect(feed.items[0]).toMatchObject({ title: "A", link: "https://a.com/x", description: "S", guid: "id1" });
+  });
+  it("read_feed fetches + honours the limit", async () => {
+    stubGoogle(() => ({ text: SAMPLE }));
+    const out = await rssApp.modules.read_feed.run({}, { url: "https://ex.com/feed", limit: 1 }, makeCtx({}));
+    expect(out[0]).toMatchObject({ title: "My Feed", count: 1 });
+  });
+});
+
+describe("WhatsApp Cloud API (mocked)", () => {
+  const ctx = () => makeCtx({ accessToken: "EAAG", phoneNumberId: "PID" });
+  it("send_message posts a text payload to the phone number ID", async () => {
+    const m = stubGoogle(() => ({ body: { messages: [{ id: "wamid.1" }] } }));
+    const out = await whatsappApp.modules.send_message.run({}, { to: "1555", body: "hi" }, ctx());
+    expect(m.mock.calls[0][0]).toContain("/PID/messages");
+    expect(JSON.parse((m.mock.calls[0][1] as { body: string }).body)).toMatchObject({ messaging_product: "whatsapp", to: "1555", type: "text", text: { body: "hi" } });
+    expect(out[0]).toMatchObject({ messageId: "wamid.1", to: "1555" });
+  });
+});
+
+describe("X / Twitter (mocked)", () => {
+  const ctx = () => makeCtx({ token: "bearer" });
+  it("post_tweet posts text and unwraps data", async () => {
+    const m = stubGoogle(() => ({ body: { data: { id: "t1", text: "gm" } } }));
+    const out = await twitterApp.modules.post_tweet.run({}, { text: "gm" }, ctx());
+    expect(m.mock.calls[0][0]).toContain("/2/tweets");
+    expect(JSON.parse((m.mock.calls[0][1] as { body: string }).body)).toEqual({ text: "gm" });
+    expect(out[0]).toEqual({ id: "t1", text: "gm" });
+  });
+  it("search_recent passes the query + max_results", async () => {
+    const m = stubGoogle(() => ({ body: { data: [{ id: "1" }], meta: { result_count: 1 } } }));
+    const out = await twitterApp.modules.search_recent.run({}, { query: "#cyflow", maxResults: 25 }, ctx());
+    const url = new URL(m.mock.calls[0][0] as string);
+    expect(url.searchParams.get("query")).toBe("#cyflow");
+    expect(url.searchParams.get("max_results")).toBe("25");
+    expect(out[0]).toMatchObject({ resultCount: 1 });
   });
 });
 

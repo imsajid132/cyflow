@@ -43,6 +43,12 @@ function defaultAuthFields(authType?: string, appKey?: string): AuthFieldDTO[] {
       { key: "consumerSecret", label: "Consumer secret", type: "password", required: true },
     ];
   }
+  if (appKey === "whatsapp") {
+    return [
+      { key: "accessToken", label: "Access token", type: "password", required: true },
+      { key: "phoneNumberId", label: "Phone number ID", type: "text", required: true },
+    ];
+  }
   switch (authType) {
     case "api_key":
       return [{ key: "token", label: "API key", type: "password", required: true }];

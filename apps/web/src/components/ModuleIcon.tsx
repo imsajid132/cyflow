@@ -31,6 +31,9 @@ import {
   StripeIcon,
   ShopifyIcon,
   WooIcon,
+  RssIcon,
+  WhatsappIcon,
+  TwitterIcon,
 } from "./icons";
 
 /** Maps a module's app/operation to its app icon. */
@@ -61,6 +64,9 @@ export function ModuleIcon({ app, operation, sw }: { app: string; operation: str
   if (app === "stripe") return <StripeIcon sw={sw} />;
   if (app === "shopify") return <ShopifyIcon sw={sw} />;
   if (app === "woocommerce") return <WooIcon sw={sw} />;
+  if (app === "rss") return <RssIcon sw={sw} />;
+  if (app === "whatsapp") return <WhatsappIcon sw={sw} />;
+  if (app === "twitter") return <TwitterIcon sw={sw} />;
   if (app === "core") return <DelayIcon sw={sw} />;
   if (app === "utils") return <BracesIcon sw={sw} />;
   if (app === "datastore") return <DataStoreIcon sw={sw} />;

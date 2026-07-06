@@ -23,6 +23,9 @@ import { twilioApp } from "./twilio";
 import { stripeApp } from "./stripe";
 import { shopifyApp } from "./shopify";
 import { woocommerceApp } from "./woocommerce";
+import { rssApp } from "./rss";
+import { whatsappApp } from "./whatsapp";
+import { twitterApp } from "./twitter";
 import { utilsApp } from "./utils";
 
 export { telegramApp } from "./telegram";
@@ -49,6 +52,9 @@ export { twilioApp } from "./twilio";
 export { stripeApp } from "./stripe";
 export { shopifyApp } from "./shopify";
 export { woocommerceApp } from "./woocommerce";
+export { rssApp, parseFeed } from "./rss";
+export { whatsappApp } from "./whatsapp";
+export { twitterApp } from "./twitter";
 export { utilsApp, parseCsv, toCsv } from "./utils";
 
 /**
@@ -82,5 +88,8 @@ export const connectorApps: App[] = [
   stripeApp,
   shopifyApp,
   woocommerceApp,
+  rssApp,
+  whatsappApp,
+  twitterApp,
   utilsApp,
 ];

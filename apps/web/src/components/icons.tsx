@@ -278,6 +278,29 @@ export function WooIcon(p: IconProps) {
     </Glyph>
   );
 }
+export function RssIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <circle cx="6.5" cy="17.5" r="1.6" />
+      <path d="M5 11a8 8 0 0 1 8 8M5 5.5a13.5 13.5 0 0 1 13.5 13.5" />
+    </Glyph>
+  );
+}
+export function WhatsappIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <path d="M4 20l1.4-4A8 8 0 1 1 8 18.6L4 20Z" />
+      <path d="M9 9c0 4 2 6 6 6 .5-1.5.2-1.8-1-2.3-.8-.3-1 .6-1.6.4-1-.4-1.9-1.3-2.3-2.3-.2-.6.7-.8.4-1.6C10.4 8.3 10.5 8 9 8.5" />
+    </Glyph>
+  );
+}
+export function TwitterIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <path d="M4 4l7 9-7 7h2l6-6 5 6h4l-7.5-9.3L20 4h-2l-5.3 5.4L8 4H4Z" />
+    </Glyph>
+  );
+}
 export function DriveIcon(p: IconProps) {
   return (
     <Glyph {...p}>

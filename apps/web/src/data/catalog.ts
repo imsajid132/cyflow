@@ -846,6 +846,54 @@ export const CATALOG: CatalogApp[] = [
       { operation: "list_customers", name: "List customers", kind: "search", params: [{ key: "perPage", label: "Per page", type: "number" }] },
     ],
   },
+  {
+    key: "rss",
+    name: "RSS",
+    category: "Data",
+    modules: [
+      { operation: "read_feed", name: "Read a feed", kind: "search", params: [
+        { key: "url", label: "Feed URL", type: "text", mappable: true },
+        { key: "limit", label: "Max items", type: "number" },
+      ] },
+    ],
+  },
+  {
+    key: "whatsapp",
+    name: "WhatsApp",
+    category: "Communication",
+    auth: "custom",
+    modules: [
+      { operation: "send_message", name: "Send a text message", kind: "action", params: [
+        { key: "to", label: "To (E.164)", type: "text", mappable: true },
+        { key: "body", label: "Message", type: "textarea", mappable: true },
+      ] },
+      { operation: "send_template", name: "Send a template", kind: "action", params: [
+        { key: "to", label: "To (E.164)", type: "text", mappable: true },
+        { key: "templateName", label: "Template name", type: "text", mappable: true },
+        { key: "languageCode", label: "Language code", type: "text", placeholder: "en_US" },
+      ] },
+      { operation: "mark_read", name: "Mark as read", kind: "action", params: [{ key: "messageId", label: "Message ID", type: "text", mappable: true }] },
+    ],
+  },
+  {
+    key: "twitter",
+    name: "X (Twitter)",
+    category: "Communication",
+    auth: "api_key",
+    modules: [
+      { operation: "post_tweet", name: "Post a tweet", kind: "action", params: [
+        { key: "text", label: "Text", type: "textarea", mappable: true },
+        { key: "replyToTweetId", label: "Reply to tweet ID", type: "text", mappable: true },
+      ] },
+      { operation: "delete_tweet", name: "Delete a tweet", kind: "action", params: [{ key: "tweetId", label: "Tweet ID", type: "text", mappable: true }] },
+      { operation: "get_tweet", name: "Get a tweet", kind: "search", params: [{ key: "tweetId", label: "Tweet ID", type: "text", mappable: true }] },
+      { operation: "get_user_by_username", name: "Get a user", kind: "search", params: [{ key: "username", label: "Username", type: "text", mappable: true }] },
+      { operation: "search_recent", name: "Search recent tweets", kind: "search", params: [
+        { key: "query", label: "Query", type: "text", mappable: true },
+        { key: "maxResults", label: "Max results", type: "number" },
+      ] },
+    ],
+  },
 ];
 
 export function findApp(appKey: string): CatalogApp | undefined {
