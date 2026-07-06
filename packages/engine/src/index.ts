@@ -8,18 +8,22 @@ export type { RegisteredModule } from "./registry";
 
 // App framework (Phase 2)
 export type { App, ModuleDef, AuthSchema, AuthType, AuthField } from "./app";
-export { webhookApp, httpApp, coreApp, flowApp, builtInApps } from "./apps";
+export { webhookApp, httpApp, coreApp, flowApp, dataStoreApp, builtInApps } from "./apps";
 export { httpRequestParams } from "./apps/http";
 export { sleepParams } from "./apps/core";
 
-// Flow control (Phase 5)
+// Flow control (Phase 5 + Phase 8 router)
 export {
   AGGREGATE_INPUT_KEY,
+  router,
   iterator,
   arrayAggregator,
   textAggregator,
   numericAggregator,
 } from "./modules/flow";
+
+// Data store (Phase 8)
+export { InMemoryDataStore } from "./modules/datastore";
 
 // Underlying runners (usable/testable in isolation)
 export { customWebhook } from "./modules/webhook";

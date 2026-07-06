@@ -22,6 +22,14 @@ export type ModuleKind =
   | "aggregator"
   | "router";
 
+/** Per-route branch summary recorded on a router's step (Phase 8). */
+export interface RouteSummary {
+  label?: string;
+  next: string | null;
+  /** How many bundles were routed down this route (post route filter). */
+  bundles: number;
+}
+
 /** Bundle-level record of one module processing its input bundles. */
 export interface ModuleResult {
   status: "success" | "error";
@@ -34,6 +42,10 @@ export interface ModuleResult {
   error?: string;
   /** Wall-clock milliseconds around all of this module's bundle runs. */
   ms: number;
+  /** Router branch summary (Phase 8), when this module has routes. */
+  routes?: RouteSummary[];
+  /** Error-handler outcome (Phase 8), when a handler caught errors. */
+  errorOutcome?: { type: ErrorHandlerType; handled: number };
 }
 
 /** Carried through a single execution; the engine mutates `operations`/`steps`. */
@@ -54,6 +66,23 @@ export interface ExecutionContext {
    * no connection (or no resolver is wired, e.g. the in-browser replay).
    */
   connection?: Record<string, unknown> | null;
+  /** Built-in key-value data store for datastore modules (Phase 8). */
+  dataStore?: DataStore;
+}
+
+/** A record in a built-in data store (Phase 8). */
+export interface DataStoreRecord {
+  key: string;
+  value: unknown;
+}
+
+/** Built-in key-value data store (Phase 8). */
+export interface DataStore {
+  get(key: string): Promise<unknown>;
+  set(key: string, value: unknown): Promise<void>;
+  delete(key: string): Promise<boolean>;
+  list(prefix?: string): Promise<DataStoreRecord[]>;
+  increment(key: string, by?: number): Promise<number>;
 }
 
 /**
@@ -68,6 +97,25 @@ export type OperationRunner = (
   ctx: ExecutionContext,
 ) => Promise<Bundle[]>;
 
+/** One outgoing route from a Router (Phase 8). */
+export interface RouteDef {
+  /** Optional label shown in snapshots. */
+  label?: string;
+  /** Condition a bundle must pass to take this route (independent per route). */
+  filter?: unknown | null;
+  /** First module id of this route, or null for an empty route. */
+  next: string | null;
+}
+
+export type ErrorHandlerType = "resume" | "ignore" | "break" | "rollback" | "commit";
+
+/** A module-level error handler directive (Phase 8). */
+export interface ErrorHandler {
+  type: ErrorHandlerType;
+  /** For `resume`: fallback output bundle(s) substituted for the failed input. */
+  fallback?: Bundle | Bundle[];
+}
+
 /** One node in a scenario blueprint. Phase 1 uses a linear `next` pointer. */
 export interface ModuleNode {
   id: string;
@@ -79,6 +127,10 @@ export interface ModuleNode {
   connectionId?: string | null;
   /** Condition on the link INTO `next` (Phase 5). */
   filter?: unknown | null;
+  /** Router routes (Phase 8). When present, they replace `next`. */
+  routes?: RouteDef[];
+  /** What to do if this module throws (Phase 8). */
+  errorHandler?: ErrorHandler;
   /** Next module id, or null to end the chain. */
   next: string | null;
 }
@@ -143,6 +195,10 @@ export interface StoredExecutionStep {
   error?: string;
   ms: number;
   order: number;
+  /** Router branch summary (Phase 8). */
+  routes?: RouteSummary[];
+  /** Error-handler outcome (Phase 8). */
+  errorOutcome?: { type: ErrorHandlerType; handled: number };
 }
 
 export interface StoredExecution {

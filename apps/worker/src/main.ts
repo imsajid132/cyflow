@@ -7,7 +7,7 @@
  * Needs Postgres + Redis (see docker-compose.yml) and DATABASE_URL / REDIS_URL.
  */
 import { createDefaultRegistry } from "engine";
-import { createPrismaRepositories, PrismaConnectionStore, prisma } from "@cyflow/db";
+import { createPrismaRepositories, PrismaConnectionStore, PrismaDataStore, prisma } from "@cyflow/db";
 import { ConnectionService, encryptionFromEnv } from "@cyflow/connections";
 import { createExecutionWorker, EXECUTIONS_QUEUE } from "./queue";
 
@@ -32,6 +32,7 @@ function main(): void {
     executions,
     registry,
     getConnection: connections.toGetConnection(),
+    dataStore: new PrismaDataStore(prisma),
   });
 
   worker.on("completed", (job) => {

@@ -26,6 +26,8 @@ type StepRow = {
   error: string | null;
   ms: number;
   order: number;
+  routes: Prisma.JsonValue;
+  errorOutcome: Prisma.JsonValue;
 };
 
 /** Prisma-backed execution persistence: start RUNNING, complete with steps. */
@@ -57,6 +59,10 @@ export class PrismaExecutionRepository implements ExecutionRepository {
             error: s.error ?? null,
             ms: s.ms,
             order: s.order,
+            routes: s.routes ? (s.routes as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
+            errorOutcome: s.errorOutcome
+              ? (s.errorOutcome as unknown as Prisma.InputJsonValue)
+              : Prisma.JsonNull,
           })),
         },
       },
@@ -82,8 +88,10 @@ export class PrismaExecutionRepository implements ExecutionRepository {
       error: row.error,
       startedAt: row.startedAt,
       finishedAt: row.finishedAt,
-      steps: steps.map(
-        (s): StoredExecutionStep => ({
+      steps: steps.map((s): StoredExecutionStep => {
+        const routes = s.routes as StoredExecutionStep["routes"] | null;
+        const errorOutcome = s.errorOutcome as StoredExecutionStep["errorOutcome"] | null;
+        return {
           moduleNodeId: s.moduleNodeId,
           status: s.status === "error" ? "error" : "success",
           operations: s.operations,
@@ -92,8 +100,10 @@ export class PrismaExecutionRepository implements ExecutionRepository {
           error: s.error ?? undefined,
           ms: s.ms,
           order: s.order,
-        }),
-      ),
+          ...(routes ? { routes } : {}),
+          ...(errorOutcome ? { errorOutcome } : {}),
+        };
+      }),
     };
   }
 }

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { App } from "../app";
 import {
+  router,
   iterator,
   arrayAggregator,
   textAggregator,
@@ -17,6 +18,13 @@ export const flowApp: App = {
   name: "Flow control",
   auth: { type: "none" },
   modules: {
+    router: {
+      key: "router",
+      name: "Router",
+      kind: "router",
+      params: z.object({}),
+      run: router,
+    },
     iterator: {
       key: "iterator",
       name: "Iterator",

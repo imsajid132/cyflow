@@ -6,17 +6,30 @@ import type {
   StoredExecutionStep,
 } from "@cyflow/shared";
 
-/** Module ids in execution order, following the linear `next` pointer. */
+/**
+ * Module ids in execution (pre-order) order, following `next` and — for
+ * Routers — every `route.next`. Depth-first so a router's branches appear after
+ * it, matching the walker's recursion.
+ */
 function orderedNodeIds(blueprint: Blueprint): string[] {
   const byId = new Map<string, ModuleNode>(blueprint.modules.map((m) => [m.id, m]));
   const ids: string[] = [];
   const seen = new Set<string>();
-  let current: ModuleNode | undefined = blueprint.modules[0];
-  while (current && !seen.has(current.id)) {
-    ids.push(current.id);
-    seen.add(current.id);
-    current = current.next ? byId.get(current.next) : undefined;
-  }
+
+  const visit = (id: string | null | undefined): void => {
+    if (!id || seen.has(id)) return;
+    const mod = byId.get(id);
+    if (!mod) return;
+    seen.add(id);
+    ids.push(id);
+    if (mod.routes && mod.routes.length > 0) {
+      for (const route of mod.routes) visit(route.next);
+    } else {
+      visit(mod.next);
+    }
+  };
+
+  visit(blueprint.modules[0]?.id);
   return ids;
 }
 
@@ -53,6 +66,8 @@ export function buildExecutionSteps(
       error: step.error,
       ms: step.ms,
       order,
+      ...(step.routes ? { routes: step.routes } : {}),
+      ...(step.errorOutcome ? { errorOutcome: step.errorOutcome } : {}),
     });
 
     previousOutput = step.bundles;

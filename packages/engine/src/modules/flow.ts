@@ -29,6 +29,13 @@ function incoming(inputBundle: Bundle): Bundle[] {
 }
 
 /**
+ * Router — passes each incoming bundle through unchanged. The walker fans the
+ * output to each route (every route whose filter matches receives the bundle).
+ * Router is free flow-control: it consumes no operations.
+ */
+export const router: OperationRunner = async (inputBundle) => [inputBundle];
+
+/**
  * Iterator — splits an array (from params/mapping) into one bundle per element.
  * Each emitted bundle carries the element under `value` plus its `index` and
  * the source `total` (item index + source metadata). The engine already

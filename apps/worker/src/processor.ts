@@ -24,6 +24,8 @@ export interface WorkerDeps {
   registry: Registry;
   /** Resolves a module's connectionId → decrypted credentials (Phase 7). */
   getConnection?: (connectionId: string) => Promise<Record<string, unknown> | null>;
+  /** Built-in key-value data store for datastore modules (Phase 8). */
+  dataStore?: import("@cyflow/shared").DataStore;
 }
 
 /**
@@ -48,6 +50,7 @@ export async function runScenarioJob(job: RunJob, deps: WorkerDeps): Promise<Sto
       scenarioId: scenario.id,
       executionId: execution.id,
       getConnection: deps.getConnection,
+      dataStore: deps.dataStore,
     },
   );
 

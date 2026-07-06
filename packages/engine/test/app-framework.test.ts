@@ -16,6 +16,7 @@ describe("App framework — built-in apps register through the framework", () =>
 
     expect(registry.listApps().map((a) => a.key).sort()).toEqual([
       "core",
+      "datastore",
       "flow",
       "http",
       "webhook",

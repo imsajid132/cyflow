@@ -4,8 +4,9 @@ import {
   TelegramIcon,
   IteratorIcon,
   AggregatorIcon,
-  DelayIcon,
   RouterIcon,
+  DataStoreIcon,
+  DelayIcon,
 } from "./icons";
 
 /** Maps a module's app/operation to its app icon. */
@@ -14,8 +15,11 @@ export function ModuleIcon({ app, operation, sw }: { app: string; operation: str
   if (app === "http") return <HttpIcon sw={sw} />;
   if (app === "telegram") return <TelegramIcon sw={sw} />;
   if (app === "core") return <DelayIcon sw={sw} />;
+  if (app === "datastore") return <DataStoreIcon sw={sw} />;
   if (app === "flow") {
-    return operation === "iterator" ? <IteratorIcon sw={sw} /> : <AggregatorIcon sw={sw} />;
+    if (operation === "router") return <RouterIcon sw={sw} />;
+    if (operation === "iterator") return <IteratorIcon sw={sw} />;
+    return <AggregatorIcon sw={sw} />;
   }
   return <RouterIcon sw={sw} />;
 }
