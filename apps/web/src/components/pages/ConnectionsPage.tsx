@@ -8,12 +8,29 @@ import { timeAgo } from "../../lib/format";
 import { ConnectionModal } from "../connections/ConnectionModal";
 import type { Connection } from "../../store/types";
 
+function oauthBanner(): { ok: boolean; text: string } | null {
+  const params = new URLSearchParams(window.location.search);
+  const connected = params.get("google");
+  const error = params.get("google_error");
+  if (connected) return { ok: true, text: `Connected ${connected} via Google. It's ready to use in your scenarios.` };
+  if (error) return { ok: false, text: `Google connection failed: ${error}` };
+  return null;
+}
+
 export function ConnectionsPage() {
   const store = useStore();
   const [modal, setModal] = useState<{ mode: "create" | "edit"; existing?: Connection } | null>(null);
+  const [banner, setBanner] = useState(oauthBanner);
 
   return (
     <>
+      {banner ? (
+        <div className={`oauth-note${banner.ok ? " is-ok" : ""}`} style={{ margin: "0 4px 14px", display: "flex", justifyContent: "space-between", gap: 12 }}>
+          <span>{banner.ok ? "✓ " : "⚠ "}{banner.text}</span>
+          <button className="token" onClick={() => setBanner(null)}>Dismiss</button>
+        </div>
+      ) : null}
+
       <div className="page__head">
         <div className="page__title">
           <h1>Connections</h1>

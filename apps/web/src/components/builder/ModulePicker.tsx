@@ -22,6 +22,7 @@ export function ModulePicker({
   const apps = useMemo(() => {
     const q = query.trim().toLowerCase();
     return CATALOG.filter((a) => {
+      if (a.modules.length === 0) return false; // connectable-only apps (e.g. Drive/Calendar) aren't pickable yet
       const inCat = category === "All" || a.category === category;
       const match =
         !q ||

@@ -1,7 +1,29 @@
 import express, { type Request, type Response } from "express";
 import cors from "cors";
+import {
+  ConnectionService,
+  EncryptionService,
+  GOOGLE_APPS,
+  GOOGLE_LABELS,
+  googleAuthorizeUrl,
+  exchangeGoogleCode,
+  fetchGoogleEmail,
+  makeOAuthState,
+  readOAuthState,
+  tokensToCredentials,
+  type GoogleConfig,
+} from "@cyflow/connections";
 import type { ApiStore } from "./store";
 import { validateConnectionCredentials } from "./apps";
+
+/** Everything the Google OAuth routes need (built server-side; secrets stay here). */
+export interface GoogleRuntime {
+  config: GoogleConfig | null;
+  encryption: EncryptionService;
+  connections: ConnectionService;
+  /** Which user new connections are saved for (single-admin ⇒ the admin user). */
+  userId: string;
+}
 
 type Handler = (req: Request, res: Response) => Promise<void>;
 
@@ -24,6 +46,8 @@ function bearerToken(req: Request): string | undefined {
 export interface ApiOptions {
   /** When set, all routes except /health and /hooks require this token. */
   adminToken?: string;
+  /** Enables the real Google OAuth routes when provided. */
+  google?: GoogleRuntime;
 }
 
 /**
@@ -65,6 +89,51 @@ export function createApp(store: ApiStore, options: ApiOptions = {}) {
   });
   app.post("/hooks/:id", runHook);
   app.get("/hooks/:id", runHook);
+
+  // ---- public: Google OAuth callback (Google → browser → here, no token) ----
+  if (options.google) {
+    const g = options.google;
+    app.get("/oauth/google/callback", h(async (req, res) => {
+      const q = req.query as Record<string, string | undefined>;
+      const web = g.config?.webUrl?.replace(/\/$/, "");
+      const back = (params: string): boolean => {
+        if (web) {
+          res.redirect(`${web}/?${params}#/connections`);
+          return true;
+        }
+        return false;
+      };
+      if (!g.config) {
+        if (!back("google_error=not_configured")) res.status(400).json({ ok: false, error: "Google OAuth not configured" });
+        return;
+      }
+      if (q.error) {
+        if (!back(`google_error=${encodeURIComponent(q.error)}`)) res.status(400).json({ ok: false, error: q.error });
+        return;
+      }
+      const st = readOAuthState(g.encryption, q.state);
+      if (!st || !q.code) {
+        if (!back("google_error=invalid_state")) res.status(400).json({ ok: false, error: "invalid state" });
+        return;
+      }
+      try {
+        const tokens = await exchangeGoogleCode(g.config, q.code);
+        const email = await fetchGoogleEmail(tokens.accessToken);
+        const creds = tokensToCredentials(tokens, email);
+        const label = GOOGLE_LABELS[st.app] ?? st.app;
+        const summary = await g.connections.create({
+          userId: g.userId,
+          appKey: st.app,
+          name: `${label}${email ? ` · ${email}` : ""}`,
+          credentials: creds as unknown as Record<string, unknown>,
+        });
+        if (!back(`google=${st.app}`)) res.json({ ok: true, app: st.app, connectionId: summary.id });
+      } catch (e) {
+        const msg = String((e as Error).message);
+        if (!back(`google_error=${encodeURIComponent(msg)}`)) res.status(500).json({ ok: false, error: msg });
+      }
+    }));
+  }
 
   // ---- single-admin guard for everything below ----
   app.use((req: Request, res: Response, next) => {
@@ -170,7 +239,25 @@ export function createApp(store: ApiStore, options: ApiOptions = {}) {
     else res.status(404).json({ error: "app not found" });
   }));
 
-  // ---- OAuth2 scaffold (client secrets stay server-side) ----
+  // ---- Google OAuth start (protected; returns the real consent URL) ----
+  if (options.google) {
+    const g = options.google;
+    app.get("/oauth/google/start", h(async (req, res) => {
+      const appKey = String(req.query.app ?? "gmail");
+      if (!GOOGLE_APPS.has(appKey)) {
+        res.status(400).json({ error: "unknown google app" });
+        return;
+      }
+      if (!g.config) {
+        res.json({ configured: false, message: "Google OAuth is not configured on the server (set GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI)." });
+        return;
+      }
+      const state = makeOAuthState(g.encryption, appKey);
+      res.json({ configured: true, authUrl: googleAuthorizeUrl(g.config, appKey, state), message: "Redirect the user to Google to authorize." });
+    }));
+  }
+
+  // ---- OAuth2 scaffold for other providers (client secrets stay server-side) ----
   app.get("/oauth/:provider/start", h(async (req, res) => {
     res.json(await store.oauthStart(req.params.provider));
   }));

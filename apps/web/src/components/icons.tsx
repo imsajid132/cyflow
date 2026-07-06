@@ -136,6 +136,15 @@ export function DataStoreIcon(p: IconProps) {
   );
 }
 
+export function DriveIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <path d="M8 3h8l6 10h-8L8 3Z" />
+      <path d="M2 17 8 7l4 6-4 8H2Z" />
+      <path d="M22 13l-4 8H10l4-8h8Z" />
+    </Glyph>
+  );
+}
 export function BracesIcon(p: IconProps) {
   return (
     <Glyph {...p}>

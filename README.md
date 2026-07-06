@@ -101,6 +101,9 @@ See `.env.example` (backend) and `apps/web/.env.example` (frontend):
 | `REDIS_URL` | worker | Redis connection for the BullMQ execution queue + scheduler. |
 | `CYFLOW_ENCRYPTION_KEY` | api, worker | Secret used to derive the AES-256-GCM key that encrypts stored connection credentials. Without it the API simply disables connections. **Use a strong random value in production.** |
 | `ADMIN_TOKEN` (or `CYFLOW_ADMIN_TOKEN`) | api | Single-admin token. When set, every route except `/health` and `/hooks/:id` requires it. **Unset ⇒ open API.** |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | api | Google OAuth client (for Gmail/Sheets/Drive/Calendar). Secret stays server-side. |
+| `GOOGLE_REDIRECT_URI` | api | Must equal `{API}/oauth/google/callback` and be an Authorized redirect URI in the Google client. |
+| `WEB_APP_URL` | api | Frontend base URL the OAuth callback redirects back to (e.g. `https://cyflow.example`). |
 | `PORT` | api | API listen port (default `3001`). |
 | `SCHEDULER_TICK_MS` | worker | How often the schedule runner polls (default `60000`). |
 | `VITE_CYFLOW_API_URL` | web (build-time) | Base URL of the API. **Unset ⇒ local demo mode.** |
@@ -128,7 +131,18 @@ DATABASE_URL=postgres://…
 CYFLOW_ENCRYPTION_KEY=<32+ random chars>     # encrypts connection secrets
 ADMIN_TOKEN=<long random secret>             # protects every route but /health + /hooks
 PORT=3001
+# Google OAuth (Gmail/Sheets/Drive/Calendar) — optional:
+GOOGLE_CLIENT_ID=…apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=…                        # stays server-side; never sent to the browser
+GOOGLE_REDIRECT_URI=https://api.cyflow.example/oauth/google/callback
+WEB_APP_URL=https://cyflow.example            # where the OAuth callback returns to
 ```
+
+For Google: create an OAuth client (type "Web application") in Google Cloud,
+add `GOOGLE_REDIRECT_URI` as an Authorized redirect URI, and enable the Gmail /
+Sheets / Drive / Calendar APIs. Then in the app, open Connections → add a Gmail
+(etc.) connection → "Connect with Gmail" opens the real Google consent; tokens
+are stored encrypted and auto-refreshed before each run.
 
 Start: `corepack pnpm --filter @cyflow/api start`. The public base URL of this
 server (e.g. `https://api.cyflow.example`) is your **webhook base URL** — a

@@ -17,3 +17,18 @@ export {
   InMemoryConnectionStore,
 } from "./service";
 export type { CreateConnectionInput, UpdateConnectionInput } from "./service";
+export {
+  GOOGLE_APPS,
+  GOOGLE_SCOPES,
+  GOOGLE_LABELS,
+  googleConfigFromEnv,
+  googleAuthorizeUrl,
+  exchangeGoogleCode,
+  refreshGoogleToken,
+  fetchGoogleEmail,
+  makeOAuthState,
+  readOAuthState,
+  tokensToCredentials,
+  makeGoogleGetConnection,
+} from "./google";
+export type { GoogleConfig, GoogleCredentials } from "./google";

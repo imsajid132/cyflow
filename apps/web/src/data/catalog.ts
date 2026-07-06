@@ -295,6 +295,10 @@ export const CATALOG: CatalogApp[] = [
       },
     ],
   },
+  // Google Drive/Calendar: connectable via real Google OAuth now (Phase B).
+  // Their action modules land in Phase C, so they carry no scenario modules yet.
+  { key: "drive", name: "Google Drive", category: "Productivity", auth: "oauth2", modules: [] },
+  { key: "calendar", name: "Google Calendar", category: "Productivity", auth: "oauth2", modules: [] },
 ];
 
 export function findApp(appKey: string): CatalogApp | undefined {

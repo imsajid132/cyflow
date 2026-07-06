@@ -68,6 +68,24 @@ export class ConnectionService {
     return JSON.parse(this.encryption.decrypt(row.encryptedData)) as Record<string, unknown>;
   }
 
+  /** Row identity + decrypted credentials — for the OAuth refresh layer only. */
+  async getRowById(
+    id: string,
+  ): Promise<{ id: string; appKey: string; credentials: Record<string, unknown> } | null> {
+    const row = await this.store.findById(id);
+    if (!row) return null;
+    return {
+      id: row.id,
+      appKey: row.appKey,
+      credentials: JSON.parse(this.encryption.decrypt(row.encryptedData)) as Record<string, unknown>,
+    };
+  }
+
+  /** Re-encrypt and store new credentials (used when refreshing OAuth tokens). */
+  async updateCredentials(id: string, credentials: Record<string, unknown>): Promise<void> {
+    await this.store.update(id, { encryptedData: this.encryption.encrypt(JSON.stringify(credentials)) });
+  }
+
   /** A `ctx.getConnection` resolver bound to this service. */
   toGetConnection(): (id: string) => Promise<Record<string, unknown> | null> {
     return (id: string) => this.getDecrypted(id);

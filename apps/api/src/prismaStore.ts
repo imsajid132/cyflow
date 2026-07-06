@@ -11,7 +11,14 @@ import {
   PrismaScenarioRepository,
   prisma,
 } from "@cyflow/db";
-import { ConnectionService, encryptionFromEnv } from "@cyflow/connections";
+import {
+  ConnectionService,
+  EncryptionService,
+  encryptionFromEnv,
+  googleConfigFromEnv,
+  makeGoogleGetConnection,
+} from "@cyflow/connections";
+import type { GoogleRuntime } from "./app";
 import { connectorApps } from "@cyflow/connectors";
 import { createDefaultRegistry } from "engine";
 import { runScenarioJob, type WorkerDeps } from "@cyflow/worker";
@@ -115,6 +122,7 @@ export class PrismaApiStore implements ApiStore {
   private readonly scenarios = new PrismaScenarioRepository(prisma);
   private readonly executions = new PrismaExecutionRepository(prisma);
   private connections: ConnectionService | null = null;
+  private encryption: EncryptionService | null = null;
   private readonly deps: WorkerDeps;
 
   constructor() {
@@ -123,8 +131,10 @@ export class PrismaApiStore implements ApiStore {
 
     let getConnection: WorkerDeps["getConnection"];
     try {
-      this.connections = new ConnectionService(new PrismaConnectionStore(prisma), encryptionFromEnv());
-      getConnection = this.connections.toGetConnection();
+      this.encryption = encryptionFromEnv();
+      this.connections = new ConnectionService(new PrismaConnectionStore(prisma), this.encryption);
+      // Refresh an expired Google token (and re-store it) before execution.
+      getConnection = makeGoogleGetConnection(this.connections, googleConfigFromEnv());
     } catch {
       // No CYFLOW_ENCRYPTION_KEY configured — the vault is simply unavailable.
       console.warn("[api] CYFLOW_ENCRYPTION_KEY not set — connections disabled");
@@ -138,6 +148,12 @@ export class PrismaApiStore implements ApiStore {
       getConnection,
       dataStore: new PrismaDataStore(prisma),
     };
+  }
+
+  /** The Google OAuth runtime for createApp — null when the vault is unavailable. */
+  googleRuntime(): GoogleRuntime | null {
+    if (!this.connections || !this.encryption) return null;
+    return { config: googleConfigFromEnv(), encryption: this.encryption, connections: this.connections, userId: this.userId };
   }
 
   /** Ensure the single demo workspace user exists; cache its id. */

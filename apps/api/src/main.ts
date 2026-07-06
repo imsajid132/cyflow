@@ -61,7 +61,11 @@ async function main(): Promise<void> {
   const adminToken = process.env.ADMIN_TOKEN ?? process.env.CYFLOW_ADMIN_TOKEN;
   if (!adminToken) console.warn("[api] no ADMIN_TOKEN set — API is OPEN (set one for personal production)");
 
-  const app = createApp(store, { adminToken });
+  const google = store instanceof PrismaApiStore ? store.googleRuntime() ?? undefined : undefined;
+  if (google?.config) console.log("[api] Google OAuth: configured");
+  else if (google) console.warn("[api] Google OAuth: vault ready but GOOGLE_CLIENT_* not set");
+
+  const app = createApp(store, { adminToken, google });
   const port = Number(process.env.PORT ?? 3001);
   app.listen(port, () => {
     console.log(`[api] Cyflow API listening on :${port}${adminToken ? " (admin-protected)" : ""}`);

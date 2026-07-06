@@ -4,7 +4,7 @@ import { Modal, Button } from "../ui";
 import { ModuleIcon } from "../ModuleIcon";
 import { ArrowLeftIcon } from "../icons";
 import { CATALOG, findApp } from "../../data/catalog";
-import { api, apiEnabled, type AuthFieldDTO } from "../../store/api";
+import { api, apiEnabled, GOOGLE_APPS, type AuthFieldDTO } from "../../store/api";
 import type { Connection } from "../../store/types";
 
 const authApps = CATALOG.filter((a) => a.auth);
@@ -83,7 +83,13 @@ export function ConnectionModal({ mode, existing, onClose }: Props) {
       return;
     }
     try {
-      const res = await api.oauthStart(appKey);
+      const res = GOOGLE_APPS.has(appKey) ? await api.googleOAuthStart(appKey) : await api.oauthStart(appKey);
+      if (res.configured && res.authUrl) {
+        // Send the user to the real Google consent screen; the callback returns
+        // to the Connections page with a success/error banner.
+        window.location.href = res.authUrl;
+        return;
+      }
       setOauth({ loading: false, configured: res.configured, message: res.message, authUrl: res.authUrl });
     } catch (e) {
       setOauth({ loading: false, configured: false, message: String((e as Error).message) });
@@ -198,7 +204,7 @@ export function ConnectionModal({ mode, existing, onClose }: Props) {
                   ) : null}
                 </div>
               ) : (
-                <span className="hint">OAuth2 flow (scaffold). No provider secrets are handled in the browser.</span>
+                <span className="hint">You'll be redirected to the provider to authorize. No provider secrets are handled in the browser.</span>
               )}
             </div>
           ) : (
