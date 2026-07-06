@@ -11,6 +11,10 @@ function Glyph({ sw = 1.8, children, ...rest }: IconProps & { children: React.Re
   return (
     <svg
       viewBox="0 0 24 24"
+      // Default to 1em so an unsized icon can never balloon to fill its flex
+      // parent; explicit width/height props (spread below) still override this.
+      width="1em"
+      height="1em"
       fill="none"
       stroke="currentColor"
       strokeWidth={sw}
@@ -162,7 +166,7 @@ export function ResetIcon(p: IconProps) {
 /** Solid play triangle (fill, not stroke). */
 export function PlayIcon(p: SVGProps<SVGSVGElement>) {
   return (
-    <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true" {...p}>
+    <svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" stroke="none" aria-hidden="true" {...p}>
       <path d="M7 5v14l12-7z" />
     </svg>
   );
@@ -291,7 +295,7 @@ export function CalendarIcon(p: IconProps) {
 }
 export function MoreIcon(p: IconProps) {
   return (
-    <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true" {...p}>
+    <svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" stroke="none" aria-hidden="true" {...p}>
       <circle cx="5" cy="12" r="1.8" />
       <circle cx="12" cy="12" r="1.8" />
       <circle cx="19" cy="12" r="1.8" />
@@ -323,7 +327,7 @@ export function DuplicateIcon(p: IconProps) {
 }
 export function BoltIcon(p: IconProps) {
   return (
-    <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true" {...p}>
+    <svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" stroke="none" aria-hidden="true" {...p}>
       <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z" />
     </svg>
   );

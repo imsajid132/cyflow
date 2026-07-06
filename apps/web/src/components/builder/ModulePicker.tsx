@@ -55,11 +55,13 @@ export function ModulePicker({
               <span className="actionrow__icon">
                 <ModuleIcon app={selected.key} operation={m.operation} sw={1.7} />
               </span>
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <b>{m.name}</b>
                 <span className="muted" style={{ textTransform: "capitalize" }}>{m.kind}</span>
               </div>
-              <ChevronRightIcon />
+              <span className="actionrow__chev" aria-hidden="true">
+                <ChevronRightIcon width={16} height={16} />
+              </span>
             </div>
           ))}
         </div>

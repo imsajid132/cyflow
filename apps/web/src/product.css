@@ -163,8 +163,15 @@
 .actionrow { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: rgba(255, 255, 255, 0.28); border: 1px solid var(--glass-brdr); cursor: pointer; margin-bottom: 8px; }
 .actionrow:hover { background: rgba(255, 255, 255, 0.44); }
 .actionrow__icon { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--glass-fill-2); border: 1px solid var(--glass-brdr); }
+.actionrow__icon { flex: none; }
 .actionrow__icon svg { width: 18px; height: 18px; }
 .actionrow b { display: block; font-weight: 600; }
+/* Trailing "go" chevron — a fixed 32px glass button, never grows in the flex row. */
+.actionrow__chev { flex: none; width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; color: var(--ink-mute); }
+.actionrow__chev svg { width: 16px; height: 16px; flex: none; }
+.actionrow:hover .actionrow__chev { color: var(--ink); }
+/* Safety net: any stray direct-child icon in a row stays small. */
+.actionrow > svg { flex: none; width: 18px; height: 18px; }
 
 /* ---------- textarea (matches .input) ---------- */
 textarea.input { resize: vertical; font-family: var(--font-body); line-height: 1.5; }
@@ -296,6 +303,21 @@ textarea.input { resize: vertical; font-family: var(--font-body); line-height: 1
 
 .branchrow { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 9px; background: rgba(255, 255, 255, 0.2); border: 1px solid var(--glass-brdr); margin-bottom: 6px; font-size: 0.8rem; }
 .branchrow b { flex: 1; }
+
+/* ---------- executions table ---------- */
+.exectable .trow[role="button"] { cursor: pointer; transition: background 0.12s ease, box-shadow 0.12s ease; }
+.exectable .trow[role="button"]:hover { background: rgba(255, 255, 255, 0.34); }
+.exectable .trow[role="button"]:focus-visible { outline: 2px solid var(--lime-bright); outline-offset: -2px; }
+.exectable .trow.is-failed { background: rgba(214, 64, 64, 0.06); box-shadow: inset 3px 0 0 var(--danger); }
+.exectable .trow.is-failed:hover { background: rgba(214, 64, 64, 0.11); }
+.exectable .num { justify-self: end; text-align: right; font-family: var(--font-data); }
+.exectable .trow > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exec__sub { display: block; font-size: 0.7rem; color: var(--ink-mute); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exec__sub.is-err { color: var(--danger); }
+.replaybtn { justify-self: end; display: inline-flex; align-items: center; gap: 4px; padding: 5px 11px; border-radius: 999px; background: rgba(255, 255, 255, 0.3); border: 1px solid var(--glass-brdr); font-size: 0.72rem; font-weight: 600; color: var(--ink); opacity: 0.55; transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease; }
+.exectable .trow:hover .replaybtn,
+.exectable .trow:focus-visible .replaybtn { opacity: 1; background: var(--ink); color: var(--white); }
+.replaybtn svg { width: 13px; height: 13px; flex: none; }
 
 /* ---------- execution replay ---------- */
 .statusbar__prog { display: inline-block; width: 90px; height: 5px; border-radius: 999px; background: rgba(255, 255, 255, 0.22); overflow: hidden; }
