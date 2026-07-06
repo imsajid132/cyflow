@@ -31,6 +31,24 @@ export interface Connection {
   createdAt: string;
 }
 
+/** One key-value record in a data store. */
+export interface DataRecord {
+  key: string;
+  value: unknown;
+  updatedAt: string;
+}
+
+/**
+ * A data store (collection of key-value records). Shaped to mirror a future API
+ * (list/get/set/delete/increment on records) — the local adapter fills it now.
+ */
+export interface DataStoreDef {
+  id: string;
+  name: string;
+  records: DataRecord[];
+  updatedAt: string;
+}
+
 /** An execution the user ran in this session (browser engine). */
 export interface ExecutionEntry {
   execution: StoredExecution;

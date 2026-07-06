@@ -107,7 +107,7 @@ export const CATALOG: CatalogApp[] = [
     category: "Data",
     modules: [
       { operation: "get_record", name: "Get a record", kind: "search", params: [{ key: "key", label: "Key", type: "text", mappable: true }] },
-      { operation: "set_record", name: "Set a record", kind: "action", params: [{ key: "key", label: "Key", type: "text", mappable: true }, { key: "value", label: "Value", type: "text", mappable: true }] },
+      { operation: "set_record", name: "Set a record", kind: "action", params: [{ key: "key", label: "Key", type: "text", mappable: true }, { key: "value", label: "Value", type: "textarea", mappable: true }] },
       { operation: "delete_record", name: "Delete a record", kind: "action", params: [{ key: "key", label: "Key", type: "text", mappable: true }] },
       { operation: "list_records", name: "List records", kind: "search", params: [{ key: "prefix", label: "Prefix", type: "text" }] },
       { operation: "increment", name: "Increment a value", kind: "action", defaults: { by: 1 }, params: [{ key: "key", label: "Key", type: "text", mappable: true }, { key: "by", label: "By", type: "number" }] },

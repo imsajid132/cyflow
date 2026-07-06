@@ -7,6 +7,7 @@ import { MappingToken } from "../MappingToken";
 import { Button } from "../Button";
 import { findApp, findModule } from "../../data/catalog";
 import { outputFields } from "../../scenario/outputs";
+import { valuePreview } from "../../lib/datastore";
 import { DEFAULT_TRIGGER } from "../../scenario/localEngine";
 import { PlayIcon, XIcon, ChevronRightIcon, CopyIcon } from "../icons";
 import { RouteEditor } from "./RouteEditor";
@@ -61,6 +62,7 @@ interface Props {
   upstream: UpstreamModule[];
   allNodes: NodeRef[];
   connections: Connection[];
+  dataStores: { id: string; name: string }[];
   step?: StoredExecutionStep;
   execution?: StoredExecution | null;
   onSave: (params: Record<string, unknown>) => void;
@@ -82,6 +84,7 @@ export function ModuleConfigPanel({
   upstream,
   allNodes,
   connections,
+  dataStores,
   step,
   execution,
   onSave,
@@ -162,6 +165,7 @@ export function ModuleConfigPanel({
 
   const isRouter = module.kind === "router";
   const isTrigger = module.kind === "trigger";
+  const isDataStore = module.app === "datastore";
 
   return (
     <aside className="panel glass" aria-label="Module configuration">
@@ -189,6 +193,23 @@ export function ModuleConfigPanel({
       ) : null}
 
       <div className="panel__body">
+        {isDataStore ? (
+          <div className="field">
+            <label htmlFor="ds-store">Data store</label>
+            <select
+              className="input"
+              id="ds-store"
+              value={String(params.store ?? dataStores[0]?.name ?? "")}
+              onChange={(e) => setField("store", e.target.value)}
+            >
+              {dataStores.length === 0 ? <option value="">Default store</option> : null}
+              {dataStores.map((d) => (
+                <option key={d.id} value={d.name}>{d.name}</option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+
         {app?.auth ? (
           <div className="field">
             <label htmlFor="conn">Connection</label>
@@ -330,6 +351,27 @@ export function ModuleConfigPanel({
             <StatusChip kind="success">
               {step.errorOutcome.type} · handled {step.errorOutcome.handled}
             </StatusChip>
+          </div>
+        ) : null}
+
+        {step && isDataStore ? (
+          <div className="field">
+            <label>Data store operation</label>
+            <div className="metagrid">
+              <span className="muted">Operation</span>
+              <span>{def?.name ?? module.operation}</span>
+              {(() => {
+                const out = step.output?.[0] as Record<string, unknown> | undefined;
+                if (!out) return null;
+                return (
+                  <>
+                    {"key" in out ? (<><span className="muted">Key</span><span className="mono">{String(out.key)}</span></>) : null}
+                    {"value" in out ? (<><span className="muted">Value</span><span className="mono">{valuePreview(out.value)}</span></>) : null}
+                    {"found" in out ? (<><span className="muted">Found</span><span className="mono">{String(out.found)}</span></>) : null}
+                  </>
+                );
+              })()}
+            </div>
           </div>
         ) : null}
 

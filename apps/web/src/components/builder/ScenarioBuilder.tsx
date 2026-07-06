@@ -353,6 +353,7 @@ export function ScenarioBuilder() {
               upstream={upstream.map((u) => ({ id: u.node.id, label: u.label, number: u.number, node: u.node }))}
               allNodes={allNodes}
               connections={store.connections}
+              dataStores={store.dataStores.map((d) => ({ id: d.id, name: d.name }))}
               step={selectedStep}
               execution={execution}
               onSave={(params) => patchBlueprint(updateModuleParams(scenario.blueprint, selectedNode.node.id, params))}

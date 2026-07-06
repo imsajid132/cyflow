@@ -4,6 +4,8 @@ import { ModuleIcon } from "../ModuleIcon";
 import { StatusChip } from "../StatusChip";
 import { CopyIcon, SearchIcon } from "../icons";
 import { formatDuration } from "../../lib/format";
+import { valuePreview } from "../../lib/datastore";
+import { findModule } from "../../data/catalog";
 
 interface Props {
   step: StoredExecutionStep;
@@ -87,6 +89,27 @@ export function ReplayInspector({ step, app, operation, title, number }: Props) 
           <div className="field">
             <label>Error handling</label>
             <StatusChip kind="success">{step.errorOutcome.type} · handled {step.errorOutcome.handled}</StatusChip>
+          </div>
+        ) : null}
+
+        {app === "datastore" ? (
+          <div className="field">
+            <label>Data store operation</label>
+            <div className="metagrid">
+              <span className="muted">Operation</span>
+              <span>{findModule(app, operation)?.name ?? operation}</span>
+              {(() => {
+                const out = step.output?.[0] as Record<string, unknown> | undefined;
+                if (!out) return null;
+                return (
+                  <>
+                    {"key" in out ? (<><span className="muted">Key</span><span className="mono">{String(out.key)}</span></>) : null}
+                    {"value" in out ? (<><span className="muted">Value</span><span className="mono">{valuePreview(out.value)}</span></>) : null}
+                    {"found" in out ? (<><span className="muted">Found</span><span className="mono">{String(out.found)}</span></>) : null}
+                  </>
+                );
+              })()}
+            </div>
           </div>
         ) : null}
 

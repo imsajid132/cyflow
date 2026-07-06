@@ -11,7 +11,7 @@ import type { Blueprint, StoredExecution } from "@cyflow/shared";
 import { sampleBlueprint } from "../scenario/sampleScenario";
 import { runOnce as localRunOnce } from "../scenario/localEngine";
 import { api, apiEnabled, normalizeExecution } from "./api";
-import type { Connection, ExecutionEntry, Scenario, Schedule, ViewName } from "./types";
+import type { Connection, DataStoreDef, ExecutionEntry, Scenario, Schedule, ViewName } from "./types";
 
 const iso = (offsetMinutes = 0) => new Date(Date.now() - offsetMinutes * 60_000).toISOString();
 let counter = 100;
@@ -52,6 +52,13 @@ const ticketRouter: Blueprint = {
   ],
 };
 
+const cacheScores: Blueprint = {
+  modules: [
+    { id: "1", app: "webhook", operation: "custom_webhook", kind: "trigger", params: { name: "Lead scored" }, next: "2" },
+    { id: "2", app: "datastore", operation: "set_record", kind: "action", params: { store: "Default store", key: "lead:{{1.body.email}}", value: "{{1.body.score}}" }, next: null },
+  ],
+};
+
 function seedScenarios(): Scenario[] {
   return [
     {
@@ -64,6 +71,17 @@ function seedScenarios(): Scenario[] {
       lastStatus: "SUCCESS",
       operations: 4,
       updatedAt: iso(20),
+    },
+    {
+      id: "scn_cache",
+      name: "Cache lead scores",
+      status: "ACTIVE",
+      schedule: { type: "manual" },
+      blueprint: cacheScores,
+      lastRunAt: iso(90),
+      lastStatus: "SUCCESS",
+      operations: 2,
+      updatedAt: iso(90),
     },
     {
       id: "scn_leads",
@@ -106,6 +124,22 @@ function seedConnections(): Connection[] {
     { id: "conn_telegram", appKey: "telegram", name: "Cyflow Bot", createdAt: iso(4000) },
     { id: "conn_slack", appKey: "slack", name: "Acme Workspace", createdAt: iso(6000) },
     { id: "conn_openai", appKey: "openai", name: "OpenAI · production", createdAt: iso(9000) },
+  ];
+}
+
+function seedDataStores(): DataStoreDef[] {
+  return [
+    {
+      id: "ds_default",
+      name: "Default store",
+      updatedAt: iso(15),
+      records: [
+        { key: "lead:ada@lovelace.dev", value: { score: 42, tags: ["vip"], enriched: true }, updatedAt: iso(15) },
+        { key: "counter:signups", value: 128, updatedAt: iso(30) },
+        { key: "flag:maintenance", value: false, updatedAt: iso(240) },
+        { key: "config:webhook", value: { url: "https://hooks.example.com/x", active: true }, updatedAt: iso(600) },
+      ],
+    },
   ];
 }
 
@@ -222,6 +256,12 @@ interface AppStore {
   createConnection: (input: { appKey: string; name: string; credentials?: Record<string, unknown> }) => Promise<Connection>;
   updateConnection: (id: string, patch: { name?: string; credentials?: Record<string, unknown> }) => Promise<void>;
   deleteConnection: (id: string) => Promise<void>;
+  dataStores: DataStoreDef[];
+  dataStoreById: (id: string | null) => DataStoreDef | undefined;
+  createDataStore: (name: string) => string;
+  deleteDataStore: (id: string) => void;
+  upsertRecord: (storeId: string, key: string, value: unknown) => void;
+  deleteRecord: (storeId: string, key: string) => void;
   scenarioById: (id: string | null) => Scenario | undefined;
   executionById: (id: string | null) => ExecutionEntry | undefined;
 }
@@ -250,6 +290,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [scenarios, setScenarios] = useState<Scenario[]>(() => (apiEnabled ? [] : seedScenarios()));
   const [connections, setConnections] = useState<Connection[]>(() => (apiEnabled ? [] : seedConnections()));
   const [executions, setExecutions] = useState<ExecutionEntry[]>(() => (apiEnabled ? [] : seedExecutions()));
+  // Data-store records live in a local adapter (no API record endpoints yet),
+  // seeded in both modes so the feature works on the deployed demo.
+  const [dataStores, setDataStores] = useState<DataStoreDef[]>(seedDataStores);
   const [search, setSearch] = useState("");
 
   // API mode: hydrate real state on mount. On failure, fall back silently to
@@ -452,6 +495,40 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     [executions],
   );
 
+  // ---- data stores (local adapter) ----
+  const dataStoreById = useCallback((id: string | null) => dataStores.find((d) => d.id === id), [dataStores]);
+
+  const createDataStore = useCallback((name: string): string => {
+    const id = uid("ds");
+    setDataStores((prev) => [...prev, { id, name: name.trim() || "New store", records: [], updatedAt: new Date().toISOString() }]);
+    return id;
+  }, []);
+
+  const deleteDataStore = useCallback((id: string) => {
+    setDataStores((prev) => prev.filter((d) => d.id !== id));
+  }, []);
+
+  const upsertRecord = useCallback((storeId: string, key: string, value: unknown) => {
+    const now = new Date().toISOString();
+    setDataStores((prev) =>
+      prev.map((d) => {
+        if (d.id !== storeId) return d;
+        const exists = d.records.some((r) => r.key === key);
+        const records = exists
+          ? d.records.map((r) => (r.key === key ? { key, value, updatedAt: now } : r))
+          : [{ key, value, updatedAt: now }, ...d.records];
+        return { ...d, records, updatedAt: now };
+      }),
+    );
+  }, []);
+
+  const deleteRecord = useCallback((storeId: string, key: string) => {
+    const now = new Date().toISOString();
+    setDataStores((prev) =>
+      prev.map((d) => (d.id === storeId ? { ...d, records: d.records.filter((r) => r.key !== key), updatedAt: now } : d)),
+    );
+  }, []);
+
   const value = useMemo<AppStore>(
     () => ({
       workspace: "Cyflow Team",
@@ -475,6 +552,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       createConnection,
       updateConnection,
       deleteConnection,
+      dataStores,
+      dataStoreById,
+      createDataStore,
+      deleteDataStore,
+      upsertRecord,
+      deleteRecord,
       scenarioById,
       executionById,
     }),
@@ -497,6 +580,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       createConnection,
       updateConnection,
       deleteConnection,
+      dataStores,
+      dataStoreById,
+      createDataStore,
+      deleteDataStore,
+      upsertRecord,
+      deleteRecord,
       scenarioById,
       executionById,
     ],
