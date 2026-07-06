@@ -1,14 +1,21 @@
-import type { ModuleId } from "../data/modules";
-import { WebhookIcon, HttpIcon, TelegramIcon } from "./icons";
+import {
+  WebhookIcon,
+  HttpIcon,
+  TelegramIcon,
+  IteratorIcon,
+  AggregatorIcon,
+  DelayIcon,
+  RouterIcon,
+} from "./icons";
 
-/** Maps a module id to its app icon, forwarding stroke width + props. */
-export function ModuleIcon({ id, sw }: { id: ModuleId; sw?: number }) {
-  switch (id) {
-    case "webhook":
-      return <WebhookIcon sw={sw} />;
-    case "http":
-      return <HttpIcon sw={sw} />;
-    case "telegram":
-      return <TelegramIcon sw={sw} />;
+/** Maps a module's app/operation to its app icon. */
+export function ModuleIcon({ app, operation, sw }: { app: string; operation: string; sw?: number }) {
+  if (app === "webhook") return <WebhookIcon sw={sw} />;
+  if (app === "http") return <HttpIcon sw={sw} />;
+  if (app === "telegram") return <TelegramIcon sw={sw} />;
+  if (app === "core") return <DelayIcon sw={sw} />;
+  if (app === "flow") {
+    return operation === "iterator" ? <IteratorIcon sw={sw} /> : <AggregatorIcon sw={sw} />;
   }
+  return <RouterIcon sw={sw} />;
 }

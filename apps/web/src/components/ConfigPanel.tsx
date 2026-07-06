@@ -1,83 +1,133 @@
-import type { FlowModule } from "../data/modules";
+import { Fragment } from "react";
+import type { ModuleNode, StoredExecutionStep } from "@cyflow/shared";
 import { ModuleIcon } from "./ModuleIcon";
 import { StatusChip } from "./StatusChip";
 import { MappingToken } from "./MappingToken";
 import { Button } from "./Button";
 
+interface ConfigPanelProps {
+  module: ModuleNode;
+  /** 1-based module number in the chain. */
+  number: number;
+  label: string;
+  /** The selected module's snapshot after a run (if any). */
+  step?: StoredExecutionStep;
+}
+
+/** Render a string value, turning {{ ... }} tokens into mapping chips. */
+function ParamValue({ value }: { value: unknown }) {
+  if (typeof value !== "string") {
+    return <>{JSON.stringify(value)}</>;
+  }
+  const parts = value.split(/(\{\{[^}]+\}\})/g).filter((p) => p !== "");
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.startsWith("{{") && part.endsWith("}}") ? (
+          <MappingToken key={i}>{part}</MappingToken>
+        ) : (
+          <Fragment key={i}>{part}</Fragment>
+        ),
+      )}
+    </>
+  );
+}
+
 /**
- * Right-hand config panel. The header reflects the selected module; the body is
- * the schema-style form for the Telegram "Send a message" action (the demo
- * module), including a mapping token pulled from module 1's output.
+ * Right-hand config panel — data-driven from the selected blueprint module.
+ * Shows the module's identity (app / operation / kind / number), its params
+ * with mapping tokens highlighted, and — after a run — the execution inspector
+ * (status, operations, duration, input/output bundle snapshots).
  */
-export function ConfigPanel({ module }: { module: FlowModule }) {
+export function ConfigPanel({ module, number, label, step }: ConfigPanelProps) {
+  const params = Object.entries(module.params ?? {});
+
   return (
     <aside className="panel glass" aria-label="Module configuration">
       <div className="panel__head">
         <div className="panel__icon">
-          <ModuleIcon id={module.id} sw={1.8} />
+          <ModuleIcon app={module.app} operation={module.operation} sw={1.8} />
         </div>
         <div>
-          <h2>{module.label}</h2>
-          <span>{module.panelSub}</span>
+          <h2>{label}</h2>
+          <span>
+            {module.operation} · {module.kind}
+          </span>
         </div>
       </div>
 
       <div className="panel__status">
-        <StatusChip kind="success">Webhook · success</StatusChip>
-        <StatusChip kind="running">HTTP · running</StatusChip>
+        {step ? (
+          <StatusChip kind={step.status === "error" ? "failed" : "success"}>
+            {label} · {step.status}
+          </StatusChip>
+        ) : (
+          <span className="chip">Not run yet</span>
+        )}
+        {step ? <span className="chip">{step.operations} ops</span> : null}
       </div>
 
       <div className="panel__body">
         <div className="field">
-          <label htmlFor="conn">Connection</label>
-          <select className="input" id="conn" defaultValue="cyflow">
-            <option value="cyflow">Cyflow Bot · @cyflow_alerts</option>
-            <option value="new">Add a new connection…</option>
-          </select>
-          <span className="hint">
-            Bring your own bot — credentials stay in your encrypted vault.
-          </span>
-        </div>
-
-        <div className="field">
-          <label htmlFor="chat">Chat ID</label>
-          <input className="input" id="chat" defaultValue="-100234598812" />
-        </div>
-
-        <div className="field">
-          <label>Message text</label>
-          <div className="mapfield">
-            <span className="lead">New lead:</span>
-            <MappingToken>{"{{1.body.email}}"}</MappingToken>
-          </div>
-          <span className="hint">
-            Click a field from an earlier module to insert its mapping token.
-          </span>
-        </div>
-
-        <div className="field">
-          <label htmlFor="mode">Parse mode</label>
-          <select className="input" id="mode" defaultValue="Markdown">
-            <option>Markdown</option>
-            <option>HTML</option>
-            <option>Plain text</option>
-          </select>
-        </div>
-
-        <div className="field">
-          <label>Incoming bundle · module 1</label>
+          <label>Module</label>
           <div className="kv">
             <div>
-              <span className="k">body.email:</span> ada@lovelace.dev
+              <span className="k">app:</span> {module.app}
             </div>
             <div>
-              <span className="k">body.name:</span> Ada Lovelace
+              <span className="k">operation:</span> {module.operation}
             </div>
             <div>
-              <span className="k">headers.source:</span> landing-page
+              <span className="k">kind:</span> {module.kind}
+            </div>
+            <div>
+              <span className="k">module:</span> #{number}
             </div>
           </div>
         </div>
+
+        <div className="field">
+          <label>Parameters</label>
+          <div className="kv">
+            {params.length === 0 ? (
+              <div className="k">No parameters</div>
+            ) : (
+              params.map(([key, value]) => (
+                <div key={key}>
+                  <span className="k">{key}:</span> <ParamValue value={value} />
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {step ? (
+          <>
+            <div className="field">
+              <label>Input bundles · module {number}</label>
+              <div className="kv" style={{ whiteSpace: "pre-wrap" }}>
+                {JSON.stringify(step.input, null, 2)}
+              </div>
+            </div>
+            <div className="field">
+              <label>Output bundles · module {number}</label>
+              <div className="kv" style={{ whiteSpace: "pre-wrap" }}>
+                {step.error ? step.error : JSON.stringify(step.output, null, 2)}
+              </div>
+              <span className="hint">
+                {step.operations} operation{step.operations === 1 ? "" : "s"} · {step.ms}ms
+              </span>
+            </div>
+          </>
+        ) : (
+          <div className="field">
+            <label>Last run</label>
+            <span className="hint">
+              Click <strong>Run once</strong> to execute the scenario, then select a bubble to
+              inspect its bundles.
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="panel__foot">

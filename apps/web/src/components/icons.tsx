@@ -74,6 +74,17 @@ export function IteratorIcon(p: IconProps) {
   );
 }
 
+export function AggregatorIcon(p: IconProps) {
+  // Stacked layers — many bundles collected into one.
+  return (
+    <Glyph {...p}>
+      <path d="M12 3 3 8l9 5 9-5-9-5Z" />
+      <path d="M3 12l9 5 9-5" />
+      <path d="M3 16l9 5 9-5" />
+    </Glyph>
+  );
+}
+
 export function DelayIcon(p: IconProps) {
   return (
     <Glyph {...p}>

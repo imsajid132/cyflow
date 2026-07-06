@@ -171,7 +171,8 @@ body{
 .flow{
   position:relative;
   display:flex; align-items:flex-start; justify-content:center;
-  gap:96px;
+  /* gap sized so the five-module sample chain fits the canvas column */
+  gap:72px;
 }
 .links{
   position:absolute; inset:0;

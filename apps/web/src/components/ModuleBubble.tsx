@@ -1,11 +1,11 @@
 import type { KeyboardEvent } from "react";
-import type { FlowModule } from "../data/modules";
+import type { UiModule } from "../scenario/model";
 import type { NodeStatus } from "../hooks/useRunOnce";
 import { ModuleIcon } from "./ModuleIcon";
 import { CheckIcon } from "./icons";
 
 interface ModuleBubbleProps {
-  module: FlowModule;
+  module: UiModule;
   status: NodeStatus;
   selected: boolean;
   onSelect: () => void;
@@ -16,7 +16,7 @@ interface ModuleBubbleProps {
 /**
  * The signature element: a circular frosted-glass orb with a black app icon,
  * a black title beneath, and run-state rings (selected / running glow /
- * success). Keyboard-operable as a button.
+ * success / error). Keyboard-operable as a button.
  */
 export function ModuleBubble({ module, status, selected, onSelect, bubbleRef }: ModuleBubbleProps) {
   const classes = [
@@ -47,7 +47,7 @@ export function ModuleBubble({ module, status, selected, onSelect, bubbleRef }: 
       onKeyDown={onKeyDown}
     >
       <div className="bubble" ref={bubbleRef} tabIndex={-1}>
-        <ModuleIcon id={module.id} sw={1.7} />
+        <ModuleIcon app={module.node.app} operation={module.node.operation} sw={1.7} />
         <div className="node__badge" aria-hidden="true">
           <CheckIcon sw={3} width={13} height={13} />
         </div>

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { FlowModule } from "../data/modules";
+import type { Blueprint, Bundle, StoredExecution } from "@cyflow/shared";
+import type { UiModule } from "../scenario/model";
+import { runOnce } from "../scenario/localEngine";
 import { ModuleBubble } from "./ModuleBubble";
 import { ConnectorLinks } from "./ConnectorLinks";
 import { Button } from "./Button";
@@ -8,17 +10,28 @@ import { useReducedMotion } from "../hooks/useReducedMotion";
 import { useRunOnce } from "../hooks/useRunOnce";
 
 interface CanvasProps {
-  modules: FlowModule[];
+  blueprint: Blueprint;
+  trigger: Bundle[];
+  modules: UiModule[];
   selectedIndex: number;
   onSelect: (index: number) => void;
+  onExecution: (execution: StoredExecution | null) => void;
 }
 
 /**
  * The lime-world stage: frosted bubbles joined by ink-black curved links, a
- * header with the scenario title and the "Run once" / "Reset" controls, and the
- * floating operations meter. Owns connector geometry and the replay lifecycle.
+ * header with the scenario title and the "Run Once" / "Reset" controls, and the
+ * floating operations meter. Owns connector geometry and drives the real engine
+ * replay.
  */
-export function Canvas({ modules, selectedIndex, onSelect }: CanvasProps) {
+export function Canvas({
+  blueprint,
+  trigger,
+  modules,
+  selectedIndex,
+  onSelect,
+  onExecution,
+}: CanvasProps) {
   const flowRef = useRef<HTMLDivElement | null>(null);
   const bubbleRefs = useRef<(HTMLDivElement | null)[]>([]);
   const pathRefs = useRef<(SVGPathElement | null)[]>([]);
@@ -28,12 +41,17 @@ export function Canvas({ modules, selectedIndex, onSelect }: CanvasProps) {
   const [size, setSize] = useState({ w: 0, h: 0 });
 
   const { reducedRef } = useReducedMotion();
+  const execute = useCallback(() => runOnce(blueprint, trigger), [blueprint, trigger]);
+  const moduleIds = modules.map((m) => m.node.id);
+
   const { statuses, ops, isRunning, run, reset } = useRunOnce({
-    count: modules.length,
+    moduleIds,
+    execute,
     pathRefs,
     packetRef,
     reducedRef,
     onSelect,
+    onExecution,
   });
 
   // Draw ink-black beziers from each bubble's centre to the next.
@@ -79,8 +97,7 @@ export function Canvas({ modules, selectedIndex, onSelect }: CanvasProps) {
     return () => window.removeEventListener("resize", drawLinks);
   }, [drawLinks]);
 
-  // Dev/demo hook: visiting with `?autorun` starts the replay on load. Used for
-  // smoke tests and demos; normal use is unaffected.
+  // Dev/demo hook: visiting with `?autorun` starts the replay on load.
   useEffect(() => {
     if (new URLSearchParams(window.location.search).has("autorun")) {
       const t = setTimeout(run, 400);
@@ -97,7 +114,7 @@ export function Canvas({ modules, selectedIndex, onSelect }: CanvasProps) {
     <main className="canvas">
       <div className="canvas__head">
         <div className="canvas__title">
-          <h1>New lead → Telegram alert</h1>
+          <h1>Enrich leads → Telegram digest</h1>
           <p>Draft · saved 2 min ago</p>
         </div>
         <div className="canvas__actions">
@@ -133,7 +150,7 @@ export function Canvas({ modules, selectedIndex, onSelect }: CanvasProps) {
           />
           {modules.map((module, i) => (
             <ModuleBubble
-              key={module.id}
+              key={module.node.id}
               module={module}
               status={statuses[i]}
               selected={selectedIndex === i}
