@@ -136,6 +136,14 @@ export function DataStoreIcon(p: IconProps) {
   );
 }
 
+export function BracesIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <path d="M8 4c-1.7 0-2.5.9-2.5 2.6V9c0 1.2-.8 2-2 2 1.2 0 2 .8 2 2v2.4C5.5 17.1 6.3 18 8 18" />
+      <path d="M16 4c1.7 0 2.5.9 2.5 2.6V9c0 1.2.8 2 2 2-1.2 0-2 .8-2 2v2.4c0 1.7-.8 2.6-2.5 2.6" />
+    </Glyph>
+  );
+}
 export function DelayIcon(p: IconProps) {
   return (
     <Glyph {...p}>

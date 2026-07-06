@@ -102,6 +102,20 @@ export const CATALOG: CatalogApp[] = [
     ],
   },
   {
+    key: "utils",
+    name: "JSON / CSV",
+    category: "Data",
+    modules: [
+      { operation: "parse_json", name: "Parse JSON", kind: "action", params: [{ key: "text", label: "JSON text", type: "textarea", mappable: true }] },
+      { operation: "to_json", name: "Create JSON", kind: "action", params: [{ key: "value", label: "Value (map a field)", type: "text", mappable: true, placeholder: "{{1.body}}" }] },
+      { operation: "parse_csv", name: "Parse CSV", kind: "action", params: [
+        { key: "text", label: "CSV text", type: "textarea", mappable: true },
+        { key: "delimiter", label: "Delimiter", type: "text", placeholder: "," },
+      ] },
+      { operation: "to_csv", name: "Create CSV", kind: "action", params: [{ key: "rows", label: "Rows (map an array)", type: "text", mappable: true, placeholder: "{{2.rows}}" }] },
+    ],
+  },
+  {
     key: "datastore",
     name: "Data store",
     category: "Data",

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExecutionContext } from "@cyflow/shared";
 import { createDefaultRegistry } from "engine";
-import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, slackApp } from "../src/index";
+import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, slackApp, utilsApp, parseCsv, toCsv } from "../src/index";
 
 function makeCtx(connection: Record<string, unknown> | null): ExecutionContext {
   return {
@@ -177,6 +177,44 @@ describe("Telegram Bot API (production)", () => {
   it("throws a descriptive error on an API failure", async () => {
     stubFetch({ ok: false, description: "chat not found" }, false, 400);
     await expect(telegramApp.modules.send_message.run({}, { chatId: "x", text: "hi" }, makeCtx({ token: "T" }))).rejects.toThrow(/chat not found/);
+  });
+});
+
+describe("JSON / CSV utilities (pure)", () => {
+  const ctx = makeCtx(null);
+
+  it("parse_json parses text into a value", async () => {
+    const out = await utilsApp.modules.parse_json.run({}, { text: '{"a":1,"b":[2,3]}' }, ctx);
+    expect(out).toEqual([{ value: { a: 1, b: [2, 3] } }]);
+  });
+
+  it("parse_json throws a clear error on invalid JSON", async () => {
+    await expect(utilsApp.modules.parse_json.run({}, { text: "{oops" }, ctx)).rejects.toThrow(/Parse JSON failed/);
+  });
+
+  it("to_json stringifies (compact + pretty)", async () => {
+    expect((await utilsApp.modules.to_json.run({}, { value: { a: 1 } }, ctx))[0]).toEqual({ text: '{"a":1}' });
+    expect((await utilsApp.modules.to_json.run({}, { value: { a: 1 }, pretty: true }, ctx))[0]).toEqual({ text: '{\n  "a": 1\n}' });
+  });
+
+  it("parseCsv handles quotes, escaped quotes and embedded delimiters", () => {
+    expect(parseCsv('a,b\n"x,y","he said ""hi"""')).toEqual([["a", "b"], ["x,y", 'he said "hi"']]);
+  });
+
+  it("parse_csv with header returns objects", async () => {
+    const out = await utilsApp.modules.parse_csv.run({}, { text: "name,score\nAda,42\nGrace,7", header: true }, ctx);
+    expect(out[0]).toEqual({ rows: [{ name: "Ada", score: "42" }, { name: "Grace", score: "7" }], count: 2 });
+  });
+
+  it("to_csv serializes objects with a header row and quoting", () => {
+    expect(toCsv([{ a: "1", b: "x,y" }, { a: "2", b: "z" }])).toBe('a,b\n1,"x,y"\n2,z');
+  });
+
+  it("round-trips CSV → rows → CSV", async () => {
+    const csv = "name,city\nAda,London\nGrace,NYC";
+    const parsed = await utilsApp.modules.parse_csv.run({}, { text: csv, header: true }, ctx);
+    const back = await utilsApp.modules.to_csv.run({}, { rows: (parsed[0] as { rows: unknown[] }).rows }, ctx);
+    expect((back[0] as { text: string }).text).toBe(csv);
   });
 });
 

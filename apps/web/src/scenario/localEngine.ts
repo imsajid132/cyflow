@@ -107,6 +107,67 @@ const mockSheets: OperationRunner = async (_input, params) => {
   return [{ updatedRange: `${String(p.range ?? "Sheet1!A1")}`, updatedRows: 1 }];
 };
 
+// JSON / CSV utilities are pure transforms — run the real logic offline too.
+function parseCsv(text: string, delimiter = ","): string[][] {
+  const rows: string[][] = [];
+  let field = "";
+  let row: string[] = [];
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; } else inQuotes = false;
+      } else field += c;
+    } else if (c === '"') inQuotes = true;
+    else if (c === delimiter) { row.push(field); field = ""; }
+    else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+    else if (c !== "\r") field += c;
+  }
+  if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+  return rows;
+}
+function toCsv(rows: unknown[], delimiter = ","): string {
+  if (rows.length === 0) return "";
+  const q = (v: unknown) => {
+    const s = v == null ? "" : String(v);
+    return /["\n\r]/.test(s) || s.includes(delimiter) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const first = rows[0];
+  if (first && typeof first === "object" && !Array.isArray(first)) {
+    const headers = Object.keys(first as Record<string, unknown>);
+    return [headers.map(q).join(delimiter), ...(rows as Record<string, unknown>[]).map((r) => headers.map((h) => q(r[h])).join(delimiter))].join("\n");
+  }
+  return (rows as unknown[][]).map((r) => (Array.isArray(r) ? r : [r]).map(q).join(delimiter)).join("\n");
+}
+
+const utilRunners: Record<string, OperationRunner> = {
+  parse_json: async (_i, p) => {
+    const t = (p as { text?: unknown }).text;
+    return [{ value: typeof t === "string" ? JSON.parse(t) : t }];
+  },
+  to_json: async (_i, p) => {
+    const q = p as { value?: unknown; pretty?: unknown };
+    return [{ text: JSON.stringify(q.value ?? null, null, q.pretty ? 2 : 0) }];
+  },
+  parse_csv: async (_i, p) => {
+    const q = p as { text?: unknown; delimiter?: unknown; header?: unknown };
+    const grid = parseCsv(String(q.text ?? ""), typeof q.delimiter === "string" && q.delimiter ? q.delimiter : ",");
+    if (q.header) {
+      const [head, ...body] = grid;
+      const keys = head ?? [];
+      const objects = body.map((r) => Object.fromEntries(keys.map((k, i) => [k, r[i] ?? ""])));
+      return [{ rows: objects, count: objects.length }];
+    }
+    return [{ rows: grid, count: grid.length }];
+  },
+  to_csv: async (_i, p) => {
+    const q = p as { rows?: unknown; delimiter?: unknown };
+    const rows = Array.isArray(q.rows) ? (q.rows as unknown[]) : [];
+    return [{ text: toCsv(rows, typeof q.delimiter === "string" && q.delimiter ? q.delimiter : ",") }];
+  },
+};
+
 // A single data store instance so datastore modules persist across runs.
 const dataStore = new InMemoryDataStore();
 
@@ -119,6 +180,7 @@ function createBrowserRegistry(): Registry {
   registry.register({ app: "openai", operation: "create_completion", kind: "action", run: mockOpenAi });
   registry.register({ app: "gmail", operation: "send_email", kind: "action", run: mockGmail });
   registry.register({ app: "sheets", operation: "append_row", kind: "action", run: mockSheets });
+  for (const [op, run] of Object.entries(utilRunners)) registry.register({ app: "utils", operation: op, kind: "action", run });
   return registry;
 }
 

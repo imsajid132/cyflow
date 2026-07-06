@@ -28,6 +28,10 @@ const META: Record<string, { label: string; sub: string }> = {
   "datastore.get_record": { label: "Data store", sub: "Get record" },
   "datastore.set_record": { label: "Data store", sub: "Set record" },
   "flow.router": { label: "Router", sub: "Branch routes" },
+  "utils.parse_json": { label: "Parse JSON", sub: "JSON → value" },
+  "utils.to_json": { label: "Create JSON", sub: "value → JSON" },
+  "utils.parse_csv": { label: "Parse CSV", sub: "CSV → rows" },
+  "utils.to_csv": { label: "Create CSV", sub: "rows → CSV" },
 };
 
 export function nodeMeta(node: ModuleNode): { label: string; sub: string } {
