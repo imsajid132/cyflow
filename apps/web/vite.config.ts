@@ -15,6 +15,10 @@ export default defineConfig({
       functions: fromHere("../../packages/functions/src/index.ts"),
       engine: fromHere("../../packages/engine/src/index.ts"),
     },
+    // The engine source (imported from ../../packages) does `import "zod"`. On
+    // Vercel only apps/web runs `npm install`, so `zod` must resolve from THIS
+    // project's node_modules rather than the sibling package's (which has none).
+    dedupe: ["zod", "react", "react-dom"],
   },
   server: {
     host: true,

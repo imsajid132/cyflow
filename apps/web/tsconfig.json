@@ -20,7 +20,8 @@
     "paths": {
       "@cyflow/shared": ["../../packages/shared/src/index.ts"],
       "functions": ["../../packages/functions/src/index.ts"],
-      "engine": ["../../packages/engine/src/index.ts"]
+      "engine": ["../../packages/engine/src/index.ts"],
+      "zod": ["./node_modules/zod"]
     },
 
     /* Linting */
