@@ -1,0 +1,41 @@
+# Local infrastructure for Cyflow (Phase 3): Postgres for persistence, Redis for
+# the BullMQ execution queue.
+#
+#   docker compose up -d
+#   pnpm --filter @cyflow/db migrate   # apply the schema
+#   pnpm --filter @cyflow/worker start # run the worker
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cyflow-postgres
+    environment:
+      POSTGRES_USER: cyflow
+      POSTGRES_PASSWORD: cyflow
+      POSTGRES_DB: cyflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - cyflow_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cyflow -d cyflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: cyflow-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - cyflow_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  cyflow_pg:
+  cyflow_redis:

@@ -87,3 +87,78 @@ export interface ExecutionRecord {
   steps: Record<string, ModuleResult>;
   error?: string;
 }
+
+/* ============================================================
+   Phase 3 persistence contracts (framework-agnostic).
+   The worker depends only on these interfaces; @cyflow/db provides the Prisma
+   implementation and tests provide in-memory ones. This keeps the engine and
+   worker decoupled from Postgres.
+   ============================================================ */
+
+/** A scenario as stored, with its canonical blueprint. */
+export interface StoredScenario {
+  id: string;
+  userId?: string | null;
+  name: string;
+  status?: string;
+  schedule?: unknown;
+  blueprint: Blueprint;
+}
+
+export interface CreateScenarioInput {
+  id?: string;
+  userId?: string | null;
+  name: string;
+  blueprint: Blueprint;
+  status?: string;
+  schedule?: unknown;
+}
+
+/** Persists and loads scenarios. */
+export interface ScenarioRepository {
+  create(input: CreateScenarioInput): Promise<StoredScenario>;
+  findById(id: string): Promise<StoredScenario | null>;
+}
+
+export type ExecutionStatus = "RUNNING" | "SUCCESS" | "FAILED";
+
+/** One persisted execution step — the bundle-level snapshot for a module. */
+export interface StoredExecutionStep {
+  moduleNodeId: string;
+  status: "success" | "error";
+  operations: number;
+  /** Bundles this module received. */
+  input: Bundle[];
+  /** Bundles this module produced. */
+  output: Bundle[];
+  error?: string;
+  ms: number;
+  order: number;
+}
+
+export interface StoredExecution {
+  id: string;
+  scenarioId: string;
+  status: ExecutionStatus;
+  operations: number;
+  error?: string | null;
+  startedAt: Date;
+  finishedAt?: Date | null;
+  steps: StoredExecutionStep[];
+}
+
+export interface CompleteExecutionInput {
+  status: "SUCCESS" | "FAILED";
+  operations: number;
+  error?: string;
+  steps: StoredExecutionStep[];
+}
+
+/** Persists execution lifecycle: start RUNNING, then complete with steps. */
+export interface ExecutionRepository {
+  /** Create a RUNNING execution (startedAt now). */
+  start(scenarioId: string): Promise<StoredExecution>;
+  /** Finalise: set status/operations/error, finishedAt now, persist steps. */
+  complete(executionId: string, input: CompleteExecutionInput): Promise<StoredExecution>;
+  findById(id: string): Promise<StoredExecution | null>;
+}

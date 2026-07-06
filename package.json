@@ -3,6 +3,11 @@
   "private": true,
   "version": "0.0.0",
   "description": "Cyflow — self-hosted Make.com clone. Bundle-based automation engine.",
+  "scripts": {
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "db:generate": "pnpm --filter @cyflow/db generate"
+  },
   "engines": {
     "node": ">=18"
   },
