@@ -16,18 +16,26 @@ import { connectorApps } from "@cyflow/connectors";
 import { createDefaultRegistry } from "engine";
 import { runScenarioJob, type WorkerDeps } from "@cyflow/worker";
 import type {
+  AppAuthDTO,
+  AppSummary,
   ConnectionSummary,
+  CreateConnectionBody,
   CreateScenarioBody,
   DataStoreDTO,
   ExecutionEntryDTO,
+  OAuthCallbackResult,
+  OAuthStartDTO,
   RunOnceBody,
   RunOnceResult,
   ScenarioDTO,
   ScenarioStatusDTO,
   ScheduleDTO,
+  UpdateConnectionBody,
   UpdateScenarioBody,
 } from "./types";
 import { DEFAULT_TRIGGER, type ApiStore } from "./store";
+import { appAuthDTO, appSummaries } from "./apps";
+import { oauthCallback, oauthStart } from "./oauth";
 
 const DEMO_EMAIL = "demo@cyflow.dev";
 
@@ -235,6 +243,47 @@ export class PrismaApiStore implements ApiStore {
   async listConnections(): Promise<ConnectionSummary[]> {
     if (!this.connections) return [];
     return this.connections.list(this.userId);
+  }
+
+  async createConnection(body: CreateConnectionBody): Promise<ConnectionSummary> {
+    if (!this.connections) throw new Error("connections unavailable — set CYFLOW_ENCRYPTION_KEY on the API server");
+    return this.connections.create({
+      userId: this.userId,
+      appKey: body.appKey,
+      name: body.name,
+      credentials: body.credentials ?? {},
+    });
+  }
+
+  async updateConnection(id: string, patch: UpdateConnectionBody): Promise<ConnectionSummary | null> {
+    if (!this.connections) throw new Error("connections unavailable — set CYFLOW_ENCRYPTION_KEY on the API server");
+    const exists = await prisma.connection.findUnique({ where: { id } });
+    if (!exists) return null;
+    return this.connections.update(id, patch);
+  }
+
+  async deleteConnection(id: string): Promise<boolean> {
+    if (!this.connections) throw new Error("connections unavailable — set CYFLOW_ENCRYPTION_KEY on the API server");
+    const exists = await prisma.connection.findUnique({ where: { id } });
+    if (!exists) return false;
+    await this.connections.delete(id);
+    return true;
+  }
+
+  async listApps(): Promise<AppSummary[]> {
+    return appSummaries();
+  }
+
+  async getAppAuth(key: string): Promise<AppAuthDTO | null> {
+    return appAuthDTO(key);
+  }
+
+  async oauthStart(provider: string): Promise<OAuthStartDTO> {
+    return oauthStart(provider);
+  }
+
+  async oauthCallback(provider: string, query: Record<string, unknown>): Promise<OAuthCallbackResult> {
+    return oauthCallback(provider, query);
   }
 
   async listDataStores(): Promise<DataStoreDTO[]> {

@@ -27,6 +27,36 @@ export interface RunOnceResponse {
   execution: StoredExecution;
 }
 
+export interface AuthFieldDTO {
+  key: string;
+  label: string;
+  type?: "text" | "password";
+  required?: boolean;
+}
+export interface AppAuthDTO {
+  key: string;
+  name: string;
+  auth: { type: string; fields?: AuthFieldDTO[] };
+}
+export interface AppSummaryDTO {
+  key: string;
+  name: string;
+  auth: string;
+  hasAuth: boolean;
+}
+export interface OAuthStartDTO {
+  provider: string;
+  configured: boolean;
+  message: string;
+  authUrl?: string;
+  state?: string;
+}
+export interface ConnectionInput {
+  appKey: string;
+  name: string;
+  credentials?: Record<string, unknown>;
+}
+
 export type ScenarioInput = Partial<
   Pick<Scenario, "id" | "name" | "status" | "schedule" | "blueprint">
 >;
@@ -42,6 +72,14 @@ export const api = {
     req<RunOnceResponse>(`/scenarios/${id}/run-once`, { method: "POST", body: JSON.stringify(body) }),
   listExecutions: () => req<ExecutionEntry[]>("/executions"),
   listConnections: () => req<Connection[]>("/connections"),
+  createConnection: (input: ConnectionInput) =>
+    req<Connection>("/connections", { method: "POST", body: JSON.stringify(input) }),
+  updateConnection: (id: string, patch: { name?: string; credentials?: Record<string, unknown> }) =>
+    req<Connection>(`/connections/${id}`, { method: "PUT", body: JSON.stringify(patch) }),
+  deleteConnection: (id: string) => req<void>(`/connections/${id}`, { method: "DELETE" }),
+  listApps: () => req<AppSummaryDTO[]>("/apps"),
+  getAppAuth: (key: string) => req<AppAuthDTO>(`/apps/${key}/auth`),
+  oauthStart: (provider: string) => req<OAuthStartDTO>(`/oauth/${provider}/start`),
 };
 
 /** Execution JSON arrives with ISO date strings; restore Date fields. */

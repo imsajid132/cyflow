@@ -161,6 +161,9 @@ interface AppStore {
   deleteScenario: (id: string) => void;
   recordExecution: (scenarioId: string, execution: StoredExecution) => void;
   runOnce: (scenarioId: string, blueprint: Blueprint) => Promise<StoredExecution>;
+  createConnection: (input: { appKey: string; name: string; credentials?: Record<string, unknown> }) => Promise<Connection>;
+  updateConnection: (id: string, patch: { name?: string; credentials?: Record<string, unknown> }) => Promise<void>;
+  deleteConnection: (id: string) => Promise<void>;
   scenarioById: (id: string | null) => Scenario | undefined;
 }
 
@@ -328,6 +331,42 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     [recordExecution],
   );
 
+  // Connections: create/update send credentials to the API (never kept in the
+  // browser beyond the request); reads are redacted summaries. In local demo
+  // mode only a summary is tracked — no credentials are stored anywhere.
+  const createConnection = useCallback(
+    async (input: { appKey: string; name: string; credentials?: Record<string, unknown> }): Promise<Connection> => {
+      if (apiEnabled) {
+        const summary = await api.createConnection(input);
+        setConnections((prev) => [summary, ...prev.filter((c) => c.id !== summary.id)]);
+        return summary;
+      }
+      const summary: Connection = { id: uid("conn"), appKey: input.appKey, name: input.name, createdAt: new Date().toISOString() };
+      setConnections((prev) => [summary, ...prev]);
+      return summary;
+    },
+    [],
+  );
+
+  const updateConnection = useCallback(
+    async (id: string, patch: { name?: string; credentials?: Record<string, unknown> }): Promise<void> => {
+      if (apiEnabled) {
+        const summary = await api.updateConnection(id, patch);
+        setConnections((prev) => prev.map((c) => (c.id === id ? summary : c)));
+        return;
+      }
+      if (patch.name !== undefined) {
+        setConnections((prev) => prev.map((c) => (c.id === id ? { ...c, name: patch.name! } : c)));
+      }
+    },
+    [],
+  );
+
+  const deleteConnection = useCallback(async (id: string): Promise<void> => {
+    setConnections((prev) => prev.filter((c) => c.id !== id));
+    if (apiEnabled) await api.deleteConnection(id).catch((e) => console.error("[cyflow] delete connection failed", e));
+  }, []);
+
   const scenarioById = useCallback(
     (id: string | null) => scenarios.find((s) => s.id === id),
     [scenarios],
@@ -351,6 +390,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       deleteScenario,
       recordExecution,
       runOnce,
+      createConnection,
+      updateConnection,
+      deleteConnection,
       scenarioById,
     }),
     [
@@ -367,6 +409,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       deleteScenario,
       recordExecution,
       runOnce,
+      createConnection,
+      updateConnection,
+      deleteConnection,
       scenarioById,
     ],
   );

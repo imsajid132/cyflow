@@ -1,15 +1,23 @@
 import type { Blueprint, Bundle, StoredExecution } from "@cyflow/shared";
 import { buildExecutionSteps, createDefaultRegistry, InMemoryDataStore, runScenario } from "engine";
 import type {
+  AppAuthDTO,
+  AppSummary,
   ConnectionSummary,
+  CreateConnectionBody,
   CreateScenarioBody,
   DataStoreDTO,
   ExecutionEntryDTO,
+  OAuthCallbackResult,
+  OAuthStartDTO,
   RunOnceBody,
   RunOnceResult,
   ScenarioDTO,
+  UpdateConnectionBody,
   UpdateScenarioBody,
 } from "./types";
+import { appAuthDTO, appSummaries } from "./apps";
+import { oauthCallback, oauthStart } from "./oauth";
 
 /** Default sample trigger bundle used by run-once when the caller sends none. */
 export const DEFAULT_TRIGGER: Bundle[] = [
@@ -37,6 +45,13 @@ export interface ApiStore {
   listExecutions(): Promise<ExecutionEntryDTO[]>;
   getExecution(id: string): Promise<StoredExecution | null>;
   listConnections(): Promise<ConnectionSummary[]>;
+  createConnection(body: CreateConnectionBody): Promise<ConnectionSummary>;
+  updateConnection(id: string, patch: UpdateConnectionBody): Promise<ConnectionSummary | null>;
+  deleteConnection(id: string): Promise<boolean>;
+  listApps(): Promise<AppSummary[]>;
+  getAppAuth(key: string): Promise<AppAuthDTO | null>;
+  oauthStart(provider: string): Promise<OAuthStartDTO>;
+  oauthCallback(provider: string, query: Record<string, unknown>): Promise<OAuthCallbackResult>;
   listDataStores(): Promise<DataStoreDTO[]>;
 }
 
@@ -66,6 +81,9 @@ function seedScenario(): ScenarioDTO {
 export class InMemoryApiStore implements ApiStore {
   private scenarios: ScenarioDTO[];
   private executions: ExecutionEntryDTO[] = [];
+  private connectionSummaries: ConnectionSummary[] = [];
+  /** Credentials are kept here and NEVER returned from any read method. */
+  private readonly secrets = new Map<string, Record<string, unknown>>();
   private readonly registry = createDefaultRegistry();
   private readonly dataStore = new InMemoryDataStore();
 
@@ -151,7 +169,50 @@ export class InMemoryApiStore implements ApiStore {
   }
 
   async listConnections(): Promise<ConnectionSummary[]> {
-    return [];
+    return this.connectionSummaries.map((c) => ({ ...c }));
+  }
+
+  async createConnection(body: CreateConnectionBody): Promise<ConnectionSummary> {
+    const summary: ConnectionSummary = {
+      id: uid("conn"),
+      appKey: body.appKey,
+      name: body.name,
+      createdAt: new Date(),
+    };
+    this.secrets.set(summary.id, body.credentials ?? {});
+    this.connectionSummaries = [summary, ...this.connectionSummaries];
+    return { ...summary };
+  }
+
+  async updateConnection(id: string, patch: UpdateConnectionBody): Promise<ConnectionSummary | null> {
+    const idx = this.connectionSummaries.findIndex((c) => c.id === id);
+    if (idx === -1) return null;
+    if (patch.name !== undefined) this.connectionSummaries[idx] = { ...this.connectionSummaries[idx], name: patch.name };
+    if (patch.credentials !== undefined) this.secrets.set(id, patch.credentials);
+    return { ...this.connectionSummaries[idx] };
+  }
+
+  async deleteConnection(id: string): Promise<boolean> {
+    const before = this.connectionSummaries.length;
+    this.connectionSummaries = this.connectionSummaries.filter((c) => c.id !== id);
+    this.secrets.delete(id);
+    return this.connectionSummaries.length < before;
+  }
+
+  async listApps(): Promise<AppSummary[]> {
+    return appSummaries();
+  }
+
+  async getAppAuth(key: string): Promise<AppAuthDTO | null> {
+    return appAuthDTO(key);
+  }
+
+  async oauthStart(provider: string): Promise<OAuthStartDTO> {
+    return oauthStart(provider);
+  }
+
+  async oauthCallback(provider: string, query: Record<string, unknown>): Promise<OAuthCallbackResult> {
+    return oauthCallback(provider, query);
   }
 
   async listDataStores(): Promise<DataStoreDTO[]> {

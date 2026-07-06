@@ -6,6 +6,6 @@ export default defineConfig({
     testTimeout: 15000,
     // Inline the TS workspace engine (and its deps) so vitest transforms the
     // source rather than treating it as an externalised node_module.
-    server: { deps: { inline: ["engine", "functions", "@cyflow/shared"] } },
+    server: { deps: { inline: ["engine", "functions", "@cyflow/shared", "@cyflow/connectors", "@cyflow/connections"] } },
   },
 });
