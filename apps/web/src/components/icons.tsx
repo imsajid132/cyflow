@@ -326,6 +326,39 @@ export function YoutubeIcon(p: IconProps) {
     </Glyph>
   );
 }
+export function MondayIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <path d="M3 15c1.5-4 3-4 4.5 0M9.5 15c1.5-4 3-4 4.5 0" />
+      <circle cx="18.5" cy="15.5" r="2" />
+    </Glyph>
+  );
+}
+export function DatabaseIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <ellipse cx="12" cy="6" rx="7" ry="2.6" />
+      <path d="M5 6v12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6V6" />
+      <path d="M5 12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6" />
+    </Glyph>
+  );
+}
+export function MongoIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <path d="M12 3c3 4 3 10 0 14-3-4-3-10 0-14Z" />
+      <path d="M12 17v4" />
+    </Glyph>
+  );
+}
+export function RedisIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <path d="M3 7l9-3 9 3-9 3-9-3Z" />
+      <path d="M3 12l9 3 9-3M3 16.5l9 3 9-3" />
+    </Glyph>
+  );
+}
 export function DriveIcon(p: IconProps) {
   return (
     <Glyph {...p}>

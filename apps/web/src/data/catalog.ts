@@ -989,6 +989,115 @@ export const CATALOG: CatalogApp[] = [
       { operation: "list_playlist_items", name: "List playlist items", kind: "search", params: [{ key: "playlistId", label: "Playlist ID", type: "text", mappable: true }] },
     ],
   },
+  {
+    key: "monday",
+    name: "monday.com",
+    category: "Productivity",
+    auth: "api_key",
+    modules: [
+      { operation: "list_boards", name: "List boards", kind: "search", params: [{ key: "limit", label: "Limit", type: "number" }] },
+      { operation: "get_board_items", name: "Get items on a board", kind: "search", params: [{ key: "boardId", label: "Board ID", type: "text", mappable: true }] },
+      { operation: "create_item", name: "Create an item", kind: "action", params: [
+        { key: "boardId", label: "Board ID", type: "text", mappable: true },
+        { key: "itemName", label: "Item name", type: "text", mappable: true },
+        { key: "columnValues", label: "Column values (JSON)", type: "text", mappable: true },
+      ] },
+      { operation: "create_update", name: "Post an update", kind: "action", params: [
+        { key: "itemId", label: "Item ID", type: "text", mappable: true },
+        { key: "body", label: "Update text", type: "textarea", mappable: true },
+      ] },
+      { operation: "change_column_value", name: "Change a column value", kind: "action", params: [
+        { key: "boardId", label: "Board ID", type: "text", mappable: true },
+        { key: "itemId", label: "Item ID", type: "text", mappable: true },
+        { key: "columnId", label: "Column ID", type: "text", mappable: true },
+        { key: "value", label: "Value (JSON)", type: "text", mappable: true },
+      ] },
+      { operation: "run_graphql", name: "Run a GraphQL query", kind: "action", params: [{ key: "query", label: "Query", type: "textarea", mappable: true }] },
+    ],
+  },
+  {
+    key: "postgres",
+    name: "PostgreSQL",
+    category: "Data",
+    auth: "custom",
+    modules: [
+      { operation: "query", name: "Run a query", kind: "search", params: [
+        { key: "sql", label: "SQL ($1, $2 params)", type: "textarea", mappable: true },
+        { key: "values", label: "Values (map an array)", type: "text", mappable: true },
+      ] },
+      { operation: "insert", name: "Insert a row", kind: "action", params: [
+        { key: "table", label: "Table", type: "text", mappable: true },
+        { key: "row", label: "Row (map an object)", type: "text", mappable: true },
+      ] },
+    ],
+  },
+  {
+    key: "mysql",
+    name: "MySQL",
+    category: "Data",
+    auth: "custom",
+    modules: [
+      { operation: "query", name: "Run a query", kind: "search", params: [
+        { key: "sql", label: "SQL (? params)", type: "textarea", mappable: true },
+        { key: "values", label: "Values (map an array)", type: "text", mappable: true },
+      ] },
+      { operation: "insert", name: "Insert a row", kind: "action", params: [
+        { key: "table", label: "Table", type: "text", mappable: true },
+        { key: "row", label: "Row (map an object)", type: "text", mappable: true },
+      ] },
+    ],
+  },
+  {
+    key: "mongodb",
+    name: "MongoDB",
+    category: "Data",
+    auth: "custom",
+    modules: [
+      { operation: "find", name: "Find documents", kind: "search", params: [
+        { key: "collection", label: "Collection", type: "text", mappable: true },
+        { key: "filter", label: "Filter (map an object)", type: "text", mappable: true },
+        { key: "limit", label: "Limit", type: "number" },
+      ] },
+      { operation: "insert_one", name: "Insert a document", kind: "action", params: [
+        { key: "collection", label: "Collection", type: "text", mappable: true },
+        { key: "document", label: "Document (map an object)", type: "text", mappable: true },
+      ] },
+      { operation: "update_one", name: "Update a document", kind: "action", params: [
+        { key: "collection", label: "Collection", type: "text", mappable: true },
+        { key: "filter", label: "Filter (map an object)", type: "text", mappable: true },
+        { key: "update", label: "Update (map an object)", type: "text", mappable: true },
+      ] },
+      { operation: "delete_one", name: "Delete a document", kind: "action", params: [
+        { key: "collection", label: "Collection", type: "text", mappable: true },
+        { key: "filter", label: "Filter (map an object)", type: "text", mappable: true },
+      ] },
+      { operation: "aggregate", name: "Run an aggregation", kind: "search", params: [
+        { key: "collection", label: "Collection", type: "text", mappable: true },
+        { key: "pipeline", label: "Pipeline (map an array)", type: "text", mappable: true },
+      ] },
+    ],
+  },
+  {
+    key: "redis",
+    name: "Redis",
+    category: "Data",
+    auth: "custom",
+    modules: [
+      { operation: "get", name: "Get a key", kind: "search", params: [{ key: "key", label: "Key", type: "text", mappable: true }] },
+      { operation: "set", name: "Set a key", kind: "action", params: [
+        { key: "key", label: "Key", type: "text", mappable: true },
+        { key: "value", label: "Value", type: "text", mappable: true },
+        { key: "ttlSeconds", label: "TTL (seconds)", type: "number" },
+      ] },
+      { operation: "del", name: "Delete a key", kind: "action", params: [{ key: "key", label: "Key", type: "text", mappable: true }] },
+      { operation: "incr", name: "Increment a key", kind: "action", params: [{ key: "key", label: "Key", type: "text", mappable: true }] },
+      { operation: "expire", name: "Set a key TTL", kind: "action", params: [
+        { key: "key", label: "Key", type: "text", mappable: true },
+        { key: "seconds", label: "Seconds", type: "number" },
+      ] },
+      { operation: "keys", name: "Find keys", kind: "search", params: [{ key: "pattern", label: "Pattern", type: "text", mappable: true, placeholder: "user:*" }] },
+    ],
+  },
 ];
 
 export function findApp(appKey: string): CatalogApp | undefined {

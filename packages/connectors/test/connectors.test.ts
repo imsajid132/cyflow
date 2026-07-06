@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExecutionContext } from "@cyflow/shared";
 import { createDefaultRegistry } from "engine";
-import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, driveApp, calendarApp, slackApp, discordApp, notionApp, airtableApp, githubApp, gitlabApp, dropboxApp, cloudflareApp, supabaseApp, trelloApp, asanaApp, hubspotApp, clickupApp, calendlyApp, twilioApp, stripeApp, shopifyApp, woocommerceApp, rssApp, whatsappApp, twitterApp, googleContactsApp, googleTasksApp, youtubeApp, parseFeed, utilsApp, parseCsv, toCsv } from "../src/index";
+import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, driveApp, calendarApp, slackApp, discordApp, notionApp, airtableApp, githubApp, gitlabApp, dropboxApp, cloudflareApp, supabaseApp, trelloApp, asanaApp, hubspotApp, clickupApp, calendlyApp, twilioApp, stripeApp, shopifyApp, woocommerceApp, rssApp, whatsappApp, twitterApp, googleContactsApp, googleTasksApp, youtubeApp, mondayApp, parseFeed, utilsApp, parseCsv, toCsv } from "../src/index";
 
 function makeCtx(connection: Record<string, unknown> | null): ExecutionContext {
   return {
@@ -727,6 +727,23 @@ describe("Slack expansion (mocked)", () => {
   it("throws on a Slack { ok:false } response", async () => {
     stubGoogle(() => ({ body: { ok: false, error: "channel_not_found" } }));
     await expect(slackApp.modules.get_channel_info.run({}, { channel: "bad" }, ctx())).rejects.toThrow(/channel_not_found/);
+  });
+});
+
+describe("monday.com (mocked)", () => {
+  const ctx = () => makeCtx({ token: "mtoken" });
+  it("list_boards sends a GraphQL query with the raw Authorization header", async () => {
+    const m = stubGoogle(() => ({ body: { data: { boards: [{ id: "1", name: "Tasks" }] } } }));
+    const out = await mondayApp.modules.list_boards.run({}, { limit: 5 }, ctx());
+    expect(m.mock.calls[0][0]).toBe("https://api.monday.com/v2");
+    const init = m.mock.calls[0][1] as { headers: Record<string, string>; body: string };
+    expect(init.headers.authorization).toBe("mtoken");
+    expect(JSON.parse(init.body).variables).toEqual({ limit: 5 });
+    expect(out[0]).toMatchObject({ boards: [{ id: "1", name: "Tasks" }] });
+  });
+  it("throws on GraphQL errors", async () => {
+    stubGoogle(() => ({ body: { errors: [{ message: "Invalid token" }] } }));
+    await expect(mondayApp.modules.list_boards.run({}, {}, ctx())).rejects.toThrow(/Invalid token/);
   });
 });
 

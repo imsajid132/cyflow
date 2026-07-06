@@ -29,6 +29,11 @@ import { twitterApp } from "./twitter";
 import { googleContactsApp } from "./google-contacts";
 import { googleTasksApp } from "./google-tasks";
 import { youtubeApp } from "./youtube";
+import { mondayApp } from "./monday";
+import { postgresApp } from "./postgres";
+import { mysqlApp } from "./mysql";
+import { mongodbApp } from "./mongodb";
+import { redisApp } from "./redis";
 import { utilsApp } from "./utils";
 
 export { telegramApp } from "./telegram";
@@ -61,6 +66,11 @@ export { twitterApp } from "./twitter";
 export { googleContactsApp } from "./google-contacts";
 export { googleTasksApp } from "./google-tasks";
 export { youtubeApp } from "./youtube";
+export { mondayApp } from "./monday";
+export { postgresApp } from "./postgres";
+export { mysqlApp } from "./mysql";
+export { mongodbApp } from "./mongodb";
+export { redisApp } from "./redis";
 export { utilsApp, parseCsv, toCsv } from "./utils";
 
 /**
@@ -100,5 +110,10 @@ export const connectorApps: App[] = [
   googleContactsApp,
   googleTasksApp,
   youtubeApp,
+  mondayApp,
+  postgresApp,
+  mysqlApp,
+  mongodbApp,
+  redisApp,
   utilsApp,
 ];

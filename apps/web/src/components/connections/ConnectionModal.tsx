@@ -49,6 +49,15 @@ function defaultAuthFields(authType?: string, appKey?: string): AuthFieldDTO[] {
       { key: "phoneNumberId", label: "Phone number ID", type: "text", required: true },
     ];
   }
+  if (appKey === "postgres" || appKey === "mysql" || appKey === "redis") {
+    return [{ key: "connectionString", label: "Connection string", type: "password", required: true }];
+  }
+  if (appKey === "mongodb") {
+    return [
+      { key: "uri", label: "Connection URI", type: "password", required: true },
+      { key: "database", label: "Database", type: "text", required: true },
+    ];
+  }
   switch (authType) {
     case "api_key":
       return [{ key: "token", label: "API key", type: "password", required: true }];

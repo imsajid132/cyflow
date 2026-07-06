@@ -37,6 +37,10 @@ import {
   ContactsIcon,
   TasksIcon,
   YoutubeIcon,
+  MondayIcon,
+  DatabaseIcon,
+  MongoIcon,
+  RedisIcon,
 } from "./icons";
 
 /** Maps a module's app/operation to its app icon. */
@@ -73,6 +77,10 @@ export function ModuleIcon({ app, operation, sw }: { app: string; operation: str
   if (app === "contacts") return <ContactsIcon sw={sw} />;
   if (app === "tasks") return <TasksIcon sw={sw} />;
   if (app === "youtube") return <YoutubeIcon sw={sw} />;
+  if (app === "monday") return <MondayIcon sw={sw} />;
+  if (app === "postgres" || app === "mysql") return <DatabaseIcon sw={sw} />;
+  if (app === "mongodb") return <MongoIcon sw={sw} />;
+  if (app === "redis") return <RedisIcon sw={sw} />;
   if (app === "core") return <DelayIcon sw={sw} />;
   if (app === "utils") return <BracesIcon sw={sw} />;
   if (app === "datastore") return <DataStoreIcon sw={sw} />;
