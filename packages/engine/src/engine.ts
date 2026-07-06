@@ -6,21 +6,30 @@ import type {
   ModuleNode,
   ModuleResult,
 } from "@cyflow/shared";
+import { resolveParamsTree, type MappingScope } from "functions";
 import type { Registry } from "./registry";
 
 /**
- * Resolve a module's params against the current bundle + context.
- *
- * Phase 1 stub: params are used literally. Phase 4 replaces this with the
- * `{{...}}` mapping / function engine — `runScenario` calls it once per bundle,
- * so that upgrade is drop-in.
+ * Resolve a module's `{{...}}` mapping expressions against prior module outputs
+ * (Phase 4). Builds a scope keyed by module id from `ctx.steps` — each module's
+ * representative output bundle — then overrides the immediate predecessor with
+ * the exact `inputBundle` for THIS run, so `{{prev.field}}` is correct per
+ * bundle when a module fanned out. Plain params (no `{{ }}`) pass through
+ * unchanged. A malformed/failed expression throws → the walker marks the module
+ * error → the execution FAILS.
  */
 export function resolveParams(
   params: Record<string, unknown>,
-  _inputBundle: Bundle,
-  _ctx: ExecutionContext,
+  inputBundle: Bundle,
+  ctx: ExecutionContext,
+  predecessorModuleId?: string,
 ): Record<string, unknown> {
-  return params;
+  const scope: MappingScope = {};
+  for (const [id, step] of Object.entries(ctx.steps)) {
+    scope[id] = step.bundles.length > 0 ? step.bundles[0] : {};
+  }
+  if (predecessorModuleId !== undefined) scope[predecessorModuleId] = inputBundle;
+  return resolveParamsTree(params, scope);
 }
 
 const nowMs = (): number =>
@@ -81,6 +90,9 @@ export async function runScenario(
   };
 
   let inputBundles: Bundle[] = triggerBundles;
+  // The predecessor of the first action is the trigger; used so `{{prev.field}}`
+  // maps to the exact current bundle.
+  let previousModuleId: string = first.id;
   let current: ModuleNode | undefined = first.next ? byId.get(first.next) : undefined;
 
   while (current) {
@@ -95,7 +107,7 @@ export async function runScenario(
       for (const inputBundle of inputBundles) {
         ran += 1;
         ctx.operations += 1;
-        const resolved = resolveParams(mod.params, inputBundle, ctx);
+        const resolved = resolveParams(mod.params, inputBundle, ctx, previousModuleId);
         const produced = await registered.run(inputBundle, resolved, ctx);
         outputs.push(...produced);
       }
@@ -108,6 +120,7 @@ export async function runScenario(
       };
       ctx.steps[mod.id] = result;
       inputBundles = outputs;
+      previousModuleId = mod.id;
       current = mod.next ? byId.get(mod.next) : undefined;
     } catch (err) {
       const message = errorMessage(err);

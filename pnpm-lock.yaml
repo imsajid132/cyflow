@@ -63,6 +63,9 @@ importers:
       '@cyflow/shared':
         specifier: workspace:*
         version: link:../shared
+      functions:
+        specifier: workspace:*
+        version: link:../functions
       zod:
         specifier: ^3.24.1
         version: 3.25.76
@@ -73,6 +76,15 @@ importers:
       tsx:
         specifier: ^4.19.2
         version: 4.23.0
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.0)
+
+  packages/functions:
+    devDependencies:
       typescript:
         specifier: ^5.6.3
         version: 5.9.3
