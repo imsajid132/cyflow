@@ -111,3 +111,59 @@ The `apps/web` sample scenario is safe to run offline: its HTTP and Telegram
 modules are replaced with deterministic mocks in the browser, so **no real
 network calls or credentials are involved**. To run real connectors, register a
 connection and execute through the worker.
+
+## Deployment
+
+The frontend and backend deploy **separately**: `apps/web` is a static Vite site
+(great fit for Vercel), and `apps/worker` is a long-running Node process that
+needs Postgres + Redis (Vercel is not suitable for it — use a container/VM host).
+
+### Frontend → Vercel (`apps/web`)
+
+`apps/web` imports the engine packages' TypeScript source directly (Vite
+aliases). Vercel checks out the **whole repo**, so those sibling packages are on
+disk during the build — you only need to point Vercel at the sub-directory.
+
+1. Import the GitHub repo into Vercel.
+2. Set **Root Directory** to `apps/web`.
+   - If Vercel offers *"Include files outside of the Root Directory in the Build
+     Step"*, keep it **enabled** (the build reads `../../packages/*`).
+3. Framework is auto-detected as **Vite**; `apps/web/vercel.json` pins it:
+   - Install: `npm install`
+   - Build: `npm run build`  (runs `tsc --noEmit && vite build`)
+   - Output: `dist`
+   - A SPA rewrite serves `index.html` for all routes.
+4. **Environment variables: none required.** The demo runs the real engine in the
+   browser with mocked HTTP/Telegram, so it makes no backend calls. (When a hosted
+   API is added later, expose it to the client via a `VITE_`-prefixed variable.)
+
+Locally you can reproduce the Vercel build with:
+
+```bash
+cd apps/web
+npm install
+npm run build      # outputs apps/web/dist
+```
+
+### Backend worker → container/VM (`apps/worker`)
+
+Deploy the worker anywhere that runs Node 18+ with network access to Postgres +
+Redis (Fly.io, Railway, Render, a VM, Kubernetes, …):
+
+```bash
+corepack pnpm install
+corepack pnpm --filter @cyflow/db generate
+corepack pnpm --filter @cyflow/db migrate     # apply the schema (once)
+corepack pnpm --filter @cyflow/worker start
+```
+
+Required environment variables (see `.env.example`):
+
+| Variable | Where | Purpose |
+|---|---|---|
+| `DATABASE_URL` | worker | Postgres connection (Prisma). |
+| `REDIS_URL` | worker | Redis for the BullMQ execution queue. |
+| `CYFLOW_ENCRYPTION_KEY` | worker | Derives the AES-256-GCM key for the credential vault. **Strong random value in production.** |
+
+The **frontend never receives these** — credentials are decrypted only inside the
+worker at run time.

@@ -6,6 +6,7 @@ dist/
 dist-ssr/
 build/
 .vite/
+.vercel/
 
 # Env / local
 *.local
