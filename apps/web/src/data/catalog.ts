@@ -24,7 +24,7 @@ export interface CatalogApp {
   name: string;
   category: string;
   /** Whether this app needs a connection (drives the config connection selector). */
-  auth?: "api_key" | "bearer_token" | "basic_auth" | "oauth2";
+  auth?: "api_key" | "bearer_token" | "basic_auth" | "oauth2" | "custom";
   modules: CatalogModule[];
 }
 
@@ -529,6 +529,120 @@ export const CATALOG: CatalogApp[] = [
         { key: "repo", label: "Repo", type: "text", mappable: true },
         { key: "tagName", label: "Tag", type: "text", mappable: true },
         { key: "name", label: "Name", type: "text", mappable: true },
+      ] },
+    ],
+  },
+  {
+    key: "gitlab",
+    name: "GitLab",
+    category: "Developer",
+    auth: "api_key",
+    modules: [
+      { operation: "get_project", name: "Get a project", kind: "search", params: [{ key: "projectId", label: "Project ID or path", type: "text", mappable: true }] },
+      { operation: "list_issues", name: "List issues", kind: "search", params: [
+        { key: "projectId", label: "Project ID or path", type: "text", mappable: true },
+        { key: "state", label: "State", type: "select", options: ["opened", "closed"] },
+      ] },
+      { operation: "create_issue", name: "Create an issue", kind: "action", params: [
+        { key: "projectId", label: "Project ID or path", type: "text", mappable: true },
+        { key: "title", label: "Title", type: "text", mappable: true },
+        { key: "description", label: "Description", type: "textarea", mappable: true },
+      ] },
+      { operation: "create_note", name: "Comment on an issue", kind: "action", params: [
+        { key: "projectId", label: "Project ID or path", type: "text", mappable: true },
+        { key: "issueIid", label: "Issue IID", type: "number", mappable: true },
+        { key: "body", label: "Comment", type: "textarea", mappable: true },
+      ] },
+      { operation: "list_merge_requests", name: "List merge requests", kind: "search", params: [
+        { key: "projectId", label: "Project ID or path", type: "text", mappable: true },
+        { key: "state", label: "State", type: "select", options: ["opened", "closed", "merged", "all"] },
+      ] },
+      { operation: "list_pipelines", name: "List pipelines", kind: "search", params: [{ key: "projectId", label: "Project ID or path", type: "text", mappable: true }] },
+    ],
+  },
+  {
+    key: "dropbox",
+    name: "Dropbox",
+    category: "Productivity",
+    auth: "api_key",
+    modules: [
+      { operation: "list_folder", name: "List a folder", kind: "search", params: [{ key: "path", label: "Path", type: "text", mappable: true, placeholder: "/" }] },
+      { operation: "get_metadata", name: "Get metadata", kind: "search", params: [{ key: "path", label: "Path", type: "text", mappable: true }] },
+      { operation: "create_folder", name: "Create a folder", kind: "action", params: [{ key: "path", label: "Path", type: "text", mappable: true }] },
+      { operation: "upload_file", name: "Upload a file", kind: "action", params: [
+        { key: "path", label: "Path", type: "text", mappable: true },
+        { key: "content", label: "Content", type: "textarea", mappable: true },
+        { key: "mode", label: "Mode", type: "select", options: ["overwrite", "add"] },
+      ] },
+      { operation: "download_file", name: "Download a file", kind: "search", params: [{ key: "path", label: "Path", type: "text", mappable: true }] },
+      { operation: "move_file", name: "Move a file", kind: "action", params: [
+        { key: "fromPath", label: "From path", type: "text", mappable: true },
+        { key: "toPath", label: "To path", type: "text", mappable: true },
+      ] },
+      { operation: "delete_file", name: "Delete a file/folder", kind: "action", params: [{ key: "path", label: "Path", type: "text", mappable: true }] },
+    ],
+  },
+  {
+    key: "cloudflare",
+    name: "Cloudflare",
+    category: "Developer",
+    auth: "api_key",
+    modules: [
+      { operation: "list_zones", name: "List zones", kind: "search", params: [{ key: "name", label: "Name filter", type: "text", mappable: true }] },
+      { operation: "list_dns_records", name: "List DNS records", kind: "search", params: [
+        { key: "zoneId", label: "Zone ID", type: "text", mappable: true },
+        { key: "type", label: "Type", type: "text", placeholder: "A" },
+      ] },
+      { operation: "create_dns_record", name: "Create a DNS record", kind: "action", params: [
+        { key: "zoneId", label: "Zone ID", type: "text", mappable: true },
+        { key: "type", label: "Type", type: "text", placeholder: "A" },
+        { key: "name", label: "Name", type: "text", mappable: true },
+        { key: "content", label: "Content", type: "text", mappable: true },
+        { key: "ttl", label: "TTL", type: "number" },
+      ] },
+      { operation: "update_dns_record", name: "Update a DNS record", kind: "action", params: [
+        { key: "zoneId", label: "Zone ID", type: "text", mappable: true },
+        { key: "recordId", label: "Record ID", type: "text", mappable: true },
+        { key: "type", label: "Type", type: "text" },
+        { key: "name", label: "Name", type: "text", mappable: true },
+        { key: "content", label: "Content", type: "text", mappable: true },
+      ] },
+      { operation: "delete_dns_record", name: "Delete a DNS record", kind: "action", params: [
+        { key: "zoneId", label: "Zone ID", type: "text", mappable: true },
+        { key: "recordId", label: "Record ID", type: "text", mappable: true },
+      ] },
+      { operation: "purge_cache", name: "Purge cache", kind: "action", params: [{ key: "zoneId", label: "Zone ID", type: "text", mappable: true }] },
+    ],
+  },
+  {
+    key: "supabase",
+    name: "Supabase",
+    category: "Data",
+    auth: "custom",
+    modules: [
+      { operation: "select", name: "Select rows", kind: "search", params: [
+        { key: "table", label: "Table", type: "text", mappable: true },
+        { key: "select", label: "Columns", type: "text", placeholder: "*" },
+        { key: "filter", label: "Filter (PostgREST)", type: "text", mappable: true, placeholder: "status=eq.active" },
+        { key: "order", label: "Order", type: "text", placeholder: "created_at.desc" },
+        { key: "limit", label: "Limit", type: "number" },
+      ] },
+      { operation: "insert", name: "Insert rows", kind: "action", params: [
+        { key: "table", label: "Table", type: "text", mappable: true },
+        { key: "rows", label: "Rows (map an object/array)", type: "text", mappable: true },
+      ] },
+      { operation: "update", name: "Update rows", kind: "action", params: [
+        { key: "table", label: "Table", type: "text", mappable: true },
+        { key: "filter", label: "Filter (PostgREST)", type: "text", mappable: true },
+        { key: "values", label: "Values (map an object)", type: "text", mappable: true },
+      ] },
+      { operation: "delete_rows", name: "Delete rows", kind: "action", params: [
+        { key: "table", label: "Table", type: "text", mappable: true },
+        { key: "filter", label: "Filter (PostgREST)", type: "text", mappable: true },
+      ] },
+      { operation: "rpc", name: "Call a function", kind: "action", params: [
+        { key: "fn", label: "Function name", type: "text", mappable: true },
+        { key: "args", label: "Args (map an object)", type: "text", mappable: true },
       ] },
     ],
   },

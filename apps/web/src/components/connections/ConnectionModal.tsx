@@ -10,7 +10,14 @@ import type { Connection } from "../../store/types";
 const authApps = CATALOG.filter((a) => a.auth);
 
 /** Local fallback fields when no API is available to describe the auth schema. */
-function defaultAuthFields(authType?: string): AuthFieldDTO[] {
+function defaultAuthFields(authType?: string, appKey?: string): AuthFieldDTO[] {
+  // Apps with custom multi-field auth (offline/demo fallback for the API schema).
+  if (appKey === "supabase") {
+    return [
+      { key: "projectUrl", label: "Project URL", type: "text", required: true },
+      { key: "serviceKey", label: "Service role key", type: "password", required: true },
+    ];
+  }
   switch (authType) {
     case "api_key":
       return [{ key: "token", label: "API key", type: "password", required: true }];
@@ -59,10 +66,10 @@ export function ConnectionModal({ mode, existing, onClose }: Props) {
           if (!cancelled) setFields(dto.auth.fields ?? defaultAuthFields(dto.auth.type));
         })
         .catch(() => {
-          if (!cancelled) setFields(defaultAuthFields(authType));
+          if (!cancelled) setFields(defaultAuthFields(authType, appKey));
         });
     } else {
-      setFields(defaultAuthFields(authType));
+      setFields(defaultAuthFields(authType, appKey));
     }
     return () => {
       cancelled = true;

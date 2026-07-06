@@ -18,6 +18,10 @@ import {
   NotionIcon,
   AirtableIcon,
   GithubIcon,
+  GitlabIcon,
+  DropboxIcon,
+  CloudflareIcon,
+  SupabaseIcon,
 } from "./icons";
 
 /** Maps a module's app/operation to its app icon. */
@@ -35,6 +39,10 @@ export function ModuleIcon({ app, operation, sw }: { app: string; operation: str
   if (app === "notion") return <NotionIcon sw={sw} />;
   if (app === "airtable") return <AirtableIcon sw={sw} />;
   if (app === "github") return <GithubIcon sw={sw} />;
+  if (app === "gitlab") return <GitlabIcon sw={sw} />;
+  if (app === "dropbox") return <DropboxIcon sw={sw} />;
+  if (app === "cloudflare") return <CloudflareIcon sw={sw} />;
+  if (app === "supabase") return <SupabaseIcon sw={sw} />;
   if (app === "core") return <DelayIcon sw={sw} />;
   if (app === "utils") return <BracesIcon sw={sw} />;
   if (app === "datastore") return <DataStoreIcon sw={sw} />;

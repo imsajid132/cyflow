@@ -171,6 +171,35 @@ export function GithubIcon(p: IconProps) {
     </Glyph>
   );
 }
+export function GitlabIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <path d="M12 21 4 10l1.6-5 2.4 5h8l2.4-5L20 10 12 21Z" />
+    </Glyph>
+  );
+}
+export function DropboxIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <path d="M7 4 3.5 7 7 10l3.5-3L7 4ZM17 4l-3.5 3L17 10l3.5-3L17 4ZM3.5 13 7 10l3.5 3L7 16l-3.5-3ZM17 10l3.5 3L17 16l-3.5-3 3.5-3ZM8.5 17.5 12 15l3.5 2.5L12 20l-3.5-2.5Z" />
+    </Glyph>
+  );
+}
+export function CloudflareIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <path d="M15 16H6a3 3 0 0 1-.3-6A5 5 0 0 1 15 11a3.5 3.5 0 0 1 0 5Z" />
+      <path d="M15 16h3.5a2.5 2.5 0 0 0 0-5H15" />
+    </Glyph>
+  );
+}
+export function SupabaseIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <path d="M12 3v8h6L12 21v-8H6l6-10Z" />
+    </Glyph>
+  );
+}
 export function DriveIcon(p: IconProps) {
   return (
     <Glyph {...p}>

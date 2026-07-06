@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExecutionContext } from "@cyflow/shared";
 import { createDefaultRegistry } from "engine";
-import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, driveApp, calendarApp, slackApp, discordApp, notionApp, airtableApp, githubApp, utilsApp, parseCsv, toCsv } from "../src/index";
+import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, driveApp, calendarApp, slackApp, discordApp, notionApp, airtableApp, githubApp, gitlabApp, dropboxApp, cloudflareApp, supabaseApp, utilsApp, parseCsv, toCsv } from "../src/index";
 
 function makeCtx(connection: Record<string, unknown> | null): ExecutionContext {
   return {
@@ -167,6 +167,7 @@ function stubGoogle(handler: (url: string, init: { method?: string; body?: strin
       status: r.status ?? 200,
       statusText: "OK",
       text: async () => text,
+      json: async () => (text ? JSON.parse(text) : {}),
       arrayBuffer: async () => Buffer.from(text, "utf8"),
       headers: { get: () => "text/plain" },
     };
@@ -394,6 +395,82 @@ describe("GitHub (mocked)", () => {
   it("testConnection reports the login", async () => {
     stubGoogle(() => ({ body: { login: "ada" } }));
     expect((await githubApp.testConnection!({ token: "x" })).message).toContain("ada");
+  });
+});
+
+describe("GitLab (mocked)", () => {
+  const ctx = () => makeCtx({ token: "glpat" });
+  it("create_issue uses PRIVATE-TOKEN + query body", async () => {
+    const m = stubGoogle(() => ({ body: { iid: 3, web_url: "http://gl/3" } }));
+    await gitlabApp.modules.create_issue.run({}, { projectId: "group/app", title: "Bug" }, ctx());
+    const url = new URL(m.mock.calls[0][0] as string);
+    expect(url.pathname).toContain("/projects/group%2Fapp/issues");
+    expect(url.searchParams.get("title")).toBe("Bug");
+    expect((m.mock.calls[0][1] as { headers: Record<string, string> }).headers["private-token"]).toBe("glpat");
+  });
+  it("testConnection reports the username", async () => {
+    stubGoogle(() => ({ body: { username: "ada" } }));
+    expect((await gitlabApp.testConnection!({ token: "x" })).message).toContain("ada");
+  });
+});
+
+describe("Dropbox (mocked)", () => {
+  const ctx = () => makeCtx({ token: "dbx" });
+  it("list_folder normalises the root path", async () => {
+    const m = stubGoogle(() => ({ body: { entries: [{ name: "a" }], cursor: "c", has_more: false } }));
+    const out = await dropboxApp.modules.list_folder.run({}, { path: "/" }, ctx());
+    expect(JSON.parse((m.mock.calls[0][1] as { body: string }).body)).toEqual({ path: "" });
+    expect(out[0]).toMatchObject({ entries: [{ name: "a" }], hasMore: false });
+  });
+  it("upload_file sends octet-stream + Dropbox-API-Arg", async () => {
+    const m = stubGoogle(() => ({ body: { id: "id1", name: "n.txt" } }));
+    await dropboxApp.modules.upload_file.run({}, { path: "/n.txt", content: "hello" }, ctx());
+    const init = m.mock.calls[0][1] as { headers: Record<string, string>; body: string };
+    expect(init.headers["content-type"]).toBe("application/octet-stream");
+    expect(JSON.parse(init.headers["dropbox-api-arg"]).path).toBe("/n.txt");
+    expect(init.body).toBe("hello");
+  });
+});
+
+describe("Cloudflare (mocked)", () => {
+  const ctx = () => makeCtx({ token: "cf" });
+  it("create_dns_record unwraps result + defaults ttl", async () => {
+    const m = stubGoogle(() => ({ body: { success: true, result: { id: "rec1", name: "a.example.com" } } }));
+    const out = await cloudflareApp.modules.create_dns_record.run({}, { zoneId: "Z1", type: "A", name: "a.example.com", content: "1.2.3.4" }, ctx());
+    expect(m.mock.calls[0][0]).toContain("/zones/Z1/dns_records");
+    expect(JSON.parse((m.mock.calls[0][1] as { body: string }).body)).toMatchObject({ type: "A", content: "1.2.3.4", ttl: 1 });
+    expect(out[0]).toEqual({ id: "rec1", name: "a.example.com" });
+  });
+  it("purge_cache purges everything when no files given", async () => {
+    const m = stubGoogle(() => ({ body: { success: true, result: { id: "p1" } } }));
+    await cloudflareApp.modules.purge_cache.run({}, { zoneId: "Z1" }, ctx());
+    expect(JSON.parse((m.mock.calls[0][1] as { body: string }).body)).toEqual({ purge_everything: true });
+  });
+  it("surfaces Cloudflare errors[]", async () => {
+    stubGoogle(() => ({ ok: false, status: 400, body: { success: false, errors: [{ code: 1004, message: "DNS Validation Error" }] } }));
+    await expect(cloudflareApp.modules.list_zones.run({}, {}, ctx())).rejects.toThrow(/DNS Validation Error/);
+  });
+});
+
+describe("Supabase (mocked)", () => {
+  const ctx = () => makeCtx({ projectUrl: "https://abc.supabase.co", serviceKey: "svc" });
+  it("select builds a PostgREST URL with apikey + Bearer", async () => {
+    const m = stubGoogle(() => ({ body: [{ id: 1 }, { id: 2 }] }));
+    const out = await supabaseApp.modules.select.run({}, { table: "users", select: "id,name", filter: "status=eq.active", limit: 10 }, ctx());
+    const url = new URL(m.mock.calls[0][0] as string);
+    expect(url.origin).toBe("https://abc.supabase.co");
+    expect(url.pathname).toBe("/rest/v1/users");
+    expect(url.searchParams.get("select")).toBe("id,name");
+    expect(url.searchParams.get("status")).toBe("eq.active");
+    const headers = (m.mock.calls[0][1] as { headers: Record<string, string> }).headers;
+    expect(headers.apikey).toBe("svc");
+    expect(headers.authorization).toBe("Bearer svc");
+    expect(out[0]).toMatchObject({ count: 2 });
+  });
+  it("insert sends Prefer: return=representation", async () => {
+    const m = stubGoogle(() => ({ body: [{ id: 9 }] }));
+    await supabaseApp.modules.insert.run({}, { table: "users", rows: { name: "Ada" } }, ctx());
+    expect((m.mock.calls[0][1] as { headers: Record<string, string> }).headers.prefer).toBe("return=representation");
   });
 });
 

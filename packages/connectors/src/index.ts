@@ -10,6 +10,10 @@ import { discordApp } from "./discord";
 import { notionApp } from "./notion";
 import { airtableApp } from "./airtable";
 import { githubApp } from "./github";
+import { gitlabApp } from "./gitlab";
+import { dropboxApp } from "./dropbox";
+import { cloudflareApp } from "./cloudflare";
+import { supabaseApp } from "./supabase";
 import { utilsApp } from "./utils";
 
 export { telegramApp } from "./telegram";
@@ -23,6 +27,10 @@ export { discordApp } from "./discord";
 export { notionApp } from "./notion";
 export { airtableApp } from "./airtable";
 export { githubApp } from "./github";
+export { gitlabApp } from "./gitlab";
+export { dropboxApp } from "./dropbox";
+export { cloudflareApp } from "./cloudflare";
+export { supabaseApp } from "./supabase";
 export { utilsApp, parseCsv, toCsv } from "./utils";
 
 /**
@@ -43,5 +51,9 @@ export const connectorApps: App[] = [
   notionApp,
   airtableApp,
   githubApp,
+  gitlabApp,
+  dropboxApp,
+  cloudflareApp,
+  supabaseApp,
   utilsApp,
 ];
