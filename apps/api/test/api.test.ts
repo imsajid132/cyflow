@@ -155,3 +155,77 @@ describe("cyflow API", () => {
     expect(cb.body.ok).toBe(false);
   });
 });
+
+describe("single-admin protection", () => {
+  const secured = () => createApp(new InMemoryApiStore(), { adminToken: "s3cret" });
+
+  it("leaves /health public", async () => {
+    expect((await request(secured()).get("/health")).status).toBe(200);
+  });
+
+  it("401s protected routes without a token", async () => {
+    expect((await request(secured()).get("/scenarios")).status).toBe(401);
+    expect((await request(secured()).get("/connections")).status).toBe(401);
+    expect((await request(secured()).post("/scenarios").send({ name: "x" })).status).toBe(401);
+  });
+
+  it("allows protected routes with a valid Bearer or x-admin-token", async () => {
+    expect((await request(secured()).get("/scenarios").set("authorization", "Bearer s3cret")).status).toBe(200);
+    expect((await request(secured()).get("/scenarios").set("x-admin-token", "s3cret")).status).toBe(200);
+  });
+
+  it("rejects a wrong token", async () => {
+    expect((await request(secured()).get("/scenarios").set("authorization", "Bearer nope")).status).toBe(401);
+  });
+
+  it("keeps webhooks public even when protected", async () => {
+    const res = await request(secured()).post("/hooks/scn_demo").send({ hello: "world" });
+    expect(res.status).toBe(202);
+    expect(res.body.ok).toBe(true);
+  });
+
+  it("open mode (no token) requires nothing", async () => {
+    expect((await request(createApp(new InMemoryApiStore())).get("/scenarios")).status).toBe(200);
+  });
+});
+
+describe("webhook trigger", () => {
+  it("runs the scenario and records an execution with the request body in the trigger bundle", async () => {
+    const a = createApp(new InMemoryApiStore());
+    const run = await request(a).post("/hooks/scn_demo").send({ order: 42 });
+    expect(run.status).toBe(202);
+    expect(run.body.executionId).toBeTruthy();
+    expect(run.body.status).toBe("SUCCESS");
+
+    const exec = await request(a).get(`/executions/${run.body.executionId}`);
+    expect(exec.status).toBe(200);
+    expect(JSON.stringify(exec.body.steps[0].input)).toContain("42");
+  });
+
+  it("404s an unknown scenario", async () => {
+    expect((await request(createApp(new InMemoryApiStore())).post("/hooks/nope").send({})).status).toBe(404);
+  });
+
+  it("skips an inactive scenario", async () => {
+    const a = createApp(new InMemoryApiStore());
+    const created = await request(a)
+      .post("/scenarios")
+      .send({ name: "off", status: "PAUSED", blueprint: { modules: [{ id: "1", app: "webhook", operation: "custom_webhook", kind: "trigger", params: {}, next: null }] } });
+    const res = await request(a).post(`/hooks/${created.body.id}`).send({});
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(false);
+  });
+
+  it("strips authorization/cookie headers so they never reach the execution snapshot", async () => {
+    const a = createApp(new InMemoryApiStore());
+    const run = await request(a)
+      .post("/hooks/scn_demo")
+      .set("authorization", "Bearer leak-me")
+      .set("cookie", "session=leak")
+      .send({ ok: 1 });
+    const exec = await request(a).get(`/executions/${run.body.executionId}`);
+    const dump = JSON.stringify(exec.body);
+    expect(dump).not.toContain("leak-me");
+    expect(dump).not.toContain("session=leak");
+  });
+});

@@ -10,7 +10,8 @@ import { createDefaultRegistry } from "engine";
 import { connectorApps } from "@cyflow/connectors";
 import { createPrismaRepositories, PrismaConnectionStore, PrismaDataStore, prisma } from "@cyflow/db";
 import { ConnectionService, encryptionFromEnv } from "@cyflow/connections";
-import { createExecutionWorker, EXECUTIONS_QUEUE } from "./queue";
+import { createExecutionsQueue, createExecutionWorker, enqueueRun, EXECUTIONS_QUEUE } from "./queue";
+import { createScheduler, type SchedulerScenario } from "./scheduler";
 
 function redisConnection() {
   const url = new URL(process.env.REDIS_URL ?? "redis://127.0.0.1:6379");
@@ -45,7 +46,31 @@ function main(): void {
     console.error(`[worker] execution failed for scenario ${job?.data.scenarioId}:`, err.message);
   });
 
-  console.log(`[worker] listening on queue "${EXECUTIONS_QUEUE}"`);
+  // Interval schedule runner: enqueue "every X minutes" scenarios when due.
+  const queue = createExecutionsQueue(redisConnection());
+  const scheduler = createScheduler({
+    tickMs: Number(process.env.SCHEDULER_TICK_MS ?? 60_000),
+    load: async (): Promise<SchedulerScenario[]> => {
+      const rows = await prisma.scenario.findMany({ where: { status: "ACTIVE" }, select: { id: true, schedule: true } });
+      const out: SchedulerScenario[] = [];
+      for (const r of rows) {
+        const last = await prisma.execution.findFirst({
+          where: { scenarioId: r.id },
+          orderBy: { startedAt: "desc" },
+          select: { startedAt: true },
+        });
+        out.push({ id: r.id, schedule: r.schedule, lastRunAt: last?.startedAt ?? null });
+      }
+      return out;
+    },
+    enqueue: async (scenarioId) => {
+      await enqueueRun(queue, { scenarioId, triggerBundles: [{ trigger: "schedule", at: new Date().toISOString() }] });
+      console.log(`[scheduler] enqueued scheduled run for scenario ${scenarioId}`);
+    },
+  });
+  scheduler.start();
+
+  console.log(`[worker] listening on queue "${EXECUTIONS_QUEUE}" (+ interval scheduler)`);
 }
 
 main();

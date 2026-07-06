@@ -10,7 +10,10 @@ import {
 import type { Blueprint, StoredExecution } from "@cyflow/shared";
 import { sampleBlueprint } from "../scenario/sampleScenario";
 import { runOnce as localRunOnce } from "../scenario/localEngine";
-import { api, apiEnabled, normalizeExecution } from "./api";
+import { api, apiEnabled, AuthError, normalizeExecution, setAdminToken } from "./api";
+
+/** API connection state (only meaningful when apiEnabled). */
+export type ApiStatus = "local" | "connecting" | "connected" | "auth-required" | "offline";
 import type { Connection, DataStoreDef, ExecutionEntry, Scenario, Schedule, ViewName } from "./types";
 
 const iso = (offsetMinutes = 0) => new Date(Date.now() - offsetMinutes * 60_000).toISOString();
@@ -237,6 +240,8 @@ function enrichLastRun(scenarios: Scenario[], execs: ExecutionEntry[]): Scenario
 interface AppStore {
   workspace: string;
   mode: "api" | "local";
+  apiStatus: ApiStatus;
+  connectApi: (token: string) => Promise<ApiStatus>;
   view: ViewName;
   selectedScenarioId: string | null;
   selectedExecutionId: string | null;
@@ -294,32 +299,48 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   // seeded in both modes so the feature works on the deployed demo.
   const [dataStores, setDataStores] = useState<DataStoreDef[]>(seedDataStores);
   const [search, setSearch] = useState("");
+  const [apiStatus, setApiStatus] = useState<ApiStatus>(apiEnabled ? "connecting" : "local");
 
-  // API mode: hydrate real state on mount. On failure, fall back silently to
-  // whatever local state we have (never blocks the UI).
-  useEffect(() => {
-    if (!apiEnabled) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const [scn, conns, execs] = await Promise.all([
-          api.listScenarios(),
-          api.listConnections(),
-          api.listExecutions(),
-        ]);
-        if (cancelled) return;
-        const normExecs = execs.map((e) => ({ ...e, execution: normalizeExecution(e.execution) }));
-        setConnections(conns);
-        setExecutions(normExecs);
-        setScenarios(enrichLastRun(scn, normExecs));
-      } catch (err) {
-        console.error("[cyflow] API unreachable — staying in local mode", err);
+  // Load real state from the API. Distinguishes auth-required (401) from
+  // unreachable so the UI can show an admin-token gate.
+  const loadFromApi = useCallback(async (): Promise<ApiStatus> => {
+    if (!apiEnabled) return "local";
+    try {
+      const [scn, conns, execs] = await Promise.all([
+        api.listScenarios(),
+        api.listConnections(),
+        api.listExecutions(),
+      ]);
+      const normExecs = execs.map((e) => ({ ...e, execution: normalizeExecution(e.execution) }));
+      setConnections(conns);
+      setExecutions(normExecs);
+      setScenarios(enrichLastRun(scn, normExecs));
+      setApiStatus("connected");
+      return "connected";
+    } catch (err) {
+      if (err instanceof AuthError) {
+        setApiStatus("auth-required");
+        return "auth-required";
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+      console.error("[cyflow] API unreachable — staying in local mode", err);
+      setApiStatus("offline");
+      return "offline";
+    }
   }, []);
+
+  useEffect(() => {
+    void loadFromApi();
+  }, [loadFromApi]);
+
+  /** Save an admin token, then retry the API load. Returns the new status. */
+  const connectApi = useCallback(
+    async (token: string): Promise<ApiStatus> => {
+      setAdminToken(token);
+      setApiStatus("connecting");
+      return loadFromApi();
+    },
+    [loadFromApi],
+  );
 
   const initial = parseHash();
   const [view, setView] = useState<ViewName>(initial.view);
@@ -533,6 +554,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     () => ({
       workspace: "Cyflow Team",
       mode: apiEnabled ? "api" : "local",
+      apiStatus,
+      connectApi,
       view,
       selectedScenarioId,
       selectedExecutionId,
@@ -562,6 +585,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       executionById,
     }),
     [
+      apiStatus,
+      connectApi,
       view,
       selectedScenarioId,
       selectedExecutionId,

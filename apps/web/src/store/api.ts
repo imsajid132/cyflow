@@ -10,15 +10,56 @@ const RAW = import.meta.env.VITE_CYFLOW_API_URL;
 const BASE = RAW ? RAW.replace(/\/$/, "") : undefined;
 
 export const apiEnabled = Boolean(BASE);
+/** Public base URL of the API (for building webhook URLs). */
+export const apiBaseUrl = BASE;
+
+const TOKEN_KEY = "cyflow_admin_token";
+
+export function getAdminToken(): string {
+  try {
+    return localStorage.getItem(TOKEN_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+export function setAdminToken(token: string): void {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* ignore storage errors */
+  }
+}
+
+/** Thrown when the API rejects the request for a missing/invalid admin token. */
+export class AuthError extends Error {
+  constructor() {
+    super("admin token required");
+    this.name = "AuthError";
+  }
+}
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getAdminToken();
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "content-type": "application/json" },
     ...init,
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
+    },
   });
+  if (res.status === 401) throw new AuthError();
   if (!res.ok) throw new Error(`Cyflow API ${res.status} on ${path}`);
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+/** Probe the API for reachability + whether it demands a token. */
+export async function pingApi(): Promise<{ ok: boolean; auth: boolean }> {
+  const res = await fetch(`${BASE}/health`);
+  const body = (await res.json()) as { auth?: boolean };
+  return { ok: res.ok, auth: Boolean(body.auth) };
 }
 
 export interface RunOnceResponse {

@@ -15,17 +15,64 @@ function h(fn: Handler) {
   };
 }
 
+function bearerToken(req: Request): string | undefined {
+  const header = req.header("authorization");
+  if (header?.startsWith("Bearer ")) return header.slice(7);
+  return undefined;
+}
+
+export interface ApiOptions {
+  /** When set, all routes except /health and /hooks require this token. */
+  adminToken?: string;
+}
+
 /**
  * Build the Cyflow REST API over an ApiStore. Pure: the same routes serve the
  * Prisma store in production and the in-memory store in tests.
+ *
+ * Single-admin mode: if `adminToken` is set, every route except `/health` and
+ * the public webhook receiver (`/hooks/:id`) requires it (Bearer or
+ * `x-admin-token`). With no token the API is open (local dev / demo).
  */
-export function createApp(store: ApiStore) {
+export function createApp(store: ApiStore, options: ApiOptions = {}) {
+  const adminToken = options.adminToken;
   const app = express();
   app.use(cors());
   app.use(express.json({ limit: "4mb" }));
 
+  // ---- public: health ----
   app.get("/health", (_req: Request, res: Response) => {
-    res.json({ status: "ok", service: "cyflow-api" });
+    res.json({ status: "ok", service: "cyflow-api", auth: Boolean(adminToken) });
+  });
+
+  // ---- public: webhook trigger (runs the scenario's stored blueprint) ----
+  const runHook = h(async (req, res) => {
+    const scenario = await store.getScenario(req.params.id);
+    if (!scenario) {
+      res.status(404).json({ error: "scenario not found" });
+      return;
+    }
+    if (scenario.status !== "ACTIVE") {
+      res.status(200).json({ ok: false, reason: "scenario is not active" });
+      return;
+    }
+    const headers = { ...(req.headers as Record<string, unknown>) };
+    delete headers.authorization;
+    delete headers.cookie;
+    const trigger = [{ body: req.body ?? {}, headers, query: req.query, method: req.method }];
+    const result = await store.runOnce(req.params.id, { trigger });
+    res.status(202).json({ ok: true, executionId: result?.executionId, status: result?.status });
+  });
+  app.post("/hooks/:id", runHook);
+  app.get("/hooks/:id", runHook);
+
+  // ---- single-admin guard for everything below ----
+  app.use((req: Request, res: Response, next) => {
+    if (req.method === "OPTIONS") return next();
+    if (!adminToken) return next();
+    const provided = bearerToken(req) ?? req.header("x-admin-token");
+    if (provided && provided === adminToken) return next();
+    res.status(401).json({ error: "admin token required" });
   });
 
   app.get("/scenarios", h(async (_req, res) => {

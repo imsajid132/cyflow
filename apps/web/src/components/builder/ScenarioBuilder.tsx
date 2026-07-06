@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { StoredExecution } from "@cyflow/shared";
 import { useStore } from "../../store/appStore";
+import { apiBaseUrl, apiEnabled } from "../../store/api";
 import type { Schedule } from "../../store/types";
 import type { ErrorHandler, RouteDef } from "@cyflow/shared";
 import { layoutScenario, NODE_W, type AddTarget } from "../../scenario/layout";
@@ -354,6 +355,7 @@ export function ScenarioBuilder() {
               allNodes={allNodes}
               connections={store.connections}
               dataStores={store.dataStores.map((d) => ({ id: d.id, name: d.name }))}
+              webhookUrl={apiEnabled && apiBaseUrl ? `${apiBaseUrl}/hooks/${scenario.id}` : undefined}
               step={selectedStep}
               execution={execution}
               onSave={(params) => patchBlueprint(updateModuleParams(scenario.blueprint, selectedNode.node.id, params))}

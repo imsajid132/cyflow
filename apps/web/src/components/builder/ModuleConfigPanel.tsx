@@ -63,6 +63,7 @@ interface Props {
   allNodes: NodeRef[];
   connections: Connection[];
   dataStores: { id: string; name: string }[];
+  webhookUrl?: string;
   step?: StoredExecutionStep;
   execution?: StoredExecution | null;
   onSave: (params: Record<string, unknown>) => void;
@@ -85,6 +86,7 @@ export function ModuleConfigPanel({
   allNodes,
   connections,
   dataStores,
+  webhookUrl,
   step,
   execution,
   onSave,
@@ -193,6 +195,19 @@ export function ModuleConfigPanel({
       ) : null}
 
       <div className="panel__body">
+        {isTrigger && module.app === "webhook" && webhookUrl ? (
+          <div className="field">
+            <label>Webhook URL</label>
+            <div className="webhookurl">
+              <input className="input mono" readOnly value={webhookUrl} onFocus={(e) => e.currentTarget.select()} />
+              <button className="rowbtn" title="Copy webhook URL" aria-label="Copy webhook URL" onClick={() => void navigator.clipboard?.writeText(webhookUrl)}>
+                <CopyIcon />
+              </button>
+            </div>
+            <span className="hint">POST here to run this scenario. The request body, headers, and query become the trigger bundle.</span>
+          </div>
+        ) : null}
+
         {isDataStore ? (
           <div className="field">
             <label htmlFor="ds-store">Data store</label>

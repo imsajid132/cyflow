@@ -98,10 +98,70 @@ See `.env.example` (backend) and `apps/web/.env.example` (frontend):
 | Variable | Where | Purpose |
 |---|---|---|
 | `DATABASE_URL` | api, worker | Postgres connection string (Prisma). When **unset**, the API uses an in-memory store (dev/demo only). |
-| `REDIS_URL` | worker | Redis connection for the BullMQ execution queue. |
+| `REDIS_URL` | worker | Redis connection for the BullMQ execution queue + scheduler. |
 | `CYFLOW_ENCRYPTION_KEY` | api, worker | Secret used to derive the AES-256-GCM key that encrypts stored connection credentials. Without it the API simply disables connections. **Use a strong random value in production.** |
+| `ADMIN_TOKEN` (or `CYFLOW_ADMIN_TOKEN`) | api | Single-admin token. When set, every route except `/health` and `/hooks/:id` requires it. **Unset ⇒ open API.** |
 | `PORT` | api | API listen port (default `3001`). |
+| `SCHEDULER_TICK_MS` | worker | How often the schedule runner polls (default `60000`). |
 | `VITE_CYFLOW_API_URL` | web (build-time) | Base URL of the API. **Unset ⇒ local demo mode.** |
+
+## Personal production mode (single admin)
+
+Run Cyflow as your own private automation server: a Vercel frontend, an
+admin-protected API, a worker (schedule runner + queue), Postgres, and Redis.
+
+**1. Postgres + Redis.** Provision a Postgres database and a Redis instance
+(any host — Neon/Supabase/RDS for Postgres, Upstash/managed Redis). Note their
+connection URLs.
+
+**2. Apply the schema (once):**
+
+```bash
+DATABASE_URL=postgres://…  corepack pnpm --filter @cyflow/db generate
+DATABASE_URL=postgres://…  corepack pnpm --filter @cyflow/db migrate
+```
+
+**3. Deploy the API** (container/VM; Node 18+). Env:
+
+```
+DATABASE_URL=postgres://…
+CYFLOW_ENCRYPTION_KEY=<32+ random chars>     # encrypts connection secrets
+ADMIN_TOKEN=<long random secret>             # protects every route but /health + /hooks
+PORT=3001
+```
+
+Start: `corepack pnpm --filter @cyflow/api start`. The public base URL of this
+server (e.g. `https://api.cyflow.example`) is your **webhook base URL** — a
+scenario's webhook is `POST {API}/hooks/{scenarioId}` (shown + copyable in the
+builder on the webhook trigger).
+
+**4. Deploy the worker** (container/VM; Node 18+) with access to the same
+Postgres + Redis. Env:
+
+```
+DATABASE_URL=postgres://…                     # same DB as the API
+REDIS_URL=redis://…
+CYFLOW_ENCRYPTION_KEY=<same as the API>        # must match to decrypt secrets
+```
+
+Start: `corepack pnpm --filter @cyflow/worker start`. It consumes the executions
+queue **and** runs enabled "every X minutes" schedules.
+
+**5. Deploy the frontend to Vercel** (Root Directory `apps/web`). Set one env
+var and redeploy:
+
+```
+VITE_CYFLOW_API_URL=https://api.cyflow.example
+```
+
+On first load the app shows **Connect to Cyflow** — paste your `ADMIN_TOKEN`
+(stored only in your browser's localStorage; sent as a Bearer header). Then
+create/save/run/schedule your real workflows.
+
+> Security: connection secrets are encrypted at rest with `CYFLOW_ENCRYPTION_KEY`
+> and only decrypted inside the API/worker at run time; the frontend and
+> execution snapshots only ever see redacted summaries. Keep `ADMIN_TOKEN` and
+> `CYFLOW_ENCRYPTION_KEY` secret and identical between API and worker (the key).
 
 ## Connectors & auth
 

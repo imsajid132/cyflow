@@ -8,4 +8,6 @@ export {
   scheduleInterval,
   createExecutionWorker,
 } from "./queue";
+export { createScheduler, dueScenarioIds } from "./scheduler";
+export type { Scheduler, SchedulerScenario, SchedulerOptions } from "./scheduler";
 export { InMemoryScenarioRepository, InMemoryExecutionRepository } from "./memory";

@@ -353,6 +353,19 @@ textarea.input { resize: vertical; font-family: var(--font-body); line-height: 1
 /* ---------- live run progress (builder) ---------- */
 .statusbar .n { font-family: var(--font-data); }
 
+/* ---------- admin gate ---------- */
+.gate { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; }
+.gate__card { width: min(420px, 100%); padding: 30px; text-align: center; display: flex; flex-direction: column; gap: 14px; }
+.gate__logo { width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; margin: 0 auto; background: var(--ink); color: var(--lime-bright); box-shadow: 0 8px 20px rgba(10, 10, 10, 0.28); }
+.gate__logo svg { width: 26px; height: 26px; }
+.gate__title { font-family: var(--font-display); font-weight: 700; font-size: 1.5rem; letter-spacing: -0.02em; margin: 0; }
+.gate__card .field { margin: 0; }
+.gate__card .btn { width: 100%; justify-content: center; }
+
+/* ---------- webhook url ---------- */
+.webhookurl { display: flex; align-items: center; gap: 6px; }
+.webhookurl .input { flex: 1; min-width: 0; }
+
 /* ---------- schedule options ---------- */
 .schedopt { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--glass-brdr); background: rgba(255, 255, 255, 0.26); cursor: pointer; margin-bottom: 8px; }
 .schedopt.is-active { border-color: var(--ink); background: rgba(255, 255, 255, 0.42); }
