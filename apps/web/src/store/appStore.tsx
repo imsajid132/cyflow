@@ -9,6 +9,8 @@ import {
 } from "react";
 import type { Blueprint, StoredExecution } from "@cyflow/shared";
 import { sampleBlueprint } from "../scenario/sampleScenario";
+import { runOnce as localRunOnce } from "../scenario/localEngine";
+import { api, apiEnabled, normalizeExecution } from "./api";
 import type { Connection, ExecutionEntry, Scenario, Schedule, ViewName } from "./types";
 
 const iso = (offsetMinutes = 0) => new Date(Date.now() - offsetMinutes * 60_000).toISOString();
@@ -128,8 +130,23 @@ function seedExecutions(): ExecutionEntry[] {
   ];
 }
 
+/** Fold each scenario's latest execution into its dashboard summary fields. */
+function enrichLastRun(scenarios: Scenario[], execs: ExecutionEntry[]): Scenario[] {
+  return scenarios.map((s) => {
+    const latest = execs.find((e) => e.scenarioId === s.id);
+    if (!latest) return s;
+    return {
+      ...s,
+      lastRunAt: latest.ranAt,
+      lastStatus: latest.execution.status === "FAILED" ? "FAILED" : "SUCCESS",
+      operations: latest.execution.operations,
+    };
+  });
+}
+
 interface AppStore {
   workspace: string;
+  mode: "api" | "local";
   view: ViewName;
   selectedScenarioId: string | null;
   search: string;
@@ -143,6 +160,7 @@ interface AppStore {
   duplicateScenario: (id: string) => void;
   deleteScenario: (id: string) => void;
   recordExecution: (scenarioId: string, execution: StoredExecution) => void;
+  runOnce: (scenarioId: string, blueprint: Blueprint) => Promise<StoredExecution>;
   scenarioById: (id: string | null) => Scenario | undefined;
 }
 
@@ -166,10 +184,36 @@ function parseHash(): { view: ViewName; id: string | null } {
 }
 
 export function AppStoreProvider({ children }: { children: ReactNode }) {
-  const [scenarios, setScenarios] = useState<Scenario[]>(seedScenarios);
-  const [connections] = useState<Connection[]>(seedConnections);
-  const [executions, setExecutions] = useState<ExecutionEntry[]>(seedExecutions);
+  const [scenarios, setScenarios] = useState<Scenario[]>(() => (apiEnabled ? [] : seedScenarios()));
+  const [connections, setConnections] = useState<Connection[]>(() => (apiEnabled ? [] : seedConnections()));
+  const [executions, setExecutions] = useState<ExecutionEntry[]>(() => (apiEnabled ? [] : seedExecutions()));
   const [search, setSearch] = useState("");
+
+  // API mode: hydrate real state on mount. On failure, fall back silently to
+  // whatever local state we have (never blocks the UI).
+  useEffect(() => {
+    if (!apiEnabled) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [scn, conns, execs] = await Promise.all([
+          api.listScenarios(),
+          api.listConnections(),
+          api.listExecutions(),
+        ]);
+        if (cancelled) return;
+        const normExecs = execs.map((e) => ({ ...e, execution: normalizeExecution(e.execution) }));
+        setConnections(conns);
+        setExecutions(normExecs);
+        setScenarios(enrichLastRun(scn, normExecs));
+      } catch (err) {
+        console.error("[cyflow] API unreachable — staying in local mode", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const initial = parseHash();
   const [view, setView] = useState<ViewName>(initial.view);
@@ -203,6 +247,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       updatedAt: new Date().toISOString(),
     };
     setScenarios((prev) => [scenario, ...prev]);
+    if (apiEnabled) api.createScenario(scenario).catch((e) => console.error("[cyflow] create failed", e));
     navigate("builder", id);
     return id;
   }, [navigate]);
@@ -211,12 +256,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     setScenarios((prev) =>
       prev.map((s) => (s.id === id ? { ...s, ...patch, updatedAt: new Date().toISOString() } : s)),
     );
+    if (apiEnabled) api.updateScenario(id, patch).catch((e) => console.error("[cyflow] update failed", e));
   }, []);
 
-  const duplicateScenario = useCallback((id: string) => {
-    setScenarios((prev) => {
-      const src = prev.find((s) => s.id === id);
-      if (!src) return prev;
+  const duplicateScenario = useCallback(
+    (id: string) => {
+      const src = scenarios.find((s) => s.id === id);
+      if (!src) return;
       const copy: Scenario = {
         ...src,
         id: uid("scn"),
@@ -228,12 +274,15 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         updatedAt: new Date().toISOString(),
         blueprint: JSON.parse(JSON.stringify(src.blueprint)) as Scenario["blueprint"],
       };
-      return [copy, ...prev];
-    });
-  }, []);
+      setScenarios((prev) => [copy, ...prev]);
+      if (apiEnabled) api.createScenario(copy).catch((e) => console.error("[cyflow] duplicate failed", e));
+    },
+    [scenarios],
+  );
 
   const deleteScenario = useCallback((id: string) => {
     setScenarios((prev) => prev.filter((s) => s.id !== id));
+    if (apiEnabled) api.deleteScenario(id).catch((e) => console.error("[cyflow] delete failed", e));
   }, []);
 
   const recordExecution = useCallback(
@@ -251,18 +300,32 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         ),
       );
       setExecutions((prev) => {
-        const scenario = prev.find((e) => e.scenarioId === scenarioId);
-        const name =
-          scenario?.scenarioName ??
-          seedScenarios().find((s) => s.id === scenarioId)?.name ??
-          "Scenario";
+        const known = prev.find((e) => e.scenarioId === scenarioId)?.scenarioName;
+        const name = known ?? scenarios.find((s) => s.id === scenarioId)?.name ?? "Scenario";
         return [
           { scenarioId, scenarioName: name, ranAt: new Date().toISOString(), execution },
           ...prev,
         ].slice(0, 50);
       });
     },
-    [],
+    [scenarios],
+  );
+
+  // Run once: real API when configured, else the in-browser mock engine. Either
+  // way returns a snapshot compatible with the builder replay + inspector.
+  const runOnce = useCallback(
+    async (scenarioId: string, blueprint: Blueprint): Promise<StoredExecution> => {
+      let execution: StoredExecution;
+      if (apiEnabled) {
+        const res = await api.runOnce(scenarioId, { blueprint });
+        execution = normalizeExecution(res.execution);
+      } else {
+        execution = await localRunOnce(blueprint);
+      }
+      recordExecution(scenarioId, execution);
+      return execution;
+    },
+    [recordExecution],
   );
 
   const scenarioById = useCallback(
@@ -273,6 +336,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AppStore>(
     () => ({
       workspace: "Cyflow Team",
+      mode: apiEnabled ? "api" : "local",
       view,
       selectedScenarioId,
       search,
@@ -286,6 +350,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       duplicateScenario,
       deleteScenario,
       recordExecution,
+      runOnce,
       scenarioById,
     }),
     [
@@ -301,6 +366,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       duplicateScenario,
       deleteScenario,
       recordExecution,
+      runOnce,
       scenarioById,
     ],
   );

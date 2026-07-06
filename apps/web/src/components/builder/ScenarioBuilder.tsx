@@ -3,7 +3,6 @@ import type { StoredExecution } from "@cyflow/shared";
 import { useStore } from "../../store/appStore";
 import type { Schedule } from "../../store/types";
 import { layoutScenario, NODE_W } from "../../scenario/layout";
-import { runOnce } from "../../scenario/localEngine";
 import {
   insertModule,
   makeNode,
@@ -89,15 +88,14 @@ export function ScenarioBuilder() {
   const order = useMemo(() => layout.nodes.map((n) => n.node.id), [layout]);
   const { reducedRef } = useReducedMotion();
 
-  const execute = useCallback(() => runOnce(scenario!.blueprint), [scenario]); // eslint-disable-line react-hooks/exhaustive-deps
-  const pathForPair = useCallback((from: string, to: string) => pathMap.current.get(`${from}->${to}`) ?? null, []);
-  const onExecution = useCallback(
-    (exec: StoredExecution | null) => {
-      setExecution(exec);
-      if (exec && scenario) store.recordExecution(scenario.id, exec);
-    },
+  const execute = useCallback(
+    () => store.runOnce(scenario!.id, scenario!.blueprint),
     [scenario, store],
   );
+  const pathForPair = useCallback((from: string, to: string) => pathMap.current.get(`${from}->${to}`) ?? null, []);
+  // store.runOnce already records + persists; the builder only tracks the
+  // current execution for the inspector.
+  const onExecution = useCallback((exec: StoredExecution | null) => setExecution(exec), []);
 
   const { statuses, ops, isRunning, run } = useRunOnce({
     order,

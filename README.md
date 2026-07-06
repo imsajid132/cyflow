@@ -21,12 +21,13 @@ packages/
   connections/  encrypted credential vault (AES-256-GCM) + OAuth2 scaffold
   db/           Prisma schema, client, repositories
 apps/
+  api/          REST API (Express): scenarios, executions, run-once, connections
   worker/       BullMQ worker: loads a scenario, runs the engine, persists it
-  web/          React + Vite + Tailwind bubble-canvas UI ("Run once" replay)
+  web/          React + Vite product UI (dashboard + scenario builder)
 ```
 
-`packages/*` and `apps/worker` are a **pnpm** workspace; `apps/web` is a
-standalone **npm** app that imports the engine's TS source via Vite aliases.
+`packages/*`, `apps/api`, and `apps/worker` are a **pnpm** workspace; `apps/web`
+is a standalone **npm** app that imports the engine's TS source via Vite aliases.
 
 ## Prerequisites
 
@@ -57,6 +58,30 @@ Telegram are mocked so the demo works offline. The replay animates each step fro
 real `Execution.steps`, the operations counter reflects fan-out, and selecting a
 bubble inspects its input/output snapshots.
 
+## Run the API (real persistence for the UI)
+
+The API serves the product UI's data (`GET/POST/PUT/DELETE /scenarios`,
+`POST /scenarios/:id/run-once`, `GET /executions`, `GET /connections`,
+`GET /data-stores`, `GET /health`). Run-once executes through the **same engine +
+connectors path as the worker** (`runScenarioJob`) and returns an execution
+snapshot compatible with the UI replay.
+
+```bash
+# In-memory (no database) — perfect for local dev / demos:
+corepack pnpm --filter @cyflow/api start      # http://localhost:3001
+
+# With real persistence — point it at Postgres:
+docker compose up -d
+DATABASE_URL=postgresql://cyflow:cyflow@localhost:5432/cyflow \
+  corepack pnpm --filter @cyflow/db migrate
+DATABASE_URL=postgresql://cyflow:cyflow@localhost:5432/cyflow \
+  corepack pnpm --filter @cyflow/api start
+```
+
+Then point the frontend at it (see below): set `VITE_CYFLOW_API_URL=http://localhost:3001`.
+**With no `VITE_CYFLOW_API_URL`, the UI stays in local demo mode** (mock engine,
+seed data) — the API is optional for the frontend to run.
+
 ## Run the worker end-to-end (Postgres + Redis)
 
 ```bash
@@ -68,13 +93,15 @@ corepack pnpm --filter @cyflow/worker start   # consume the executions queue
 
 ## Environment
 
-See `.env.example`:
+See `.env.example` (backend) and `apps/web/.env.example` (frontend):
 
-| Variable | Purpose |
-|---|---|
-| `DATABASE_URL` | Postgres connection string (Prisma). |
-| `REDIS_URL` | Redis connection for the BullMQ execution queue. |
-| `CYFLOW_ENCRYPTION_KEY` | Secret used to derive the AES-256-GCM key that encrypts stored connection credentials. **Use a strong random value in production.** |
+| Variable | Where | Purpose |
+|---|---|---|
+| `DATABASE_URL` | api, worker | Postgres connection string (Prisma). When **unset**, the API uses an in-memory store (dev/demo only). |
+| `REDIS_URL` | worker | Redis connection for the BullMQ execution queue. |
+| `CYFLOW_ENCRYPTION_KEY` | api, worker | Secret used to derive the AES-256-GCM key that encrypts stored connection credentials. Without it the API simply disables connections. **Use a strong random value in production.** |
+| `PORT` | api | API listen port (default `3001`). |
+| `VITE_CYFLOW_API_URL` | web (build-time) | Base URL of the API. **Unset ⇒ local demo mode.** |
 
 ## Connectors & auth
 
@@ -115,8 +142,10 @@ connection and execute through the worker.
 ## Deployment
 
 The frontend and backend deploy **separately**: `apps/web` is a static Vite site
-(great fit for Vercel), and `apps/worker` is a long-running Node process that
-needs Postgres + Redis (Vercel is not suitable for it — use a container/VM host).
+(great fit for Vercel); `apps/api` is a stateless Node HTTP server (container/VM
+or any Node host) that talks to Postgres; and `apps/worker` is a long-running Node
+process that needs Postgres + Redis (Vercel is not suitable for the API or worker
+— use a container/VM host).
 
 ### Frontend → Vercel (`apps/web`)
 
@@ -133,19 +162,43 @@ disk during the build — you only need to point Vercel at the sub-directory.
    - Build: `npm run build`  (runs `tsc --noEmit && vite build`)
    - Output: `dist`
    - A SPA rewrite serves `index.html` for all routes.
-4. **Environment variables: none required.** The demo runs the real engine in the
-   browser with mocked HTTP/Telegram, so it makes no backend calls. (When a hosted
-   API is added later, expose it to the client via a `VITE_`-prefixed variable.)
+4. **Environment variable (optional): `VITE_CYFLOW_API_URL`.**
+   - **Unset** → the site runs in **local demo mode**: the real engine runs in the
+     browser with mocked HTTP/Telegram and seed data, making **no backend calls**.
+   - **Set** to your deployed API's base URL (e.g. `https://api.cyflow.example`) →
+     the site loads/saves scenarios, lists executions, and runs "Run once" against
+     the real API. It's a **build-time** variable (Vite inlines `VITE_`-prefixed
+     vars), so set it in Vercel's *Environment Variables* and redeploy.
 
 Locally you can reproduce the Vercel build with:
 
 ```bash
 cd apps/web
 npm install
-npm run build      # outputs apps/web/dist
+VITE_CYFLOW_API_URL=https://api.cyflow.example npm run build   # or omit for demo mode
 ```
 
-### Backend worker → container/VM (`apps/worker`)
+### API → container/VM (`apps/api`)
+
+Stateless HTTP server; deploy anywhere that runs Node 18+ with access to Postgres
+(Fly.io, Railway, Render, a VM, Kubernetes, …). CORS is open by default.
+
+```bash
+corepack pnpm install
+corepack pnpm --filter @cyflow/db generate
+corepack pnpm --filter @cyflow/db migrate      # apply the schema (once)
+corepack pnpm --filter @cyflow/api start        # serves on $PORT (default 3001)
+```
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | Postgres (Prisma). Unset ⇒ ephemeral in-memory store (dev only). |
+| `CYFLOW_ENCRYPTION_KEY` | Credential-vault key (optional; unset disables connections). |
+| `PORT` | Listen port (default `3001`). |
+
+Set the frontend's `VITE_CYFLOW_API_URL` to this server's public URL.
+
+### Worker → container/VM (`apps/worker`)
 
 Deploy the worker anywhere that runs Node 18+ with network access to Postgres +
 Redis (Fly.io, Railway, Render, a VM, Kubernetes, …):
