@@ -739,6 +739,30 @@ describe("OpenAI expansion (mocked)", () => {
     const out = await openaiApp.modules.list_models.run({}, {}, ctx());
     expect(out[0]).toMatchObject({ models: [{ id: "gpt-4o" }] });
   });
+
+  it("transcribe_audio posts multipart form-data to Whisper", async () => {
+    const mock = vi.fn(async (url: unknown, init?: unknown) => {
+      const body = (init as { body?: unknown }).body;
+      return { ok: true, status: 200, json: async () => ({ text: "hello world" }), _form: body };
+    });
+    vi.stubGlobal("fetch", mock);
+    const b64 = Buffer.from("fake-audio").toString("base64");
+    const out = await openaiApp.modules.transcribe_audio.run({}, { base64: b64, filename: "clip.mp3" }, ctx());
+    expect(String(mock.mock.calls[0][0])).toContain("/audio/transcriptions");
+    const form = (mock.mock.calls[0][1] as { body: FormData }).body;
+    expect(form).toBeInstanceOf(FormData);
+    expect(form.get("model")).toBe("whisper-1");
+    expect(out[0]).toEqual({ text: "hello world" });
+  });
+
+  it("text_to_speech returns base64 audio", async () => {
+    const mock = vi.fn(async (_url: unknown, _init?: unknown) => ({ ok: true, status: 200, arrayBuffer: async () => Buffer.from("audio-bytes"), json: async () => ({}) }));
+    vi.stubGlobal("fetch", mock);
+    const out = await openaiApp.modules.text_to_speech.run({}, { input: "Hi there", voice: "nova" }, ctx());
+    expect(String(mock.mock.calls[0][0])).toContain("/audio/speech");
+    expect(JSON.parse((mock.mock.calls[0][1] as { body: string }).body)).toMatchObject({ voice: "nova", input: "Hi there", response_format: "mp3" });
+    expect(out[0]).toMatchObject({ format: "mp3", audioBase64: Buffer.from("audio-bytes").toString("base64") });
+  });
 });
 
 describe("Slack expansion (mocked)", () => {

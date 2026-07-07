@@ -111,6 +111,44 @@ export const openaiApp: App = {
         return [{ models: json.data ?? [] } as Bundle];
       },
     },
+    transcribe_audio: {
+      key: "transcribe_audio",
+      name: "Transcribe audio (Whisper)",
+      kind: "action",
+      params: z.object({ base64: z.string(), filename: z.string().optional(), model: z.string().optional(), language: z.string().optional() }),
+      run: async (_i, params, ctx) => {
+        const p = params as { base64: string; filename?: string; model?: string; language?: string };
+        const form = new FormData();
+        form.append("file", new Blob([Buffer.from(p.base64, "base64")]), p.filename ?? "audio.mp3");
+        form.append("model", p.model ?? "whisper-1");
+        if (p.language) form.append("language", p.language);
+        const res = await fetch(`${OA}/audio/transcriptions`, { method: "POST", headers: bearer(oaKey(ctx)), body: form });
+        const json = (await res.json().catch(() => ({}))) as { text?: string; error?: { message?: string } };
+        if (!res.ok) throw new Error(`OpenAI error: ${json.error?.message ?? res.status}`);
+        return [{ text: json.text ?? "" } as Bundle];
+      },
+    },
+    text_to_speech: {
+      key: "text_to_speech",
+      name: "Text to speech",
+      kind: "action",
+      params: z.object({ input: z.string(), voice: z.string().optional(), model: z.string().optional(), format: z.string().optional() }),
+      run: async (_i, params, ctx) => {
+        const p = params as { input: string; voice?: string; model?: string; format?: string };
+        const format = p.format ?? "mp3";
+        const res = await fetch(`${OA}/audio/speech`, {
+          method: "POST",
+          headers: { ...bearer(oaKey(ctx)), "content-type": "application/json" },
+          body: JSON.stringify(compact({ model: p.model ?? "tts-1", voice: p.voice ?? "alloy", input: p.input, response_format: format })),
+        });
+        if (!res.ok) {
+          const j = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+          throw new Error(`OpenAI error: ${j.error?.message ?? res.status}`);
+        }
+        const audioBase64 = Buffer.from(await res.arrayBuffer()).toString("base64");
+        return [{ audioBase64, format } as Bundle];
+      },
+    },
   },
   testConnection,
 };

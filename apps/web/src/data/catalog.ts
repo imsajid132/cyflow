@@ -424,6 +424,16 @@ export const CATALOG: CatalogApp[] = [
       ] },
       { operation: "moderation", name: "Moderate content", kind: "action", params: [{ key: "input", label: "Input text", type: "textarea", mappable: true }] },
       { operation: "list_models", name: "List models", kind: "search", params: [] },
+      { operation: "transcribe_audio", name: "Transcribe audio (Whisper)", kind: "action", params: [
+        { key: "base64", label: "Audio (base64) — map from a download", type: "textarea", mappable: true },
+        { key: "filename", label: "Filename", type: "text", placeholder: "audio.mp3" },
+        { key: "language", label: "Language (ISO-639-1)", type: "text" },
+      ] },
+      { operation: "text_to_speech", name: "Text to speech", kind: "action", params: [
+        { key: "input", label: "Text", type: "textarea", mappable: true },
+        { key: "voice", label: "Voice", type: "select", options: ["alloy", "echo", "fable", "onyx", "nova", "shimmer"] },
+        { key: "format", label: "Format", type: "select", options: ["mp3", "opus", "aac", "flac", "wav"] },
+      ] },
     ],
   },
   {
