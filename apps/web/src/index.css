@@ -37,6 +37,24 @@
   --font-display: "Space Grotesk", system-ui, sans-serif;
   --font-body:    "Inter", system-ui, sans-serif;
   --font-data:    "JetBrains Mono", ui-monospace, monospace;
+
+  color-scheme: light;
+}
+
+/* ---------- Light theme ----------
+   Same Cyflow identity — lime accents, frosted glass, ink text — on a clean
+   professional light surface instead of the vivid lime world. */
+:root[data-theme="light"]{
+  --bg-1: #F5F8EF;
+  --bg-2: #E5ECD8;
+
+  /* On a light base, white glass needs more body + a subtle dark hairline. */
+  --glass-fill:   rgba(255,255,255,0.72);
+  --glass-fill-2: rgba(255,255,255,0.90);
+  --glass-brdr:   rgba(28,42,14,0.12);
+  --glass-hi:     rgba(255,255,255,0.95);
+
+  color-scheme: light;
 }
 
 *{ box-sizing:border-box; }

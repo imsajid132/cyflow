@@ -1,5 +1,6 @@
 import { useStore } from "../store/appStore";
 import type { ViewName } from "../store/types";
+import { ThemeToggle } from "./ThemeToggle";
 import {
   DashboardIcon,
   ScenariosIcon,
@@ -59,6 +60,7 @@ export function Sidebar() {
       ))}
 
       <div className="sidebar__spacer" />
+      <ThemeToggle />
       <div className="sidebar__user">
         <div className="sidebar__avatar">A</div>
         <div>

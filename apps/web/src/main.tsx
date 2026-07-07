@@ -3,6 +3,9 @@ import { createRoot } from "react-dom/client";
 import "./index.css";
 import "./product.css";
 import App from "./App";
+import { initTheme } from "./theme";
+
+initTheme();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
