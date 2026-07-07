@@ -63,6 +63,13 @@ export function defaultAuthFields(authType?: string, appKey?: string): AuthField
       { key: "secure", label: "Use TLS (true/false)", type: "text", required: false },
     ];
   }
+  if (appKey === "zoom") {
+    return [
+      { key: "accountId", label: "Account ID", type: "text", required: true },
+      { key: "clientId", label: "Client ID", type: "text", required: true },
+      { key: "clientSecret", label: "Client secret", type: "password", required: true },
+    ];
+  }
   switch (authType) {
     case "api_key":
       return [{ key: "token", label: "API key", type: "password", required: true }];

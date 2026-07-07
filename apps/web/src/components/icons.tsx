@@ -392,6 +392,14 @@ export function MoonIcon(p: IconProps) {
     </Glyph>
   );
 }
+export function ZoomIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <rect x="3" y="7" width="12" height="10" rx="2.5" />
+      <path d="M15 10.5l6-3v9l-6-3v-3Z" />
+    </Glyph>
+  );
+}
 export function SmtpIcon(p: IconProps) {
   return (
     <Glyph {...p}>

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExecutionContext } from "@cyflow/shared";
 import { createDefaultRegistry } from "engine";
-import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, driveApp, calendarApp, slackApp, discordApp, notionApp, airtableApp, githubApp, gitlabApp, dropboxApp, cloudflareApp, supabaseApp, trelloApp, asanaApp, hubspotApp, clickupApp, calendlyApp, twilioApp, stripeApp, shopifyApp, woocommerceApp, rssApp, whatsappApp, twitterApp, googleContactsApp, googleTasksApp, youtubeApp, mondayApp, outlookApp, onedriveApp, parseFeed, utilsApp, parseCsv, toCsv } from "../src/index";
+import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, driveApp, calendarApp, slackApp, discordApp, notionApp, airtableApp, githubApp, gitlabApp, dropboxApp, cloudflareApp, supabaseApp, trelloApp, asanaApp, hubspotApp, clickupApp, calendlyApp, twilioApp, stripeApp, shopifyApp, woocommerceApp, rssApp, whatsappApp, twitterApp, googleContactsApp, googleTasksApp, youtubeApp, mondayApp, outlookApp, onedriveApp, zoomApp, parseFeed, utilsApp, parseCsv, toCsv } from "../src/index";
 
 function makeCtx(connection: Record<string, unknown> | null): ExecutionContext {
   return {
@@ -780,6 +780,48 @@ describe("OneDrive (mocked, Graph)", () => {
     const out = await onedriveApp.modules.list_children.run({}, {}, ctx());
     expect(m.mock.calls[0][0]).toContain("/drive/root/children");
     expect(out[0]).toMatchObject({ items: [{ id: "f1" }] });
+  });
+});
+
+describe("Zoom (mocked, S2S OAuth)", () => {
+  const ctx = () => makeCtx({ accountId: "acc1", clientId: "cid", clientSecret: "csec" });
+  /** Token-endpoint + API two-step: return the token first, then the API body. */
+  function stubZoom(apiBody: unknown) {
+    const mock = vi.fn(async (url: unknown, _init?: unknown) => {
+      const u = String(url);
+      const body = u.includes("zoom.us/oauth/token") ? { access_token: "zt-123" } : apiBody;
+      return { ok: true, status: 200, statusText: "OK", text: async () => JSON.stringify(body), json: async () => body, arrayBuffer: async () => Buffer.from(""), headers: { get: () => "application/json" } };
+    });
+    vi.stubGlobal("fetch", mock);
+    return mock;
+  }
+
+  it("create_meeting exchanges S2S credentials then posts with a Bearer token", async () => {
+    const m = stubZoom({ id: 987, join_url: "https://zoom.us/j/987", start_url: "https://zoom.us/s/987" });
+    const out = await zoomApp.modules.create_meeting.run({}, { topic: "Standup", duration: 30 }, ctx());
+    // 1st call = token exchange (Basic auth, account_credentials grant)
+    const tokenCall = m.mock.calls[0];
+    expect(String(tokenCall[0])).toContain("zoom.us/oauth/token");
+    expect(new URL(String(tokenCall[0])).searchParams.get("grant_type")).toBe("account_credentials");
+    expect((tokenCall[1] as { headers: Record<string, string> }).headers.authorization).toBe(`Basic ${Buffer.from("cid:csec").toString("base64")}`);
+    // 2nd call = the API request with the exchanged Bearer token
+    const apiCall = m.mock.calls[1];
+    expect(String(apiCall[0])).toContain("/v2/users/me/meetings");
+    expect((apiCall[1] as { headers: Record<string, string> }).headers.authorization).toBe("Bearer zt-123");
+    expect(JSON.parse((apiCall[1] as { body: string }).body)).toMatchObject({ topic: "Standup", type: 2, duration: 30 });
+    expect(out[0]).toMatchObject({ id: 987, joinUrl: "https://zoom.us/j/987" });
+  });
+
+  it("list_meetings unwraps meetings + pagination", async () => {
+    stubZoom({ meetings: [{ id: 1 }], next_page_token: "np" });
+    const out = await zoomApp.modules.list_meetings.run({}, {}, ctx());
+    expect(out[0]).toMatchObject({ meetings: [{ id: 1 }], nextPageToken: "np" });
+  });
+
+  it("testConnection exchanges the token then reads the account", async () => {
+    stubZoom({ email: "host@acme.com" });
+    const r = await zoomApp.testConnection!({ accountId: "acc1", clientId: "cid", clientSecret: "csec" });
+    expect(r).toEqual({ ok: true, message: "Connected as host@acme.com" });
   });
 });
 

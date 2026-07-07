@@ -37,6 +37,7 @@ import { redisApp } from "./redis";
 import { outlookApp } from "./outlook";
 import { onedriveApp } from "./onedrive";
 import { smtpApp } from "./smtp";
+import { zoomApp } from "./zoom";
 import { utilsApp } from "./utils";
 
 export { telegramApp } from "./telegram";
@@ -77,6 +78,7 @@ export { redisApp } from "./redis";
 export { outlookApp } from "./outlook";
 export { onedriveApp } from "./onedrive";
 export { smtpApp } from "./smtp";
+export { zoomApp } from "./zoom";
 export { utilsApp, parseCsv, toCsv } from "./utils";
 
 /**
@@ -124,5 +126,6 @@ export const connectorApps: App[] = [
   outlookApp,
   onedriveApp,
   smtpApp,
+  zoomApp,
   utilsApp,
 ];

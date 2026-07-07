@@ -904,6 +904,36 @@ export const CATALOG: CatalogApp[] = [
     ],
   },
   {
+    key: "zoom",
+    name: "Zoom",
+    category: "Communication",
+    auth: "custom",
+    modules: [
+      { operation: "list_meetings", name: "List meetings", kind: "search", params: [
+        { key: "type", label: "Type", type: "select", options: ["scheduled", "live", "upcoming"] },
+      ] },
+      { operation: "get_meeting", name: "Get a meeting", kind: "search", params: [{ key: "meetingId", label: "Meeting ID", type: "text", mappable: true }] },
+      { operation: "create_meeting", name: "Create a meeting", kind: "action", params: [
+        { key: "topic", label: "Topic", type: "text", mappable: true },
+        { key: "startTime", label: "Start time (RFC3339)", type: "text", mappable: true },
+        { key: "duration", label: "Duration (min)", type: "number" },
+        { key: "timezone", label: "Timezone", type: "text" },
+        { key: "agenda", label: "Agenda", type: "textarea", mappable: true },
+      ] },
+      { operation: "update_meeting", name: "Update a meeting", kind: "action", params: [
+        { key: "meetingId", label: "Meeting ID", type: "text", mappable: true },
+        { key: "topic", label: "Topic", type: "text", mappable: true },
+        { key: "startTime", label: "Start time (RFC3339)", type: "text", mappable: true },
+      ] },
+      { operation: "delete_meeting", name: "Delete a meeting", kind: "action", params: [{ key: "meetingId", label: "Meeting ID", type: "text", mappable: true }] },
+      { operation: "list_recordings", name: "List cloud recordings", kind: "search", params: [
+        { key: "from", label: "From (YYYY-MM-DD)", type: "text" },
+        { key: "to", label: "To (YYYY-MM-DD)", type: "text" },
+      ] },
+      { operation: "list_users", name: "List users", kind: "search", params: [{ key: "status", label: "Status", type: "select", options: ["active", "inactive", "pending"] }] },
+    ],
+  },
+  {
     key: "smtp",
     name: "Email (SMTP)",
     category: "Communication",
