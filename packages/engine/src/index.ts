@@ -8,7 +8,7 @@ export type { RegisteredModule } from "./registry";
 
 // App framework (Phase 2)
 export type { App, ModuleDef, AuthSchema, AuthType, AuthField, TestConnectionResult } from "./app";
-export { webhookApp, manualApp, httpApp, coreApp, flowApp, dataStoreApp, builtInApps } from "./apps";
+export { webhookApp, manualApp, scheduleApp, httpApp, coreApp, flowApp, dataStoreApp, builtInApps } from "./apps";
 export { manualTriggerBundles } from "./manual-trigger";
 export { httpRequestParams } from "./apps/http";
 export { sleepParams } from "./apps/core";

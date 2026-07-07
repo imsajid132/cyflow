@@ -1,6 +1,7 @@
 import {
   WebhookIcon,
   ManualIcon,
+  ScheduleIcon,
   HttpIcon,
   TelegramIcon,
   IteratorIcon,
@@ -51,6 +52,7 @@ import {
 export function ModuleIcon({ app, operation, sw }: { app: string; operation: string; sw?: number }) {
   if (app === "webhook") return <WebhookIcon sw={sw} />;
   if (app === "manual") return <ManualIcon sw={sw} />;
+  if (app === "schedule") return <ScheduleIcon sw={sw} />;
   if (app === "http") return <HttpIcon sw={sw} />;
   if (app === "telegram") return <TelegramIcon sw={sw} />;
   if (app === "openai") return <OpenAiIcon sw={sw} />;

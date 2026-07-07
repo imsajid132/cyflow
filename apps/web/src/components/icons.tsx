@@ -400,6 +400,14 @@ export function SmtpIcon(p: IconProps) {
     </Glyph>
   );
 }
+export function ScheduleIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3 2" />
+    </Glyph>
+  );
+}
 export function ManualIcon(p: IconProps) {
   return (
     <Glyph {...p}>

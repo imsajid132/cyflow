@@ -70,6 +70,19 @@ export const CATALOG: CatalogApp[] = [
     ],
   },
   {
+    key: "schedule",
+    name: "Schedule",
+    category: "Triggers",
+    modules: [
+      {
+        operation: "schedule",
+        name: "Schedule trigger",
+        kind: "trigger",
+        params: [],
+      },
+    ],
+  },
+  {
     key: "http",
     name: "HTTP",
     category: "Core",

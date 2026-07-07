@@ -20,6 +20,7 @@ describe("App framework — built-in apps register through the framework", () =>
       "flow",
       "http",
       "manual",
+      "schedule",
       "webhook",
     ]);
 

@@ -214,6 +214,19 @@ export function ModuleConfigPanel({
           </div>
         ) : null}
 
+        {isTrigger && module.app === "schedule" ? (
+          <div className="field">
+            <label>Schedule</label>
+            <span className="hint">This scenario runs on a schedule. Set the interval with the “Schedule” button in the top bar.</span>
+          </div>
+        ) : null}
+
+        {isTrigger && module.app === "manual" ? (
+          <div className="field">
+            <span className="hint">Run this scenario by hand with “Run once”. The sample below is the test bundle passed to the next module.</span>
+          </div>
+        ) : null}
+
         {isDataStore ? (
           <div className="field">
             <label htmlFor="ds-store">Data store</label>
