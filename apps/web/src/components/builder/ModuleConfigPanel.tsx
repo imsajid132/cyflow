@@ -6,7 +6,7 @@ import { StatusChip } from "../StatusChip";
 import { MappingToken } from "../MappingToken";
 import { Button } from "../Button";
 import { findApp, findModule } from "../../data/catalog";
-import { outputFields } from "../../scenario/outputs";
+import { outputFields, manualSample } from "../../scenario/outputs";
 import { valuePreview } from "../../lib/datastore";
 import { DEFAULT_TRIGGER } from "../../scenario/localEngine";
 import { PlayIcon, XIcon, ChevronRightIcon, CopyIcon } from "../icons";
@@ -142,6 +142,10 @@ export function ModuleConfigPanel({
       if (v !== undefined) return v;
     }
     if (node.app === "webhook") return getPath(DEFAULT_TRIGGER[0], field);
+    if (node.app === "manual") {
+      const sample = manualSample(node);
+      return sample ? getPath(sample, field) : undefined;
+    }
     return undefined;
   };
   const focusField = (key: string) => {

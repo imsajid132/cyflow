@@ -11,7 +11,7 @@ afterEach(() => {
 });
 
 describe("App framework — built-in apps register through the framework", () => {
-  it("exposes the three built-in apps and their modules via the registry seam", () => {
+  it("exposes the built-in apps and their modules via the registry seam", () => {
     const registry = createDefaultRegistry();
 
     expect(registry.listApps().map((a) => a.key).sort()).toEqual([
@@ -19,6 +19,7 @@ describe("App framework — built-in apps register through the framework", () =>
       "datastore",
       "flow",
       "http",
+      "manual",
       "webhook",
     ]);
 

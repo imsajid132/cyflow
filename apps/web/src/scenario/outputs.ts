@@ -29,6 +29,19 @@ function flatten(obj: unknown, prefix: string, depth: number, out: string[]): vo
   }
 }
 
+/** Parse a Manual trigger's sample JSON to its first bundle (for field hints). */
+function manualSample(node: ModuleNode): Record<string, unknown> | null {
+  const sample = (node.params as { sample?: unknown }).sample;
+  if (typeof sample !== "string" || !sample.trim()) return null;
+  try {
+    const parsed = JSON.parse(sample);
+    const obj = Array.isArray(parsed) ? parsed[0] : parsed;
+    return obj && typeof obj === "object" ? (obj as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Available output field paths for a module (from a real run, else its shape). */
 export function outputFields(node: ModuleNode, step?: StoredExecutionStep): string[] {
   if (step && step.output.length > 0) {
@@ -36,5 +49,16 @@ export function outputFields(node: ModuleNode, step?: StoredExecutionStep): stri
     flatten(step.output[0], "", 1, out);
     if (out.length > 0) return out.slice(0, 12);
   }
+  // A Manual trigger's fields come from its sample JSON, before any run.
+  if (node.app === "manual") {
+    const sample = manualSample(node);
+    if (sample) {
+      const out: string[] = [];
+      flatten(sample, "", 1, out);
+      if (out.length > 0) return out.slice(0, 12);
+    }
+  }
   return STATIC[`${node.app}.${node.operation}`] ?? [];
 }
+
+export { manualSample };

@@ -21,7 +21,7 @@ import {
 } from "@cyflow/connections";
 import type { GoogleRuntime, MicrosoftRuntime } from "./app";
 import { connectorApps } from "@cyflow/connectors";
-import { createDefaultRegistry } from "engine";
+import { createDefaultRegistry, manualTriggerBundles } from "engine";
 import { runScenarioJob, type WorkerDeps } from "@cyflow/worker";
 import type {
   AppAuthDTO,
@@ -235,7 +235,8 @@ export class PrismaApiStore implements ApiStore {
       findById: async (sid: string) => (sid === id ? { ...existing, blueprint } : this.scenarios.findById(sid)),
       create: (input) => this.scenarios.create(input),
     };
-    const trigger: Bundle[] = body.trigger ?? DEFAULT_TRIGGER;
+    // A Manual trigger supplies its own sample bundle; otherwise fall back.
+    const trigger: Bundle[] = body.trigger ?? manualTriggerBundles(blueprint, DEFAULT_TRIGGER);
 
     const execution = await runScenarioJob(
       { scenarioId: id, triggerBundles: trigger },

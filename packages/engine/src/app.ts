@@ -24,7 +24,7 @@ export interface ModuleDef {
   /** Validates params + drives the UI form (Phase 6). Not run by the walker. */
   params: ZodTypeAny;
   /** For triggers: how it fires (Phase 3). */
-  triggerKind?: "webhook" | "polling" | "schedule";
+  triggerKind?: "webhook" | "polling" | "schedule" | "manual";
   /** The bundle-based implementation the engine invokes. */
   run: OperationRunner;
 }

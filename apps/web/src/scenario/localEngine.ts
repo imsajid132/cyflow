@@ -8,6 +8,7 @@ import {
   buildExecutionSteps,
   createDefaultRegistry,
   InMemoryDataStore,
+  manualTriggerBundles,
   runScenario,
   type Registry,
 } from "engine";
@@ -178,10 +179,12 @@ let runCounter = 0;
 
 export async function runOnce(
   blueprint: Blueprint,
-  triggerBundles: Bundle[] = DEFAULT_TRIGGER,
+  triggerBundles?: Bundle[],
 ): Promise<StoredExecution> {
-  const record = await runScenario(blueprint, triggerBundles, createBrowserRegistry(), { dataStore });
-  const steps = buildExecutionSteps(record, blueprint, triggerBundles);
+  // A Manual trigger supplies its own sample bundle; otherwise use the demo default.
+  const bundles = triggerBundles ?? manualTriggerBundles(blueprint, DEFAULT_TRIGGER);
+  const record = await runScenario(blueprint, bundles, createBrowserRegistry(), { dataStore });
+  const steps = buildExecutionSteps(record, blueprint, bundles);
   const now = new Date();
   runCounter += 1;
   return {

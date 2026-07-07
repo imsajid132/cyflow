@@ -1,5 +1,5 @@
 import type { Blueprint, Bundle, StoredExecution } from "@cyflow/shared";
-import { buildExecutionSteps, createDefaultRegistry, InMemoryDataStore, runScenario, type TestConnectionResult } from "engine";
+import { buildExecutionSteps, createDefaultRegistry, InMemoryDataStore, manualTriggerBundles, runScenario, type TestConnectionResult } from "engine";
 import type {
   AppAuthDTO,
   AppSummary,
@@ -132,7 +132,7 @@ export class InMemoryApiStore implements ApiStore {
     const scenario = this.scenarios.find((s) => s.id === id);
     if (!scenario) return null;
     const blueprint: Blueprint = body.blueprint ?? scenario.blueprint;
-    const trigger = body.trigger ?? DEFAULT_TRIGGER;
+    const trigger = body.trigger ?? manualTriggerBundles(blueprint, DEFAULT_TRIGGER);
     const executionId = uid("exec");
     const startedAt = new Date();
 

@@ -41,6 +41,22 @@ export const CATEGORIES = [
 
 export const CATALOG: CatalogApp[] = [
   {
+    key: "manual",
+    name: "Manual",
+    category: "Triggers",
+    modules: [
+      {
+        operation: "manual",
+        name: "Manual trigger",
+        kind: "trigger",
+        defaults: { sample: '{\n  "name": "Ada Lovelace",\n  "email": "ada@lovelace.dev"\n}' },
+        params: [
+          { key: "sample", label: "Sample input (JSON) — the test bundle for Run once", type: "textarea", mappable: false },
+        ],
+      },
+    ],
+  },
+  {
     key: "webhook",
     name: "Webhook",
     category: "Triggers",

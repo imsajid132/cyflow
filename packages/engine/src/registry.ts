@@ -18,7 +18,7 @@ export interface RegisteredModule {
   appName?: string;
   name?: string;
   params?: ZodTypeAny;
-  triggerKind?: "webhook" | "polling" | "schedule";
+  triggerKind?: "webhook" | "polling" | "schedule" | "manual";
 }
 
 /**

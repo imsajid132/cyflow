@@ -377,6 +377,14 @@ export function OneDriveIcon(p: IconProps) {
     </Glyph>
   );
 }
+export function ManualIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M10 8.5l5 3.5-5 3.5V8.5Z" />
+    </Glyph>
+  );
+}
 export function DriveIcon(p: IconProps) {
   return (
     <Glyph {...p}>
