@@ -38,6 +38,7 @@ import { outlookApp } from "./outlook";
 import { onedriveApp } from "./onedrive";
 import { smtpApp } from "./smtp";
 import { zoomApp } from "./zoom";
+import { teamsApp } from "./teams";
 import { utilsApp } from "./utils";
 
 export { telegramApp } from "./telegram";
@@ -79,6 +80,7 @@ export { outlookApp } from "./outlook";
 export { onedriveApp } from "./onedrive";
 export { smtpApp } from "./smtp";
 export { zoomApp } from "./zoom";
+export { teamsApp } from "./teams";
 export { utilsApp, parseCsv, toCsv } from "./utils";
 
 /**
@@ -127,5 +129,6 @@ export const connectorApps: App[] = [
   onedriveApp,
   smtpApp,
   zoomApp,
+  teamsApp,
   utilsApp,
 ];

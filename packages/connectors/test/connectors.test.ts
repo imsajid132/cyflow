@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExecutionContext } from "@cyflow/shared";
 import { createDefaultRegistry } from "engine";
-import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, driveApp, calendarApp, slackApp, discordApp, notionApp, airtableApp, githubApp, gitlabApp, dropboxApp, cloudflareApp, supabaseApp, trelloApp, asanaApp, hubspotApp, clickupApp, calendlyApp, twilioApp, stripeApp, shopifyApp, woocommerceApp, rssApp, whatsappApp, twitterApp, googleContactsApp, googleTasksApp, youtubeApp, mondayApp, outlookApp, onedriveApp, zoomApp, parseFeed, utilsApp, parseCsv, toCsv } from "../src/index";
+import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, driveApp, calendarApp, slackApp, discordApp, notionApp, airtableApp, githubApp, gitlabApp, dropboxApp, cloudflareApp, supabaseApp, trelloApp, asanaApp, hubspotApp, clickupApp, calendlyApp, twilioApp, stripeApp, shopifyApp, woocommerceApp, rssApp, whatsappApp, twitterApp, googleContactsApp, googleTasksApp, youtubeApp, mondayApp, outlookApp, onedriveApp, zoomApp, teamsApp, parseFeed, utilsApp, parseCsv, toCsv } from "../src/index";
 
 function makeCtx(connection: Record<string, unknown> | null): ExecutionContext {
   return {
@@ -822,6 +822,28 @@ describe("Zoom (mocked, S2S OAuth)", () => {
     stubZoom({ email: "host@acme.com" });
     const r = await zoomApp.testConnection!({ accountId: "acc1", clientId: "cid", clientSecret: "csec" });
     expect(r).toEqual({ ok: true, message: "Connected as host@acme.com" });
+  });
+});
+
+describe("Microsoft Teams (mocked, Graph)", () => {
+  const ctx = () => makeCtx({ access_token: "ms.tok" });
+  it("send_channel_message posts a Graph message body with a Bearer token", async () => {
+    const m = stubGoogle(() => ({ body: { id: "msg1", webUrl: "https://teams/msg1" } }));
+    const out = await teamsApp.modules.send_channel_message.run({}, { teamId: "T1", channelId: "C1", content: "Deploy done" }, ctx());
+    expect(m.mock.calls[0][0]).toContain("/teams/T1/channels/C1/messages");
+    expect((m.mock.calls[0][1] as { headers: Record<string, string> }).headers.authorization).toBe("Bearer ms.tok");
+    expect(JSON.parse((m.mock.calls[0][1] as { body: string }).body)).toEqual({ body: { contentType: "text", content: "Deploy done" } });
+    expect(out[0]).toMatchObject({ id: "msg1" });
+  });
+  it("list_teams unwraps the Graph value collection", async () => {
+    stubGoogle(() => ({ body: { value: [{ id: "T1", displayName: "Eng" }] } }));
+    const out = await teamsApp.modules.list_teams.run({}, {}, ctx());
+    expect(out[0]).toMatchObject({ teams: [{ id: "T1", displayName: "Eng" }] });
+  });
+  it("send_chat_message posts to a chat", async () => {
+    const m = stubGoogle(() => ({ body: { id: "cm1" } }));
+    await teamsApp.modules.send_chat_message.run({}, { chatId: "19:abc", content: "hi" }, ctx());
+    expect(m.mock.calls[0][0]).toContain("/chats/19:abc/messages");
   });
 });
 

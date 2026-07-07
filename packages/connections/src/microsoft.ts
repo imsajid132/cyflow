@@ -15,15 +15,23 @@ import {
  * shared by the Microsoft apps (Outlook, OneDrive). Client secret stays here.
  */
 
-export const MICROSOFT_APPS = new Set(["outlook", "onedrive"]);
+export const MICROSOFT_APPS = new Set(["outlook", "onedrive", "teams"]);
 const IDENTITY = ["openid", "email", "profile", "offline_access", "https://graph.microsoft.com/User.Read"];
 
 export const MICROSOFT_SCOPES: Record<string, string[]> = {
   outlook: [...IDENTITY, "https://graph.microsoft.com/Mail.ReadWrite", "https://graph.microsoft.com/Mail.Send"],
   onedrive: [...IDENTITY, "https://graph.microsoft.com/Files.ReadWrite.All"],
+  // ChannelMessage.Send may require tenant-admin consent in some organisations.
+  teams: [
+    ...IDENTITY,
+    "https://graph.microsoft.com/Team.ReadBasic.All",
+    "https://graph.microsoft.com/Channel.ReadBasic.All",
+    "https://graph.microsoft.com/ChannelMessage.Send",
+    "https://graph.microsoft.com/Chat.ReadWrite",
+  ],
 };
 
-export const MICROSOFT_LABELS: Record<string, string> = { outlook: "Outlook", onedrive: "OneDrive" };
+export const MICROSOFT_LABELS: Record<string, string> = { outlook: "Outlook", onedrive: "OneDrive", teams: "Microsoft Teams" };
 
 const AUTH_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
 const TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token";

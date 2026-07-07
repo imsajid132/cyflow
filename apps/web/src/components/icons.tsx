@@ -392,6 +392,16 @@ export function MoonIcon(p: IconProps) {
     </Glyph>
   );
 }
+export function TeamsIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <rect x="3" y="7" width="9" height="10" rx="2" />
+      <path d="M5.5 10h4M7.5 10v5" />
+      <circle cx="17" cy="7.5" r="2.2" />
+      <path d="M13.5 17v-3a3 3 0 0 1 3-3h1.5a3 3 0 0 1 3 3v1a2 2 0 0 1-2 2h-1" />
+    </Glyph>
+  );
+}
 export function ZoomIcon(p: IconProps) {
   return (
     <Glyph {...p}>

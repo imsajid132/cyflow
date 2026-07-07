@@ -1175,6 +1175,32 @@ export const CATALOG: CatalogApp[] = [
     ],
   },
   {
+    key: "teams",
+    name: "Microsoft Teams",
+    category: "Communication",
+    auth: "oauth2",
+    modules: [
+      { operation: "list_teams", name: "List my teams", kind: "search", params: [] },
+      { operation: "list_channels", name: "List channels", kind: "search", params: [{ key: "teamId", label: "Team ID", type: "text", mappable: true }] },
+      { operation: "send_channel_message", name: "Send a channel message", kind: "action", params: [
+        { key: "teamId", label: "Team ID", type: "text", mappable: true },
+        { key: "channelId", label: "Channel ID", type: "text", mappable: true },
+        { key: "content", label: "Message", type: "textarea", mappable: true },
+        { key: "contentType", label: "Content type", type: "select", options: ["text", "html"] },
+      ] },
+      { operation: "list_channel_messages", name: "List channel messages", kind: "search", params: [
+        { key: "teamId", label: "Team ID", type: "text", mappable: true },
+        { key: "channelId", label: "Channel ID", type: "text", mappable: true },
+      ] },
+      { operation: "list_chats", name: "List my chats", kind: "search", params: [] },
+      { operation: "send_chat_message", name: "Send a chat message", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "content", label: "Message", type: "textarea", mappable: true },
+        { key: "contentType", label: "Content type", type: "select", options: ["text", "html"] },
+      ] },
+    ],
+  },
+  {
     key: "outlook",
     name: "Outlook",
     category: "Communication",

@@ -47,6 +47,7 @@ import {
   OneDriveIcon,
   SmtpIcon,
   ZoomIcon,
+  TeamsIcon,
 } from "./icons";
 
 /** Maps a module's app/operation to its app icon. */
@@ -93,6 +94,7 @@ export function ModuleIcon({ app, operation, sw }: { app: string; operation: str
   if (app === "onedrive") return <OneDriveIcon sw={sw} />;
   if (app === "smtp") return <SmtpIcon sw={sw} />;
   if (app === "zoom") return <ZoomIcon sw={sw} />;
+  if (app === "teams") return <TeamsIcon sw={sw} />;
   if (app === "core") return <DelayIcon sw={sw} />;
   if (app === "utils") return <BracesIcon sw={sw} />;
   if (app === "datastore") return <DataStoreIcon sw={sw} />;

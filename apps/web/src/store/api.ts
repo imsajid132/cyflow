@@ -130,7 +130,7 @@ export const api = {
 /** Google apps share one OAuth provider. */
 export const GOOGLE_APPS = new Set(["gmail", "sheets", "drive", "calendar", "contacts", "tasks", "youtube"]);
 /** Microsoft apps share one OAuth provider. */
-export const MICROSOFT_APPS = new Set(["outlook", "onedrive"]);
+export const MICROSOFT_APPS = new Set(["outlook", "onedrive", "teams"]);
 
 /** Execution JSON arrives with ISO date strings; restore Date fields. */
 export function normalizeExecution(execution: StoredExecution): StoredExecution {
