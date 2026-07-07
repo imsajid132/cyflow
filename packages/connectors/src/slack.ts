@@ -75,6 +75,26 @@ export const slackApp: App = {
       await slackCall(tok(ctx), "reactions.add", { channel: q.channel, timestamp: q.timestamp, name: q.name });
       return [{ ok: true } as Bundle];
     }),
+    get_thread_replies: m("get_thread_replies", "Get thread replies", "search", z.object({ channel: z.string(), ts: z.string(), limit: z.number().optional() }), async (_i, p, ctx) => {
+      const q = p as { channel: string; ts: string; limit?: number };
+      const json = await slackCall(tok(ctx), "conversations.replies", { channel: q.channel, ts: q.ts, limit: q.limit ?? 100 });
+      return [{ messages: json.messages ?? [] } as Bundle];
+    }),
+    schedule_message: m("schedule_message", "Schedule a message", "action", z.object({ channel: z.string(), text: z.string(), postAt: z.number() }), async (_i, p, ctx) => {
+      const q = p as { channel: string; text: string; postAt: number };
+      const json = await slackCall(tok(ctx), "chat.scheduleMessage", { channel: q.channel, text: q.text, post_at: q.postAt });
+      return [{ ok: true, channel: json.channel, scheduledMessageId: json.scheduled_message_id, postAt: json.post_at } as Bundle];
+    }),
+    set_channel_topic: m("set_channel_topic", "Set channel topic", "action", z.object({ channel: z.string(), topic: z.string() }), async (_i, p, ctx) => {
+      const q = p as { channel: string; topic: string };
+      const json = await slackCall(tok(ctx), "conversations.setTopic", { channel: q.channel, topic: q.topic });
+      return [{ ok: true, topic: json.topic } as Bundle];
+    }),
+    join_channel: m("join_channel", "Join a channel", "action", z.object({ channel: z.string() }), async (_i, p, ctx) => {
+      const { channel } = p as { channel: string };
+      const json = await slackCall(tok(ctx), "conversations.join", { channel });
+      return [{ ok: true, channel: json.channel } as Bundle];
+    }),
   },
   testConnection,
 };

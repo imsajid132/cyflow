@@ -782,6 +782,16 @@ describe("Slack expansion (mocked)", () => {
     stubGoogle(() => ({ body: { ok: false, error: "channel_not_found" } }));
     await expect(slackApp.modules.get_channel_info.run({}, { channel: "bad" }, ctx())).rejects.toThrow(/channel_not_found/);
   });
+  it("schedule_message + get_thread_replies hit the right methods", async () => {
+    const m1 = stubGoogle(() => ({ body: { ok: true, channel: "C1", scheduled_message_id: "Q1", post_at: 1893456000 } }));
+    const out = await slackApp.modules.schedule_message.run({}, { channel: "C1", text: "later", postAt: 1893456000 }, ctx());
+    expect(m1.mock.calls[0][0]).toContain("chat.scheduleMessage");
+    expect(out[0]).toMatchObject({ scheduledMessageId: "Q1", postAt: 1893456000 });
+    const m2 = stubGoogle(() => ({ body: { ok: true, messages: [{ ts: "1.1" }, { ts: "1.2" }] } }));
+    const rep = await slackApp.modules.get_thread_replies.run({}, { channel: "C1", ts: "1.1" }, ctx());
+    expect(m2.mock.calls[0][0]).toContain("conversations.replies");
+    expect(rep[0]).toMatchObject({ messages: [{ ts: "1.1" }, { ts: "1.2" }] });
+  });
 });
 
 describe("monday.com (mocked)", () => {

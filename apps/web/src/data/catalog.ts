@@ -93,8 +93,10 @@ export const CATALOG: CatalogApp[] = [
         kind: "action",
         defaults: { method: "GET" },
         params: [
-          { key: "method", label: "Method", type: "select", options: ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+          { key: "method", label: "Method", type: "select", options: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] },
           { key: "url", label: "URL", type: "text", placeholder: "https://api.example.com", mappable: true },
+          { key: "headers", label: "Headers (map an object)", type: "text", mappable: true },
+          { key: "query", label: "Query params (map an object)", type: "text", mappable: true },
           { key: "body", label: "Body", type: "textarea", mappable: true },
         ],
       },
@@ -356,6 +358,22 @@ export const CATALOG: CatalogApp[] = [
         { key: "channel", label: "Channel", type: "text", mappable: true },
         { key: "timestamp", label: "Message ts", type: "text", mappable: true },
         { key: "name", label: "Emoji name", type: "text", mappable: true },
+      ] },
+      { operation: "get_thread_replies", name: "Get thread replies", kind: "search", params: [
+        { key: "channel", label: "Channel", type: "text", mappable: true },
+        { key: "ts", label: "Thread ts", type: "text", mappable: true },
+      ] },
+      { operation: "schedule_message", name: "Schedule a message", kind: "action", params: [
+        { key: "channel", label: "Channel", type: "text", mappable: true },
+        { key: "text", label: "Message text", type: "textarea", mappable: true },
+        { key: "postAt", label: "Post at (unix epoch seconds)", type: "number", mappable: true },
+      ] },
+      { operation: "set_channel_topic", name: "Set channel topic", kind: "action", params: [
+        { key: "channel", label: "Channel", type: "text", mappable: true },
+        { key: "topic", label: "Topic", type: "text", mappable: true },
+      ] },
+      { operation: "join_channel", name: "Join a channel", kind: "action", params: [
+        { key: "channel", label: "Channel", type: "text", mappable: true },
       ] },
     ],
   },
