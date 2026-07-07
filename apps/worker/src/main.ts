@@ -23,6 +23,15 @@ function redisConnection() {
 }
 
 function main(): void {
+  // Fail fast with a clear message instead of a cryptic Prisma/crypto crash.
+  const missing = (["DATABASE_URL", "CYFLOW_ENCRYPTION_KEY"] as const).filter((k) => !process.env[k]);
+  if (missing.length > 0) {
+    console.error(`[worker] missing required env: ${missing.join(", ")}. The worker needs Postgres + the vault key (and REDIS_URL for the queue). See README → Personal Production Deployment.`);
+    process.exit(1);
+  }
+  if (!process.env.REDIS_URL) console.warn("[worker] REDIS_URL not set — defaulting to redis://127.0.0.1:6379 (fine for local dev only).");
+  console.log("[worker] starting — Postgres + Redis + vault configured.");
+
   const { scenarios, executions } = createPrismaRepositories();
   const registry = createDefaultRegistry();
   // Register the Phase 9 connectors (Telegram, OpenAI, Gmail, Sheets, Slack).

@@ -16,6 +16,7 @@
     "generate": "prisma generate",
     "validate": "prisma validate",
     "migrate": "prisma migrate dev",
+    "deploy": "prisma migrate deploy",
     "push": "prisma db push",
     "typecheck": "tsc --noEmit"
   },

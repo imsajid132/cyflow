@@ -151,6 +151,16 @@ export class PrismaApiStore implements ApiStore {
     };
   }
 
+  /** Live database connectivity check for GET /health. */
+  async pingDatabase(): Promise<boolean> {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /** The Google OAuth runtime for createApp — null when the vault is unavailable. */
   googleRuntime(): GoogleRuntime | null {
     if (!this.connections || !this.encryption) return null;

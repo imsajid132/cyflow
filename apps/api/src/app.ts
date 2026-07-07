@@ -23,6 +23,7 @@ import {
 } from "@cyflow/connections";
 import type { ApiStore } from "./store";
 import { validateConnectionCredentials } from "./apps";
+import type { ConfigStatus } from "./config";
 
 /** Everything the Google OAuth routes need (built server-side; secrets stay here). */
 export interface GoogleRuntime {
@@ -66,6 +67,11 @@ export interface ApiOptions {
   google?: GoogleRuntime;
   /** Enables the real Microsoft OAuth routes when provided. */
   microsoft?: MicrosoftRuntime;
+  /** Redacted config status + optional live DB ping, surfaced on GET /health. */
+  health?: {
+    status: ConfigStatus;
+    checkDatabase?: () => Promise<boolean>;
+  };
 }
 
 /**
@@ -83,9 +89,22 @@ export function createApp(store: ApiStore, options: ApiOptions = {}) {
   app.use(express.json({ limit: "4mb" }));
 
   // ---- public: health ----
-  app.get("/health", (_req: Request, res: Response) => {
-    res.json({ status: "ok", service: "cyflow-api", auth: Boolean(adminToken) });
-  });
+  app.get("/health", h(async (_req: Request, res: Response) => {
+    const base = { status: "ok", service: "cyflow-api", auth: Boolean(adminToken) };
+    if (!options.health) {
+      res.json(base);
+      return;
+    }
+    let database = options.health.status.database;
+    if (options.health.checkDatabase) {
+      try {
+        database = await options.health.checkDatabase();
+      } catch {
+        database = false;
+      }
+    }
+    res.json({ ...base, config: { ...options.health.status, database } });
+  }));
 
   // ---- public: webhook trigger (runs the scenario's stored blueprint) ----
   const runHook = h(async (req, res) => {

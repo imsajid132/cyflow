@@ -13,6 +13,7 @@ import { InMemoryApiStore } from "./store";
 import { PrismaApiStore } from "./prismaStore";
 import type { ApiStore } from "./store";
 import type { ScenarioDTO } from "./types";
+import { logConfig, readConfigStatus } from "./config";
 
 function demoSeed(): ScenarioDTO[] {
   const now = new Date().toISOString();
@@ -47,11 +48,15 @@ function demoSeed(): ScenarioDTO[] {
 }
 
 async function main(): Promise<void> {
+  logConfig();
+
   let store: ApiStore;
+  let checkDatabase: (() => Promise<boolean>) | undefined;
   if (process.env.DATABASE_URL) {
     const prismaStore = new PrismaApiStore();
     await prismaStore.init();
     store = prismaStore;
+    checkDatabase = () => prismaStore.pingDatabase();
     console.log("[api] persistence: Postgres (DATABASE_URL set)");
   } else {
     store = new InMemoryApiStore(demoSeed());
@@ -59,7 +64,6 @@ async function main(): Promise<void> {
   }
 
   const adminToken = process.env.ADMIN_TOKEN ?? process.env.CYFLOW_ADMIN_TOKEN;
-  if (!adminToken) console.warn("[api] no ADMIN_TOKEN set — API is OPEN (set one for personal production)");
 
   const google = store instanceof PrismaApiStore ? store.googleRuntime() ?? undefined : undefined;
   if (google?.config) console.log("[api] Google OAuth: configured");
@@ -69,7 +73,12 @@ async function main(): Promise<void> {
   if (microsoft?.config) console.log("[api] Microsoft OAuth: configured");
   else if (microsoft) console.warn("[api] Microsoft OAuth: vault ready but MICROSOFT_CLIENT_* not set");
 
-  const app = createApp(store, { adminToken, google, microsoft });
+  const app = createApp(store, {
+    adminToken,
+    google,
+    microsoft,
+    health: { status: readConfigStatus(), checkDatabase },
+  });
   const port = Number(process.env.PORT ?? 3001);
   app.listen(port, () => {
     console.log(`[api] Cyflow API listening on :${port}${adminToken ? " (admin-protected)" : ""}`);

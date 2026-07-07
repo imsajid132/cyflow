@@ -110,6 +110,114 @@ See `.env.example` (backend) and `apps/web/.env.example` (frontend):
 | `SCHEDULER_TICK_MS` | worker | How often the schedule runner polls (default `60000`). |
 | `VITE_CYFLOW_API_URL` | web (build-time) | Base URL of the API. **Unset ⇒ local demo mode.** |
 
+## 🚀 Personal Production Deployment (full stack, from zero)
+
+Deploy the **whole** tool so *every* connector works — API-key (Telegram/OpenAI),
+bearer (Slack/GitHub), basic-auth, OAuth (Google/Microsoft), webhooks, schedules,
+data stores, and execution replay. Architecture:
+
+```
+Vercel (frontend)  →  API (Postgres + vault + OAuth + webhooks)  →  Worker (Redis/BullMQ scheduler)
+```
+
+### Option A — Render (one click, recommended)
+
+The repo ships a [`render.yaml`](./render.yaml) blueprint that provisions
+**Postgres + Redis + the API + the worker** and wires them together.
+
+1. Push this repo to GitHub. In Render → **New → Blueprint** → pick the repo.
+   Render creates the database, the Key Value (Redis) store, `cyflow-api`, and
+   `cyflow-worker`, generating `CYFLOW_ENCRYPTION_KEY` + `ADMIN_TOKEN` for you and
+   sharing `DATABASE_URL`/`REDIS_URL` across services. The API runs
+   `prisma migrate deploy` on boot.
+2. When it's up, open `https://<cyflow-api>.onrender.com/health` — you should see
+   `{"config":{"database":true,"vault":true,...}}`.
+3. Set the `sync:false` vars in the `cyflow-api` service: `WEB_APP_URL` (your
+   Vercel URL) and, if you want Google/Microsoft, their `*_CLIENT_ID/SECRET/REDIRECT_URI`.
+4. Deploy the frontend to Vercel (below) with `VITE_CYFLOW_API_URL` = the API URL.
+
+### Option B — Railway / Fly / any container host
+
+Use the Dockerfiles: [`apps/api/Dockerfile`](./apps/api/Dockerfile) and
+[`apps/worker/Dockerfile`](./apps/worker/Dockerfile) (build context = repo root).
+Provision Postgres (Railway/Neon/Supabase) + Redis (Railway/Upstash), create two
+services from the same repo, and set the env vars below. The API image runs
+migrations on boot; give the worker the **same** `DATABASE_URL`, `REDIS_URL`, and
+`CYFLOW_ENCRYPTION_KEY`.
+
+### Environment variables
+
+| Var | Where | Purpose |
+|---|---|---|
+| `DATABASE_URL` | api, worker | Postgres (Prisma). **Unset ⇒ in-memory** (dev/demo only). |
+| `REDIS_URL` | worker | Redis/BullMQ queue + scheduler. |
+| `CYFLOW_ENCRYPTION_KEY` | api, worker | 32+ random chars — AES-256-GCM key for the connection vault. **Required** to save any connection. Must match across api + worker. |
+| `ADMIN_TOKEN` (or `CYFLOW_ADMIN_TOKEN`) | api | Protects every route but `/health` + `/hooks/:id`. Unset ⇒ **open API**. |
+| `WEB_APP_URL` | api | Vercel URL — where OAuth callbacks redirect back to. |
+| `PUBLIC_API_URL` | api | Public API URL (for the webhook base shown on `/health`). On Render, `RENDER_EXTERNAL_URL` is used automatically. |
+| `PORT` | api | Listen port (default `3001`). |
+| `SCHEDULER_TICK_MS` | worker | Scheduler poll interval (default `60000`). |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | api | Google OAuth (Gmail/Sheets/Drive/Calendar/Contacts/Tasks/YouTube). Redirect = `{API}/oauth/google/callback`. Secret stays server-side. |
+| `MICROSOFT_CLIENT_ID` / `MICROSOFT_CLIENT_SECRET` / `MICROSOFT_REDIRECT_URI` | api | Microsoft OAuth (Outlook/OneDrive/Teams). Redirect = `{API}/oauth/microsoft/callback`. |
+| `VITE_CYFLOW_API_URL` | **Vercel (build-time)** | API base URL. **Unset ⇒ local demo mode.** |
+
+> The frontend **never** receives an admin token or OAuth secret. `VITE_CYFLOW_ADMIN_TOKEN` is intentionally **not** supported — the admin token is entered in-browser and kept in `localStorage` only. All other connector credentials (Telegram/Slack/Twilio/Stripe/DB strings, …) are entered per-connection in the app and encrypted in the vault; **no per-connector server env is needed.**
+
+### OAuth provider setup (optional — only for Google/Microsoft connectors)
+
+- **Google:** Cloud Console → OAuth client (type *Web*) → add
+  `{API}/oauth/google/callback` as an Authorized redirect URI; enable the Gmail /
+  Sheets / Drive / Calendar / People / Tasks / YouTube APIs you want. Put the id/secret in the API env.
+- **Microsoft:** Entra → App registration → add
+  `{API}/oauth/microsoft/callback` as a redirect URI; grant the Graph delegated
+  scopes (Mail, Files, Team/Channel). Put the id/secret in the API env.
+
+Other connectors need **no** provider setup — the user pastes their token/key/DB
+string into the connection modal (in the Connections page **or** inline in the
+scenario builder).
+
+### Deploy the frontend to Vercel
+
+Root Directory `apps/web`. Set one env var and redeploy:
+
+```
+VITE_CYFLOW_API_URL=https://<cyflow-api>.onrender.com
+```
+
+Leave it unset to ship a public **demo** build (mock engine, no backend).
+
+### Verify (smoke test)
+
+```
+API_URL=https://<cyflow-api>.onrender.com ADMIN_TOKEN=<token> node scripts/smoke-test.mjs
+```
+
+It checks `/health` config, creates Telegram + OpenAI connections (asserting the
+vault redacts secrets), builds a Webhook → OpenAI → Telegram scenario, runs it
+once, confirms the execution is in history with replay steps, and fires the public
+webhook. Pass `OPENAI_KEY` / `TELEGRAM_TOKEN` / `TELEGRAM_CHAT_ID` to make those
+steps actually send.
+
+### Troubleshooting
+
+- **Frontend shows “Can't reach the Cyflow API”.** The API isn't reachable at
+  `VITE_CYFLOW_API_URL`, or it's down. Check `/health`; confirm the Vercel var and
+  redeploy (it's build-time).
+- **“Google/Microsoft OAuth is not configured on the server”.** The provider's
+  `*_CLIENT_*` vars aren't set on the **API**. Set them + restart. `/health` shows
+  `config.oauth`.
+- **Connections won't save / `500`.** `CYFLOW_ENCRYPTION_KEY` is missing on the
+  API (`config.vault:false`). Set it (and the **same** value on the worker).
+- **Scheduled scenarios don't run.** The worker isn't running or lacks
+  `REDIS_URL`/`DATABASE_URL`; check the worker logs (it fails fast with a clear
+  message).
+- **Webhook 404 / not ACTIVE.** The scenario must be **ACTIVE**; the URL is
+  `{API}/hooks/{scenarioId}` (also shown on the trigger module + `/health`).
+- **OAuth popup returns but nothing selected.** `WEB_APP_URL` must equal your
+  Vercel origin so the callback can post back to the opener.
+
+---
+
 ## Personal production mode (single admin)
 
 Run Cyflow as your own private automation server: a Vercel frontend, an

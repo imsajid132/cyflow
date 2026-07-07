@@ -39,9 +39,16 @@ export function AdminGate() {
           <>
             <p className="muted" style={{ marginTop: 0 }}>
               {status === "offline"
-                ? "Can't reach the API — check it's deployed and the URL is correct."
+                ? "Can't reach the Cyflow API. It powers every connector, OAuth sign-in, webhook, and scheduled run — real workflows need it deployed."
                 : "This Cyflow API is protected. Enter your admin token to continue."}
             </p>
+            {status === "offline" ? (
+              <p className="muted" style={{ marginTop: 0, fontSize: ".78rem", textAlign: "left" }}>
+                Deploy the API + worker (README → <b>Personal Production Deployment</b>), then set
+                <span className="mono"> VITE_CYFLOW_API_URL</span> on Vercel to your API URL. To try Cyflow with no
+                backend, leave that variable unset — the app runs in local demo mode.
+              </p>
+            ) : null}
             <div className="field" style={{ textAlign: "left" }}>
               <label htmlFor="gate-token">Admin token</label>
               <input
