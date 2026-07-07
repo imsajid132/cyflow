@@ -28,21 +28,32 @@ export class PrismaScenarioRepository implements ScenarioRepository {
       position: index,
     }));
 
-    const created = await this.prisma.scenario.create({
-      data: {
-        id: input.id,
-        userId: input.userId,
-        name: input.name,
-        status: (input.status as ScenarioStatus | undefined) ?? "DRAFT",
-        blueprint: input.blueprint as unknown as Prisma.InputJsonValue,
-        schedule:
-          input.schedule === undefined
-            ? Prisma.JsonNull
-            : (input.schedule as Prisma.InputJsonValue),
-        modules: { create: moduleRows },
-      },
-    });
+    const scalars = {
+      userId: input.userId,
+      name: input.name,
+      status: (input.status as ScenarioStatus | undefined) ?? "DRAFT",
+      blueprint: input.blueprint as unknown as Prisma.InputJsonValue,
+      schedule:
+        input.schedule === undefined
+          ? Prisma.JsonNull
+          : (input.schedule as Prisma.InputJsonValue),
+    };
 
+    // With a client-supplied id, create must be idempotent — a repeated create
+    // (double-click, retry, or a client counter that resets across sessions)
+    // should update in place, not fail with a unique-constraint error.
+    if (input.id) {
+      const created = await this.prisma.scenario.upsert({
+        where: { id: input.id },
+        create: { id: input.id, ...scalars, modules: { create: moduleRows } },
+        update: { ...scalars, modules: { deleteMany: {}, create: moduleRows } },
+      });
+      return this.toStored(created);
+    }
+
+    const created = await this.prisma.scenario.create({
+      data: { ...scalars, modules: { create: moduleRows } },
+    });
     return this.toStored(created);
   }
 

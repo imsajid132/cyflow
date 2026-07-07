@@ -18,7 +18,11 @@ import type { Connection, DataStoreDef, ExecutionEntry, Scenario, Schedule, View
 
 const iso = (offsetMinutes = 0) => new Date(Date.now() - offsetMinutes * 60_000).toISOString();
 let counter = 100;
-const uid = (prefix: string) => `${prefix}_${(counter += 1).toString(36)}`;
+// Globally unique across page loads/sessions — a session-local counter alone
+// collides (e.g. every fresh load's first id is the same), which the server
+// rejects with a unique-constraint error.
+const uid = (prefix: string) =>
+  `${prefix}_${Date.now().toString(36)}${(counter += 1).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 const slackAlert: Blueprint = {
   modules: [
