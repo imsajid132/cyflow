@@ -17,34 +17,45 @@ descriptive errors, and mocked tests. No placeholders, no fake modules, no TODOs
 | Retry (BullMQ job retries) + pagination (per-connector cursors/tokens) | Real |
 | Browser demo mocks (catalog-driven; every connector runs offline in "Run once") | Real |
 
-## Connectors (38 apps · ~230 modules · 103 connector tests + 6 OAuth tests)
+## Connectors (41 apps · ~300 modules · 117 connector tests + 14 OAuth tests)
 
 **OAuth (Google, shared provider):** Gmail (8), Sheets (6), Drive (8), Calendar (5),
 Contacts (5), Tasks (6), YouTube (5).
-**OAuth (Microsoft, shared provider):** Outlook (6), OneDrive (7).
-**Token / key:** Telegram (26), OpenAI (5), Slack (8), Discord (7), Notion (6),
-Airtable (5), GitHub (9), GitLab (6), Dropbox (7), Cloudflare (6), HubSpot (7),
-ClickUp (6), Asana (7), Calendly (5), monday.com (6), Stripe (6), X/Twitter (5),
-WhatsApp Cloud (3).
+**OAuth (Microsoft, shared provider):** Outlook (6), OneDrive (7), Teams (6).
+**Token / key:** Telegram (44 — full Bot API), OpenAI (7 — chat, embeddings,
+image, moderation, models, Whisper transcription, TTS), Slack (12), Discord (7),
+Notion (6), Airtable (5), GitHub (9), GitLab (6), Dropbox (7), Cloudflare (6),
+HubSpot (7), ClickUp (6), Asana (7), Calendly (5), monday.com (6), Stripe (6),
+X/Twitter (5), WhatsApp Cloud (3).
 **Custom multi-field:** Supabase, Trello, Twilio, Shopify, WooCommerce, PostgreSQL,
-MySQL, MongoDB, Redis.
-**No auth:** RSS (feed parse), JSON/CSV utilities. Plus built-ins: HTTP, Webhook.
+MySQL, MongoDB, Redis, **Zoom** (Server-to-Server OAuth), **SMTP** (email).
+**No auth:** RSS (feed parse), JSON/CSV utilities. Built-ins: HTTP, Webhook,
+Manual trigger, Schedule trigger.
 
-DB connectors (Postgres/MySQL/MongoDB/Redis) use the real drivers (pg, mysql2,
-mongodb, ioredis), lazy-imported so they never load at startup and the browser
-bundle is untouched; tests mock the drivers and assert SQL/commands + the
-connect→run→close lifecycle.
+DB connectors (Postgres/MySQL/MongoDB/Redis) and SMTP use the real drivers (pg,
+mysql2, mongodb, ioredis, nodemailer), lazy-imported so they never load at
+startup and the browser bundle is untouched; tests mock the drivers and assert
+SQL/commands/mail-options + the connect→run→close lifecycle.
 
-## Deliberately not built (need provider approval / different flow) — documented, not faked
+## Deliberately not built (need provider app review) — documented, not faked
 
-| App | Why skipped | Path to add |
-|---|---|---|
-| Microsoft Teams | ChannelMessage.Send needs admin-consented Graph perms + team/channel context | Microsoft OAuth provider is already in place — add the connector + scope |
-| Zoom | Server-to-Server OAuth (account_credentials token exchange) needs a Zoom OAuth app | add an S2S token fetch + api.zoom.us/v2 calls |
-| Facebook, Instagram, LinkedIn, TikTok | Each requires its own OAuth app **+ platform app review** before real calls work | add per-provider OAuth + Graph/marketing endpoints once an app is approved |
+These four are the only remaining priority connectors. Each needs a provider OAuth
+app **plus platform app review/audit** before *any* real API call succeeds — a
+user cannot even obtain a working token with the required scopes until the app is
+approved. Shipping modules that can't work for users would be fake, so they are
+documented, not stubbed.
 
-These are honest gaps: the framework supports them, but real execution needs
-credentials/approval the environment doesn't have. Nothing was stubbed to look done.
+| App | Exact blocker |
+|---|---|
+| Facebook (Pages) | Publishing needs a Page token with `pages_manage_posts`, which requires **App Review + Business Verification** of the Meta app. |
+| Instagram (Graph) | `instagram_content_publish` requires a Meta app with an IG Business account **through App Review**. |
+| LinkedIn | Posting via `/rest/posts` needs the **Community Management API / Share** product, gated behind **LinkedIn Partner Program** approval. |
+| TikTok | The **Content Posting API** requires an **audited** TikTok developer app with that scope granted. |
+
+Path to add each: register the provider OAuth app, complete its review, add the
+provider's OAuth (the framework already supports oauth2 + a shared-provider
+pattern like Google/Microsoft), then the endpoints. WhatsApp Cloud and X are
+already shipped because they work with a user-supplied token today.
 
 ## Required environment variables
 
