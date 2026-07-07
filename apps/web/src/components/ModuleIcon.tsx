@@ -41,6 +41,8 @@ import {
   DatabaseIcon,
   MongoIcon,
   RedisIcon,
+  OutlookIcon,
+  OneDriveIcon,
 } from "./icons";
 
 /** Maps a module's app/operation to its app icon. */
@@ -81,6 +83,8 @@ export function ModuleIcon({ app, operation, sw }: { app: string; operation: str
   if (app === "postgres" || app === "mysql") return <DatabaseIcon sw={sw} />;
   if (app === "mongodb") return <MongoIcon sw={sw} />;
   if (app === "redis") return <RedisIcon sw={sw} />;
+  if (app === "outlook") return <OutlookIcon sw={sw} />;
+  if (app === "onedrive") return <OneDriveIcon sw={sw} />;
   if (app === "core") return <DelayIcon sw={sw} />;
   if (app === "utils") return <BracesIcon sw={sw} />;
   if (app === "datastore") return <DataStoreIcon sw={sw} />;

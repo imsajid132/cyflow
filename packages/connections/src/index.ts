@@ -32,3 +32,17 @@ export {
   makeGoogleGetConnection,
 } from "./google";
 export type { GoogleConfig, GoogleCredentials } from "./google";
+export {
+  MICROSOFT_APPS,
+  MICROSOFT_SCOPES,
+  MICROSOFT_LABELS,
+  microsoftConfigFromEnv,
+  microsoftAuthorizeUrl,
+  exchangeMicrosoftCode,
+  refreshMicrosoftToken,
+  fetchMicrosoftEmail,
+  makeMicrosoftState,
+  readMicrosoftState,
+  makeCloudGetConnection,
+} from "./microsoft";
+export type { MicrosoftConfig } from "./microsoft";

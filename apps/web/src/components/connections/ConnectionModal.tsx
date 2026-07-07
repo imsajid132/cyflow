@@ -4,7 +4,7 @@ import { Modal, Button } from "../ui";
 import { ModuleIcon } from "../ModuleIcon";
 import { ArrowLeftIcon } from "../icons";
 import { CATALOG, findApp } from "../../data/catalog";
-import { api, apiEnabled, GOOGLE_APPS, type AuthFieldDTO } from "../../store/api";
+import { api, apiEnabled, GOOGLE_APPS, MICROSOFT_APPS, type AuthFieldDTO } from "../../store/api";
 import type { Connection } from "../../store/types";
 
 const authApps = CATALOG.filter((a) => a.auth);
@@ -130,7 +130,11 @@ export function ConnectionModal({ mode, existing, onClose }: Props) {
       return;
     }
     try {
-      const res = GOOGLE_APPS.has(appKey) ? await api.googleOAuthStart(appKey) : await api.oauthStart(appKey);
+      const res = GOOGLE_APPS.has(appKey)
+        ? await api.googleOAuthStart(appKey)
+        : MICROSOFT_APPS.has(appKey)
+          ? await api.microsoftOAuthStart(appKey)
+          : await api.oauthStart(appKey);
       if (res.configured && res.authUrl) {
         // Send the user to the real Google consent screen; the callback returns
         // to the Connections page with a success/error banner.

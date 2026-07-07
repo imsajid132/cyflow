@@ -9,7 +9,7 @@
 import { createDefaultRegistry } from "engine";
 import { connectorApps } from "@cyflow/connectors";
 import { createPrismaRepositories, PrismaConnectionStore, PrismaDataStore, prisma } from "@cyflow/db";
-import { ConnectionService, encryptionFromEnv, googleConfigFromEnv, makeGoogleGetConnection } from "@cyflow/connections";
+import { ConnectionService, encryptionFromEnv, googleConfigFromEnv, microsoftConfigFromEnv, makeCloudGetConnection } from "@cyflow/connections";
 import { createExecutionsQueue, createExecutionWorker, enqueueRun, EXECUTIONS_QUEUE } from "./queue";
 import { createScheduler, type SchedulerScenario } from "./scheduler";
 
@@ -35,8 +35,8 @@ function main(): void {
     scenarios,
     executions,
     registry,
-    // Refresh an expired Google token (and re-store it) before execution.
-    getConnection: makeGoogleGetConnection(connections, googleConfigFromEnv()),
+    // Refresh an expired Google/Microsoft token (and re-store it) before execution.
+    getConnection: makeCloudGetConnection(connections, googleConfigFromEnv(), microsoftConfigFromEnv()),
     dataStore: new PrismaDataStore(prisma),
   });
 

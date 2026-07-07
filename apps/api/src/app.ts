@@ -12,6 +12,14 @@ import {
   readOAuthState,
   tokensToCredentials,
   type GoogleConfig,
+  MICROSOFT_APPS,
+  MICROSOFT_LABELS,
+  microsoftAuthorizeUrl,
+  exchangeMicrosoftCode,
+  fetchMicrosoftEmail,
+  makeMicrosoftState,
+  readMicrosoftState,
+  type MicrosoftConfig,
 } from "@cyflow/connections";
 import type { ApiStore } from "./store";
 import { validateConnectionCredentials } from "./apps";
@@ -22,6 +30,14 @@ export interface GoogleRuntime {
   encryption: EncryptionService;
   connections: ConnectionService;
   /** Which user new connections are saved for (single-admin ⇒ the admin user). */
+  userId: string;
+}
+
+/** Everything the Microsoft OAuth routes need (client secret stays server-side). */
+export interface MicrosoftRuntime {
+  config: MicrosoftConfig | null;
+  encryption: EncryptionService;
+  connections: ConnectionService;
   userId: string;
 }
 
@@ -48,6 +64,8 @@ export interface ApiOptions {
   adminToken?: string;
   /** Enables the real Google OAuth routes when provided. */
   google?: GoogleRuntime;
+  /** Enables the real Microsoft OAuth routes when provided. */
+  microsoft?: MicrosoftRuntime;
 }
 
 /**
@@ -131,6 +149,51 @@ export function createApp(store: ApiStore, options: ApiOptions = {}) {
       } catch (e) {
         const msg = String((e as Error).message);
         if (!back(`google_error=${encodeURIComponent(msg)}`)) res.status(500).json({ ok: false, error: msg });
+      }
+    }));
+  }
+
+  // ---- public: Microsoft OAuth callback (Microsoft → browser → here, no token) ----
+  if (options.microsoft) {
+    const ms = options.microsoft;
+    app.get("/oauth/microsoft/callback", h(async (req, res) => {
+      const q = req.query as Record<string, string | undefined>;
+      const web = ms.config?.webUrl?.replace(/\/$/, "");
+      const back = (params: string): boolean => {
+        if (web) {
+          res.redirect(`${web}/?${params}#/connections`);
+          return true;
+        }
+        return false;
+      };
+      if (!ms.config) {
+        if (!back("ms_error=not_configured")) res.status(400).json({ ok: false, error: "Microsoft OAuth not configured" });
+        return;
+      }
+      if (q.error) {
+        if (!back(`ms_error=${encodeURIComponent(q.error)}`)) res.status(400).json({ ok: false, error: q.error });
+        return;
+      }
+      const st = readMicrosoftState(ms.encryption, q.state);
+      if (!st || !q.code) {
+        if (!back("ms_error=invalid_state")) res.status(400).json({ ok: false, error: "invalid state" });
+        return;
+      }
+      try {
+        const tokens = await exchangeMicrosoftCode(ms.config, q.code);
+        const email = await fetchMicrosoftEmail(tokens.accessToken);
+        const creds = tokensToCredentials(tokens, email);
+        const label = MICROSOFT_LABELS[st.app] ?? st.app;
+        const summary = await ms.connections.create({
+          userId: ms.userId,
+          appKey: st.app,
+          name: `${label}${email ? ` · ${email}` : ""}`,
+          credentials: creds as unknown as Record<string, unknown>,
+        });
+        if (!back(`ms=${st.app}`)) res.json({ ok: true, app: st.app, connectionId: summary.id });
+      } catch (e) {
+        const msg = String((e as Error).message);
+        if (!back(`ms_error=${encodeURIComponent(msg)}`)) res.status(500).json({ ok: false, error: msg });
       }
     }));
   }
@@ -254,6 +317,24 @@ export function createApp(store: ApiStore, options: ApiOptions = {}) {
       }
       const state = makeOAuthState(g.encryption, appKey);
       res.json({ configured: true, authUrl: googleAuthorizeUrl(g.config, appKey, state), message: "Redirect the user to Google to authorize." });
+    }));
+  }
+
+  // ---- Microsoft OAuth start (protected; returns the real consent URL) ----
+  if (options.microsoft) {
+    const ms = options.microsoft;
+    app.get("/oauth/microsoft/start", h(async (req, res) => {
+      const appKey = String(req.query.app ?? "outlook");
+      if (!MICROSOFT_APPS.has(appKey)) {
+        res.status(400).json({ error: "unknown microsoft app" });
+        return;
+      }
+      if (!ms.config) {
+        res.json({ configured: false, message: "Microsoft OAuth is not configured on the server (set MICROSOFT_CLIENT_ID / MICROSOFT_CLIENT_SECRET / MICROSOFT_REDIRECT_URI)." });
+        return;
+      }
+      const state = makeMicrosoftState(ms.encryption, appKey);
+      res.json({ configured: true, authUrl: microsoftAuthorizeUrl(ms.config, appKey, state), message: "Redirect the user to Microsoft to authorize." });
     }));
   }
 

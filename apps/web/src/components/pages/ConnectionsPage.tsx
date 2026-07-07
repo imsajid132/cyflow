@@ -10,10 +10,14 @@ import type { Connection } from "../../store/types";
 
 function oauthBanner(): { ok: boolean; text: string } | null {
   const params = new URLSearchParams(window.location.search);
-  const connected = params.get("google");
-  const error = params.get("google_error");
-  if (connected) return { ok: true, text: `Connected ${connected} via Google. It's ready to use in your scenarios.` };
-  if (error) return { ok: false, text: `Google connection failed: ${error}` };
+  const google = params.get("google");
+  const googleError = params.get("google_error");
+  const ms = params.get("ms");
+  const msError = params.get("ms_error");
+  if (google) return { ok: true, text: `Connected ${google} via Google. It's ready to use in your scenarios.` };
+  if (ms) return { ok: true, text: `Connected ${ms} via Microsoft. It's ready to use in your scenarios.` };
+  if (googleError) return { ok: false, text: `Google connection failed: ${googleError}` };
+  if (msError) return { ok: false, text: `Microsoft connection failed: ${msError}` };
   return null;
 }
 

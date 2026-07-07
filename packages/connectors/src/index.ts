@@ -34,6 +34,8 @@ import { postgresApp } from "./postgres";
 import { mysqlApp } from "./mysql";
 import { mongodbApp } from "./mongodb";
 import { redisApp } from "./redis";
+import { outlookApp } from "./outlook";
+import { onedriveApp } from "./onedrive";
 import { utilsApp } from "./utils";
 
 export { telegramApp } from "./telegram";
@@ -71,6 +73,8 @@ export { postgresApp } from "./postgres";
 export { mysqlApp } from "./mysql";
 export { mongodbApp } from "./mongodb";
 export { redisApp } from "./redis";
+export { outlookApp } from "./outlook";
+export { onedriveApp } from "./onedrive";
 export { utilsApp, parseCsv, toCsv } from "./utils";
 
 /**
@@ -115,5 +119,7 @@ export const connectorApps: App[] = [
   mysqlApp,
   mongodbApp,
   redisApp,
+  outlookApp,
+  onedriveApp,
   utilsApp,
 ];

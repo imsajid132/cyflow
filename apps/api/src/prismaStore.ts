@@ -16,9 +16,10 @@ import {
   EncryptionService,
   encryptionFromEnv,
   googleConfigFromEnv,
-  makeGoogleGetConnection,
+  microsoftConfigFromEnv,
+  makeCloudGetConnection,
 } from "@cyflow/connections";
-import type { GoogleRuntime } from "./app";
+import type { GoogleRuntime, MicrosoftRuntime } from "./app";
 import { connectorApps } from "@cyflow/connectors";
 import { createDefaultRegistry } from "engine";
 import { runScenarioJob, type WorkerDeps } from "@cyflow/worker";
@@ -133,8 +134,8 @@ export class PrismaApiStore implements ApiStore {
     try {
       this.encryption = encryptionFromEnv();
       this.connections = new ConnectionService(new PrismaConnectionStore(prisma), this.encryption);
-      // Refresh an expired Google token (and re-store it) before execution.
-      getConnection = makeGoogleGetConnection(this.connections, googleConfigFromEnv());
+      // Refresh an expired Google/Microsoft token (and re-store it) before execution.
+      getConnection = makeCloudGetConnection(this.connections, googleConfigFromEnv(), microsoftConfigFromEnv());
     } catch {
       // No CYFLOW_ENCRYPTION_KEY configured — the vault is simply unavailable.
       console.warn("[api] CYFLOW_ENCRYPTION_KEY not set — connections disabled");
@@ -154,6 +155,12 @@ export class PrismaApiStore implements ApiStore {
   googleRuntime(): GoogleRuntime | null {
     if (!this.connections || !this.encryption) return null;
     return { config: googleConfigFromEnv(), encryption: this.encryption, connections: this.connections, userId: this.userId };
+  }
+
+  /** The Microsoft OAuth runtime for createApp — null when the vault is unavailable. */
+  microsoftRuntime(): MicrosoftRuntime | null {
+    if (!this.connections || !this.encryption) return null;
+    return { config: microsoftConfigFromEnv(), encryption: this.encryption, connections: this.connections, userId: this.userId };
   }
 
   /** Ensure the single demo workspace user exists; cache its id. */

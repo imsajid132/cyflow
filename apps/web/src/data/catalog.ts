@@ -1098,6 +1098,58 @@ export const CATALOG: CatalogApp[] = [
       { operation: "keys", name: "Find keys", kind: "search", params: [{ key: "pattern", label: "Pattern", type: "text", mappable: true, placeholder: "user:*" }] },
     ],
   },
+  {
+    key: "outlook",
+    name: "Outlook",
+    category: "Communication",
+    auth: "oauth2",
+    modules: [
+      { operation: "list_messages", name: "List messages", kind: "search", params: [
+        { key: "search", label: "Search", type: "text", mappable: true },
+        { key: "top", label: "Top", type: "number" },
+      ] },
+      { operation: "get_message", name: "Get a message", kind: "search", params: [{ key: "messageId", label: "Message ID", type: "text", mappable: true }] },
+      { operation: "send_mail", name: "Send an email", kind: "action", params: [
+        { key: "to", label: "To (comma-separated)", type: "text", mappable: true },
+        { key: "subject", label: "Subject", type: "text", mappable: true },
+        { key: "body", label: "Body", type: "textarea", mappable: true },
+        { key: "cc", label: "Cc", type: "text", mappable: true },
+      ] },
+      { operation: "create_draft", name: "Create a draft", kind: "action", params: [
+        { key: "to", label: "To", type: "text", mappable: true },
+        { key: "subject", label: "Subject", type: "text", mappable: true },
+        { key: "body", label: "Body", type: "textarea", mappable: true },
+      ] },
+      { operation: "list_events", name: "List calendar events", kind: "search", params: [{ key: "top", label: "Top", type: "number" }] },
+      { operation: "create_event", name: "Create an event", kind: "action", params: [
+        { key: "subject", label: "Title", type: "text", mappable: true },
+        { key: "start", label: "Start (map { dateTime, timeZone })", type: "text", mappable: true },
+        { key: "end", label: "End (map { dateTime, timeZone })", type: "text", mappable: true },
+      ] },
+    ],
+  },
+  {
+    key: "onedrive",
+    name: "OneDrive",
+    category: "Productivity",
+    auth: "oauth2",
+    modules: [
+      { operation: "list_children", name: "List a folder", kind: "search", params: [{ key: "path", label: "Folder path", type: "text", mappable: true, placeholder: "/" }] },
+      { operation: "get_item", name: "Get an item", kind: "search", params: [{ key: "itemId", label: "Item ID", type: "text", mappable: true }] },
+      { operation: "search", name: "Search files", kind: "search", params: [{ key: "query", label: "Query", type: "text", mappable: true }] },
+      { operation: "upload_file", name: "Upload a small file", kind: "action", params: [
+        { key: "path", label: "Path", type: "text", mappable: true },
+        { key: "content", label: "Content", type: "textarea", mappable: true },
+        { key: "contentType", label: "Content type", type: "text", placeholder: "text/plain" },
+      ] },
+      { operation: "download_file", name: "Download a file", kind: "search", params: [{ key: "itemId", label: "Item ID", type: "text", mappable: true }] },
+      { operation: "create_folder", name: "Create a folder", kind: "action", params: [
+        { key: "parentPath", label: "Parent path", type: "text", mappable: true, placeholder: "/" },
+        { key: "name", label: "Folder name", type: "text", mappable: true },
+      ] },
+      { operation: "delete_item", name: "Delete an item", kind: "action", params: [{ key: "itemId", label: "Item ID", type: "text", mappable: true }] },
+    ],
+  },
 ];
 
 export function findApp(appKey: string): CatalogApp | undefined {

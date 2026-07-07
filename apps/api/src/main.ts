@@ -65,7 +65,11 @@ async function main(): Promise<void> {
   if (google?.config) console.log("[api] Google OAuth: configured");
   else if (google) console.warn("[api] Google OAuth: vault ready but GOOGLE_CLIENT_* not set");
 
-  const app = createApp(store, { adminToken, google });
+  const microsoft = store instanceof PrismaApiStore ? store.microsoftRuntime() ?? undefined : undefined;
+  if (microsoft?.config) console.log("[api] Microsoft OAuth: configured");
+  else if (microsoft) console.warn("[api] Microsoft OAuth: vault ready but MICROSOFT_CLIENT_* not set");
+
+  const app = createApp(store, { adminToken, google, microsoft });
   const port = Number(process.env.PORT ?? 3001);
   app.listen(port, () => {
     console.log(`[api] Cyflow API listening on :${port}${adminToken ? " (admin-protected)" : ""}`);

@@ -103,6 +103,8 @@ See `.env.example` (backend) and `apps/web/.env.example` (frontend):
 | `ADMIN_TOKEN` (or `CYFLOW_ADMIN_TOKEN`) | api | Single-admin token. When set, every route except `/health` and `/hooks/:id` requires it. **Unset ⇒ open API.** |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | api | Google OAuth client (for Gmail/Sheets/Drive/Calendar). Secret stays server-side. |
 | `GOOGLE_REDIRECT_URI` | api | Must equal `{API}/oauth/google/callback` and be an Authorized redirect URI in the Google client. |
+| `MICROSOFT_CLIENT_ID` / `MICROSOFT_CLIENT_SECRET` | api | Microsoft (Entra) OAuth client for Outlook + OneDrive. Secret stays server-side. |
+| `MICROSOFT_REDIRECT_URI` | api | Must equal `{API}/oauth/microsoft/callback` and be a registered redirect URI. |
 | `WEB_APP_URL` | api | Frontend base URL the OAuth callback redirects back to (e.g. `https://cyflow.example`). |
 | `PORT` | api | API listen port (default `3001`). |
 | `SCHEDULER_TICK_MS` | worker | How often the schedule runner polls (default `60000`). |

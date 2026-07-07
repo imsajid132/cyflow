@@ -359,6 +359,24 @@ export function RedisIcon(p: IconProps) {
     </Glyph>
   );
 }
+export function OutlookIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <rect x="10" y="6" width="11" height="12" rx="1.5" />
+      <path d="M21 8l-5.5 4L10 8" />
+      <rect x="2.5" y="4.5" width="9" height="15" rx="2" />
+      <ellipse cx="7" cy="12" rx="2.3" ry="2.8" />
+    </Glyph>
+  );
+}
+export function OneDriveIcon(p: IconProps) {
+  return (
+    <Glyph {...p}>
+      <path d="M8 17h10a3 3 0 0 0 .4-6A5 5 0 0 0 9 9.2 4 4 0 0 0 8 17Z" />
+      <path d="M8 17a3.5 3.5 0 0 1-.5-7" />
+    </Glyph>
+  );
+}
 export function DriveIcon(p: IconProps) {
   return (
     <Glyph {...p}>

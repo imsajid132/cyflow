@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExecutionContext } from "@cyflow/shared";
 import { createDefaultRegistry } from "engine";
-import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, driveApp, calendarApp, slackApp, discordApp, notionApp, airtableApp, githubApp, gitlabApp, dropboxApp, cloudflareApp, supabaseApp, trelloApp, asanaApp, hubspotApp, clickupApp, calendlyApp, twilioApp, stripeApp, shopifyApp, woocommerceApp, rssApp, whatsappApp, twitterApp, googleContactsApp, googleTasksApp, youtubeApp, mondayApp, parseFeed, utilsApp, parseCsv, toCsv } from "../src/index";
+import { connectorApps, telegramApp, openaiApp, gmailApp, sheetsApp, driveApp, calendarApp, slackApp, discordApp, notionApp, airtableApp, githubApp, gitlabApp, dropboxApp, cloudflareApp, supabaseApp, trelloApp, asanaApp, hubspotApp, clickupApp, calendlyApp, twilioApp, stripeApp, shopifyApp, woocommerceApp, rssApp, whatsappApp, twitterApp, googleContactsApp, googleTasksApp, youtubeApp, mondayApp, outlookApp, onedriveApp, parseFeed, utilsApp, parseCsv, toCsv } from "../src/index";
 
 function makeCtx(connection: Record<string, unknown> | null): ExecutionContext {
   return {
@@ -744,6 +744,42 @@ describe("monday.com (mocked)", () => {
   it("throws on GraphQL errors", async () => {
     stubGoogle(() => ({ body: { errors: [{ message: "Invalid token" }] } }));
     await expect(mondayApp.modules.list_boards.run({}, {}, ctx())).rejects.toThrow(/Invalid token/);
+  });
+});
+
+describe("Outlook (mocked, Graph)", () => {
+  const ctx = () => makeCtx({ access_token: "ms.tok" });
+  it("send_mail builds Graph recipients", async () => {
+    const m = stubGoogle(() => ({ status: 202, text: "" }));
+    await outlookApp.modules.send_mail.run({}, { to: "a@b.com,c@d.com", subject: "Hi", body: "Body" }, ctx());
+    expect(m.mock.calls[0][0]).toContain("/me/sendMail");
+    const msg = JSON.parse((m.mock.calls[0][1] as { body: string }).body).message;
+    expect(msg.toRecipients).toEqual([{ emailAddress: { address: "a@b.com" } }, { emailAddress: { address: "c@d.com" } }]);
+    expect(msg.body).toEqual({ contentType: "Text", content: "Body" });
+  });
+  it("list_messages passes a Bearer token", async () => {
+    const m = stubGoogle(() => ({ body: { value: [{ id: "1" }] } }));
+    const out = await outlookApp.modules.list_messages.run({}, {}, ctx());
+    expect((m.mock.calls[0][1] as { headers: Record<string, string> }).headers.authorization).toBe("Bearer ms.tok");
+    expect(out[0]).toMatchObject({ messages: [{ id: "1" }] });
+  });
+});
+
+describe("OneDrive (mocked, Graph)", () => {
+  const ctx = () => makeCtx({ access_token: "ms.tok" });
+  it("upload_file PUTs to the path content endpoint", async () => {
+    const m = stubGoogle(() => ({ body: { id: "i1", name: "n.txt", webUrl: "http://od/1" } }));
+    const out = await onedriveApp.modules.upload_file.run({}, { path: "/docs/n.txt", content: "hello" }, ctx());
+    expect(m.mock.calls[0][0]).toContain("/root:/docs/n.txt:/content");
+    expect((m.mock.calls[0][1] as { method: string; body: string }).method).toBe("PUT");
+    expect((m.mock.calls[0][1] as { body: string }).body).toBe("hello");
+    expect(out[0]).toMatchObject({ id: "i1", name: "n.txt" });
+  });
+  it("list_children lists the root by default", async () => {
+    const m = stubGoogle(() => ({ body: { value: [{ id: "f1" }] } }));
+    const out = await onedriveApp.modules.list_children.run({}, {}, ctx());
+    expect(m.mock.calls[0][0]).toContain("/drive/root/children");
+    expect(out[0]).toMatchObject({ items: [{ id: "f1" }] });
   });
 });
 

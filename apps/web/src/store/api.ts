@@ -124,10 +124,13 @@ export const api = {
   getAppAuth: (key: string) => req<AppAuthDTO>(`/apps/${key}/auth`),
   oauthStart: (provider: string) => req<OAuthStartDTO>(`/oauth/${provider}/start`),
   googleOAuthStart: (app: string) => req<OAuthStartDTO>(`/oauth/google/start?app=${encodeURIComponent(app)}`),
+  microsoftOAuthStart: (app: string) => req<OAuthStartDTO>(`/oauth/microsoft/start?app=${encodeURIComponent(app)}`),
 };
 
 /** Google apps share one OAuth provider. */
 export const GOOGLE_APPS = new Set(["gmail", "sheets", "drive", "calendar", "contacts", "tasks", "youtube"]);
+/** Microsoft apps share one OAuth provider. */
+export const MICROSOFT_APPS = new Set(["outlook", "onedrive"]);
 
 /** Execution JSON arrives with ISO date strings; restore Date fields. */
 export function normalizeExecution(execution: StoredExecution): StoredExecution {
