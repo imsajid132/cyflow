@@ -19,6 +19,7 @@
     "@cyflow/shared": "workspace:*",
     "@cyflow/worker": "workspace:*",
     "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
     "engine": "workspace:*",
     "express": "^4.21.2"
   },

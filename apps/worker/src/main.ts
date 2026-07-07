@@ -6,6 +6,8 @@
  *
  * Needs Postgres + Redis (see docker-compose.yml) and DATABASE_URL / REDIS_URL.
  */
+import "./loadEnv";
+import type { ConnectionOptions } from "bullmq";
 import { createDefaultRegistry } from "engine";
 import { connectorApps } from "@cyflow/connectors";
 import { createPrismaRepositories, PrismaConnectionStore, PrismaDataStore, prisma } from "@cyflow/db";
@@ -13,12 +15,31 @@ import { ConnectionService, encryptionFromEnv, googleConfigFromEnv, microsoftCon
 import { createExecutionsQueue, createExecutionWorker, enqueueRun, EXECUTIONS_QUEUE } from "./queue";
 import { createScheduler, type SchedulerScenario } from "./scheduler";
 
-function redisConnection() {
+function redisConnection(): ConnectionOptions {
   const url = new URL(process.env.REDIS_URL ?? "redis://127.0.0.1:6379");
+  // Upstash (and any rediss:// endpoint) requires TLS on port 6379.
+  const useTls = url.protocol === "rediss:" || url.hostname.endsWith("upstash.io");
+  const decode = (v: string) => {
+    try {
+      return decodeURIComponent(v);
+    } catch {
+      return v;
+    }
+  };
   return {
     host: url.hostname,
     port: Number(url.port || 6379),
-    password: url.password || undefined,
+    username: url.username ? decode(url.username) : undefined,
+    password: url.password ? decode(url.password) : undefined,
+    ...(useTls ? { tls: {} } : {}),
+    // Force IPv4 — Node's default (verbatim/IPv6-first) DNS causes intermittent
+    // `getaddrinfo ENOTFOUND` against managed Redis (Upstash) on some networks.
+    family: 4,
+    // Required by BullMQ's blocking worker connection.
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
+    // Back off reconnects instead of a tight DNS-retry storm.
+    retryStrategy: (times: number) => Math.min(times * 300, 3000),
   };
 }
 

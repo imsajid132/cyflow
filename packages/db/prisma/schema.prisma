@@ -8,7 +8,11 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // Runtime queries go through the pooler (DATABASE_URL, pgBouncer :6543).
   url      = env("DATABASE_URL")
+  // Migrations need a direct connection (DIRECT_URL, :5432) — pgBouncer's
+  // transaction pooling can't run them. Falls back to DATABASE_URL if unset.
+  directUrl = env("DIRECT_URL")
 }
 
 enum ScenarioStatus {

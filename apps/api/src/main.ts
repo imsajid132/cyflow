@@ -3,11 +3,16 @@
  *
  *   pnpm --filter @cyflow/api start
  *
- * Env: DATABASE_URL (Postgres — when set, uses real persistence),
- * CYFLOW_ENCRYPTION_KEY (optional, for connections), PORT (default 3001).
- * With no DATABASE_URL the API runs an in-memory store (great for local dev /
- * demos; data is not persisted).
+ * Env:
+ * DATABASE_URL (Postgres — when set, uses real persistence),
+ * CYFLOW_ENCRYPTION_KEY (optional, for connections),
+ * PORT (default 3001).
+ *
+ * With no DATABASE_URL the API runs an in-memory store.
  */
+
+import "dotenv/config";
+
 import { createApp } from "./app";
 import { InMemoryApiStore } from "./store";
 import { PrismaApiStore } from "./prismaStore";
@@ -17,6 +22,7 @@ import { logConfig, readConfigStatus } from "./config";
 
 function demoSeed(): ScenarioDTO[] {
   const now = new Date().toISOString();
+
   return [
     {
       id: "scn_demo",
@@ -25,8 +31,22 @@ function demoSeed(): ScenarioDTO[] {
       schedule: { type: "manual" },
       blueprint: {
         modules: [
-          { id: "1", app: "webhook", operation: "custom_webhook", kind: "trigger", params: {}, next: "2" },
-          { id: "2", app: "core", operation: "sleep", kind: "action", params: { seconds: 0 }, next: null },
+          {
+            id: "1",
+            app: "webhook",
+            operation: "custom_webhook",
+            kind: "trigger",
+            params: {},
+            next: "2",
+          },
+          {
+            id: "2",
+            app: "core",
+            operation: "sleep",
+            kind: "action",
+            params: { seconds: 0 },
+            next: null,
+          },
         ],
       },
       updatedAt: now,
@@ -38,8 +58,24 @@ function demoSeed(): ScenarioDTO[] {
       schedule: { type: "interval", minutes: 15 },
       blueprint: {
         modules: [
-          { id: "1", app: "webhook", operation: "custom_webhook", kind: "trigger", params: {}, next: "2" },
-          { id: "2", app: "flow", operation: "iterator", kind: "iterator", params: { array: "{{1.body.items}}" }, next: null },
+          {
+            id: "1",
+            app: "webhook",
+            operation: "custom_webhook",
+            kind: "trigger",
+            params: {},
+            next: "2",
+          },
+          {
+            id: "2",
+            app: "flow",
+            operation: "iterator",
+            kind: "iterator",
+            params: {
+              array: "{{1.body.items}}",
+            },
+            next: null,
+          },
         ],
       },
       updatedAt: now,
@@ -48,40 +84,78 @@ function demoSeed(): ScenarioDTO[] {
 }
 
 async function main(): Promise<void> {
+  console.log("[api] loading environment...");
+  
   logConfig();
 
   let store: ApiStore;
   let checkDatabase: (() => Promise<boolean>) | undefined;
+
   if (process.env.DATABASE_URL) {
     const prismaStore = new PrismaApiStore();
+
     await prismaStore.init();
+
     store = prismaStore;
+
     checkDatabase = () => prismaStore.pingDatabase();
+
     console.log("[api] persistence: Postgres (DATABASE_URL set)");
   } else {
     store = new InMemoryApiStore(demoSeed());
-    console.warn("[api] persistence: in-memory (set DATABASE_URL for real persistence)");
+
+    console.warn(
+      "[api] persistence: in-memory (set DATABASE_URL for real persistence)"
+    );
   }
 
-  const adminToken = process.env.ADMIN_TOKEN ?? process.env.CYFLOW_ADMIN_TOKEN;
+  const adminToken =
+    process.env.ADMIN_TOKEN ?? process.env.CYFLOW_ADMIN_TOKEN;
 
-  const google = store instanceof PrismaApiStore ? store.googleRuntime() ?? undefined : undefined;
-  if (google?.config) console.log("[api] Google OAuth: configured");
-  else if (google) console.warn("[api] Google OAuth: vault ready but GOOGLE_CLIENT_* not set");
+  const google =
+    store instanceof PrismaApiStore
+      ? store.googleRuntime() ?? undefined
+      : undefined;
 
-  const microsoft = store instanceof PrismaApiStore ? store.microsoftRuntime() ?? undefined : undefined;
-  if (microsoft?.config) console.log("[api] Microsoft OAuth: configured");
-  else if (microsoft) console.warn("[api] Microsoft OAuth: vault ready but MICROSOFT_CLIENT_* not set");
+  if (google?.config) {
+    console.log("[api] Google OAuth: configured");
+  } else if (google) {
+    console.warn(
+      "[api] Google OAuth: vault ready but GOOGLE_CLIENT_* not set"
+    );
+  }
+
+  const microsoft =
+    store instanceof PrismaApiStore
+      ? store.microsoftRuntime() ?? undefined
+      : undefined;
+
+  if (microsoft?.config) {
+    console.log("[api] Microsoft OAuth: configured");
+  } else if (microsoft) {
+    console.warn(
+      "[api] Microsoft OAuth: vault ready but MICROSOFT_CLIENT_* not set"
+    );
+  }
 
   const app = createApp(store, {
     adminToken,
     google,
     microsoft,
-    health: { status: readConfigStatus(), checkDatabase },
+    health: {
+      status: readConfigStatus(),
+      checkDatabase,
+    },
   });
+
   const port = Number(process.env.PORT ?? 3001);
+
   app.listen(port, () => {
-    console.log(`[api] Cyflow API listening on :${port}${adminToken ? " (admin-protected)" : ""}`);
+    console.log(
+      `[api] Cyflow API listening on :${port}${
+        adminToken ? " (admin-protected)" : ""
+      }`
+    );
   });
 }
 

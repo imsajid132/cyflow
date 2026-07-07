@@ -173,14 +173,29 @@ export class PrismaApiStore implements ApiStore {
     return { config: microsoftConfigFromEnv(), encryption: this.encryption, connections: this.connections, userId: this.userId };
   }
 
-  /** Ensure the single demo workspace user exists; cache its id. */
+  /**
+   * Ensure the single demo workspace user exists; cache its id. Retries a few
+   * times so a transient database blip (e.g. a cold Supabase pooler on the first
+   * connect) doesn't crash the API at boot.
+   */
   async init(): Promise<void> {
-    const user = await prisma.user.upsert({
-      where: { email: DEMO_EMAIL },
-      update: {},
-      create: { email: DEMO_EMAIL, passwordHash: "-" },
-    });
-    this.userId = user.id;
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      try {
+        const user = await prisma.user.upsert({
+          where: { email: DEMO_EMAIL },
+          update: {},
+          create: { email: DEMO_EMAIL, passwordHash: "-" },
+        });
+        this.userId = user.id;
+        return;
+      } catch (err) {
+        lastErr = err;
+        console.warn(`[api] database not ready (attempt ${attempt}/5): ${(err as Error).message.split("\n")[0]}`);
+        await new Promise((r) => setTimeout(r, attempt * 1000));
+      }
+    }
+    throw lastErr;
   }
 
   async listScenarios(): Promise<ScenarioDTO[]> {

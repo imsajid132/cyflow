@@ -15,9 +15,10 @@
   "scripts": {
     "generate": "prisma generate",
     "validate": "prisma validate",
-    "migrate": "prisma migrate dev",
-    "deploy": "prisma migrate deploy",
-    "push": "prisma db push",
+    "migrate": "dotenv -e ../../apps/api/.env -- prisma migrate dev",
+    "deploy": "dotenv -e ../../apps/api/.env -- prisma migrate deploy",
+    "push": "dotenv -e ../../apps/api/.env -- prisma db push",
+    "studio": "dotenv -e ../../apps/api/.env -- prisma studio",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -26,6 +27,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "dotenv-cli": "^7.4.4",
     "prisma": "^6.1.0",
     "typescript": "^5.6.3"
   }
