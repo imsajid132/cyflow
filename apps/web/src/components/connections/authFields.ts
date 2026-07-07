@@ -54,6 +54,15 @@ export function defaultAuthFields(authType?: string, appKey?: string): AuthField
       { key: "database", label: "Database", type: "text", required: true },
     ];
   }
+  if (appKey === "smtp") {
+    return [
+      { key: "host", label: "SMTP host", type: "text", required: true },
+      { key: "port", label: "Port", type: "text", required: false },
+      { key: "username", label: "Username", type: "text", required: true },
+      { key: "password", label: "Password", type: "password", required: true },
+      { key: "secure", label: "Use TLS (true/false)", type: "text", required: false },
+    ];
+  }
   switch (authType) {
     case "api_key":
       return [{ key: "token", label: "API key", type: "password", required: true }];

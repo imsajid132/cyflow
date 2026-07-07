@@ -891,6 +891,23 @@ export const CATALOG: CatalogApp[] = [
     ],
   },
   {
+    key: "smtp",
+    name: "Email (SMTP)",
+    category: "Communication",
+    auth: "custom",
+    modules: [
+      { operation: "send_email", name: "Send an email", kind: "action", params: [
+        { key: "from", label: "From", type: "text", mappable: true },
+        { key: "to", label: "To", type: "text", mappable: true },
+        { key: "subject", label: "Subject", type: "text", mappable: true },
+        { key: "text", label: "Body (text)", type: "textarea", mappable: true },
+        { key: "html", label: "Body (HTML)", type: "textarea", mappable: true },
+        { key: "cc", label: "Cc", type: "text", mappable: true },
+        { key: "bcc", label: "Bcc", type: "text", mappable: true },
+      ] },
+    ],
+  },
+  {
     key: "rss",
     name: "RSS",
     category: "Data",
