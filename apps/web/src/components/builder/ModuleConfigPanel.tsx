@@ -13,6 +13,7 @@ import { PlayIcon, XIcon, ChevronRightIcon, CopyIcon } from "../icons";
 import { RouteEditor } from "./RouteEditor";
 import { FilterEditor } from "./FilterEditor";
 import { ErrorHandlerEditor } from "./ErrorHandlerEditor";
+import { ConnectionSelector } from "../connections/ConnectionSelector";
 
 function getPath(obj: unknown, path: string): unknown {
   let cur: unknown = obj;
@@ -68,6 +69,7 @@ interface Props {
   execution?: StoredExecution | null;
   onSave: (params: Record<string, unknown>) => void;
   onConnection: (connectionId: string | null) => void;
+  onAddConnection: () => void;
   onFilter: (filter: unknown | null) => void;
   onError: (handler: ErrorHandler | null) => void;
   onAddRoute: () => void;
@@ -91,6 +93,7 @@ export function ModuleConfigPanel({
   execution,
   onSave,
   onConnection,
+  onAddConnection,
   onFilter,
   onError,
   onAddRoute,
@@ -130,7 +133,6 @@ export function ModuleConfigPanel({
   });
 
   const mappableFields = (def?.params ?? []).filter((f) => f.mappable);
-  const appConnections = connections.filter((c) => c.appKey === module.app);
   const setField = (key: string, value: unknown) => setParams((p) => ({ ...p, [key]: value }));
 
   const sampleValue = (node: ModuleNode, field: string): unknown => {
@@ -226,17 +228,13 @@ export function ModuleConfigPanel({
         ) : null}
 
         {app?.auth ? (
-          <div className="field">
-            <label htmlFor="conn">Connection</label>
-            <select className="input" id="conn" value={module.connectionId ?? ""} onChange={(e) => onConnection(e.target.value || null)}>
-              <option value="">Select a connection…</option>
-              {appConnections.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-              <option value="__new">Add a new connection…</option>
-            </select>
-            <span className="hint">Credentials stay encrypted in your vault.</span>
-          </div>
+          <ConnectionSelector
+            appKey={module.app}
+            connections={connections}
+            value={module.connectionId ?? null}
+            onSelect={onConnection}
+            onAddNew={onAddConnection}
+          />
         ) : null}
 
         {isRouter ? (

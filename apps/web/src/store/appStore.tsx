@@ -259,6 +259,7 @@ interface AppStore {
   recordExecution: (scenarioId: string, execution: StoredExecution, blueprint?: Blueprint) => void;
   runOnce: (scenarioId: string, blueprint: Blueprint) => Promise<StoredExecution>;
   createConnection: (input: { appKey: string; name: string; credentials?: Record<string, unknown> }) => Promise<Connection>;
+  reloadConnections: () => Promise<Connection[]>;
   updateConnection: (id: string, patch: { name?: string; credentials?: Record<string, unknown> }) => Promise<void>;
   deleteConnection: (id: string) => Promise<void>;
   dataStores: DataStoreDef[];
@@ -487,6 +488,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  /** Re-fetch the connection list (e.g. after an OAuth popup created one server-side). */
+  const reloadConnections = useCallback(async (): Promise<Connection[]> => {
+    if (!apiEnabled) return [];
+    const conns = await api.listConnections();
+    setConnections(conns);
+    return conns;
+  }, []);
+
   const updateConnection = useCallback(
     async (id: string, patch: { name?: string; credentials?: Record<string, unknown> }): Promise<void> => {
       if (apiEnabled) {
@@ -573,6 +582,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       recordExecution,
       runOnce,
       createConnection,
+      reloadConnections,
       updateConnection,
       deleteConnection,
       dataStores,
@@ -603,6 +613,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       recordExecution,
       runOnce,
       createConnection,
+      reloadConnections,
       updateConnection,
       deleteConnection,
       dataStores,

@@ -26,6 +26,7 @@ import { StatusPill } from "../ui";
 import { ArrowLeftIcon, PlayIcon, CalendarIcon, PlusIcon, MinusIcon, FitIcon, CheckIcon, ExecutionsIcon } from "../icons";
 import { ModuleConfigPanel } from "./ModuleConfigPanel";
 import { ModulePicker } from "./ModulePicker";
+import { ConnectionCreateModal } from "../connections/ConnectionCreateModal";
 import { ScheduleModal } from "./ScheduleModal";
 import { HistoryModal } from "./HistoryModal";
 
@@ -43,6 +44,8 @@ export function ScenarioBuilder() {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [grabbing, setGrabbing] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // When set, the inline "Add a connection" modal for this app is open (builder stays open).
+  const [connectApp, setConnectApp] = useState<string | null>(null);
   const [execution, setExecution] = useState<StoredExecution | null>(null);
   const [picker, setPicker] = useState<{ target: AddTarget } | null>(null);
   const [scheduling, setScheduling] = useState(false);
@@ -359,13 +362,8 @@ export function ScenarioBuilder() {
               step={selectedStep}
               execution={execution}
               onSave={(params) => patchBlueprint(updateModuleParams(scenario.blueprint, selectedNode.node.id, params))}
-              onConnection={(connId) => {
-                if (connId === "__new") {
-                  store.navigate("connections");
-                  return;
-                }
-                patchBlueprint(updateModuleConnection(scenario.blueprint, selectedNode.node.id, connId));
-              }}
+              onConnection={(connId) => patchBlueprint(updateModuleConnection(scenario.blueprint, selectedNode.node.id, connId))}
+              onAddConnection={() => setConnectApp(selectedNode.node.app)}
               onFilter={(filter) => patchBlueprint(setModuleFilter(scenario.blueprint, selectedNode.node.id, filter))}
               onError={(handler: ErrorHandler | null) => patchBlueprint(setErrorHandler(scenario.blueprint, selectedNode.node.id, handler))}
               onAddRoute={() => patchBlueprint(addRoute(scenario.blueprint, selectedNode.node.id))}
@@ -382,6 +380,16 @@ export function ScenarioBuilder() {
         ) : null}
       </div>
 
+      {connectApp ? (
+        <ConnectionCreateModal
+          appKey={connectApp}
+          onClose={() => setConnectApp(null)}
+          onCreated={(conn) => {
+            if (selectedNode) patchBlueprint(updateModuleConnection(scenario.blueprint, selectedNode.node.id, conn.id));
+            setConnectApp(null);
+          }}
+        />
+      ) : null}
       {picker ? (
         <ModulePicker
           context={picker.target.kind === "after" && picker.target.afterId === null ? "trigger" : "action"}

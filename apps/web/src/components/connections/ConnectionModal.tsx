@@ -1,77 +1,15 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useStore } from "../../store/appStore";
 import { Modal, Button } from "../ui";
 import { ModuleIcon } from "../ModuleIcon";
 import { ArrowLeftIcon } from "../icons";
 import { CATALOG, findApp } from "../../data/catalog";
-import { api, apiEnabled, GOOGLE_APPS, MICROSOFT_APPS, type AuthFieldDTO } from "../../store/api";
+import { useAuthFields } from "./authFields";
+import { ApiKeyConnectionForm } from "./ApiKeyConnectionForm";
+import { OAuthConnectFlow } from "./OAuthConnectFlow";
 import type { Connection } from "../../store/types";
 
 const authApps = CATALOG.filter((a) => a.auth);
-
-/** Local fallback fields when no API is available to describe the auth schema. */
-function defaultAuthFields(authType?: string, appKey?: string): AuthFieldDTO[] {
-  // Apps with custom multi-field auth (offline/demo fallback for the API schema).
-  if (appKey === "supabase") {
-    return [
-      { key: "projectUrl", label: "Project URL", type: "text", required: true },
-      { key: "serviceKey", label: "Service role key", type: "password", required: true },
-    ];
-  }
-  if (appKey === "trello") {
-    return [
-      { key: "apiKey", label: "API key", type: "text", required: true },
-      { key: "token", label: "Token", type: "password", required: true },
-    ];
-  }
-  if (appKey === "twilio") {
-    return [
-      { key: "accountSid", label: "Account SID", type: "text", required: true },
-      { key: "authToken", label: "Auth Token", type: "password", required: true },
-    ];
-  }
-  if (appKey === "shopify") {
-    return [
-      { key: "shop", label: "Shop (mystore or mystore.myshopify.com)", type: "text", required: true },
-      { key: "accessToken", label: "Admin API access token", type: "password", required: true },
-    ];
-  }
-  if (appKey === "woocommerce") {
-    return [
-      { key: "storeUrl", label: "Store URL", type: "text", required: true },
-      { key: "consumerKey", label: "Consumer key", type: "text", required: true },
-      { key: "consumerSecret", label: "Consumer secret", type: "password", required: true },
-    ];
-  }
-  if (appKey === "whatsapp") {
-    return [
-      { key: "accessToken", label: "Access token", type: "password", required: true },
-      { key: "phoneNumberId", label: "Phone number ID", type: "text", required: true },
-    ];
-  }
-  if (appKey === "postgres" || appKey === "mysql" || appKey === "redis") {
-    return [{ key: "connectionString", label: "Connection string", type: "password", required: true }];
-  }
-  if (appKey === "mongodb") {
-    return [
-      { key: "uri", label: "Connection URI", type: "password", required: true },
-      { key: "database", label: "Database", type: "text", required: true },
-    ];
-  }
-  switch (authType) {
-    case "api_key":
-      return [{ key: "token", label: "API key", type: "password", required: true }];
-    case "bearer_token":
-      return [{ key: "token", label: "Token", type: "password", required: true }];
-    case "basic_auth":
-      return [
-        { key: "username", label: "Username", type: "text", required: true },
-        { key: "password", label: "Password", type: "password", required: true },
-      ];
-    default:
-      return [];
-  }
-}
 
 interface Props {
   mode: "create" | "edit";
@@ -79,42 +17,23 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * Connections-page modal: pick an app, then create (or edit) a connection.
+ * Composes the same reusable pieces the builder uses — ApiKeyConnectionForm and
+ * the popup-based OAuthConnectFlow — so behaviour is identical everywhere.
+ */
 export function ConnectionModal({ mode, existing, onClose }: Props) {
   const store = useStore();
   const [step, setStep] = useState<"pick" | "form">(mode === "edit" ? "form" : "pick");
   const [appKey, setAppKey] = useState(existing?.appKey ?? "");
   const [name, setName] = useState(existing?.name ?? "");
-  const [fields, setFields] = useState<AuthFieldDTO[]>([]);
   const [creds, setCreds] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [oauth, setOauth] = useState<{ loading: boolean; message?: string; authUrl?: string; configured?: boolean }>({ loading: false });
-  const [test, setTest] = useState<{ loading: boolean; ok?: boolean; message?: string }>({ loading: false });
 
   const app = findApp(appKey);
-  const authType = app?.auth;
-  const isOAuth = authType === "oauth2";
-
-  // Load the real auth-field schema (API) or a local fallback for the chosen app.
-  useEffect(() => {
-    if (!appKey) return;
-    let cancelled = false;
-    if (apiEnabled) {
-      api
-        .getAppAuth(appKey)
-        .then((dto) => {
-          if (!cancelled) setFields(dto.auth.fields ?? defaultAuthFields(dto.auth.type));
-        })
-        .catch(() => {
-          if (!cancelled) setFields(defaultAuthFields(authType, appKey));
-        });
-    } else {
-      setFields(defaultAuthFields(authType, appKey));
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [appKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const isOAuth = app?.auth === "oauth2";
+  const fields = useAuthFields(appKey);
 
   const pickApp = (key: string) => {
     setAppKey(key);
@@ -123,65 +42,26 @@ export function ConnectionModal({ mode, existing, onClose }: Props) {
     setStep("form");
   };
 
-  const connectOAuth = async () => {
-    setOauth({ loading: true });
-    if (!apiEnabled) {
-      setOauth({ loading: false, configured: false, message: "OAuth needs a running API (set VITE_CYFLOW_API_URL) plus provider setup on the server." });
-      return;
-    }
-    try {
-      const res = GOOGLE_APPS.has(appKey)
-        ? await api.googleOAuthStart(appKey)
-        : MICROSOFT_APPS.has(appKey)
-          ? await api.microsoftOAuthStart(appKey)
-          : await api.oauthStart(appKey);
-      if (res.configured && res.authUrl) {
-        // Send the user to the real Google consent screen; the callback returns
-        // to the Connections page with a success/error banner.
-        window.location.href = res.authUrl;
-        return;
-      }
-      setOauth({ loading: false, configured: res.configured, message: res.message, authUrl: res.authUrl });
-    } catch (e) {
-      setOauth({ loading: false, configured: false, message: String((e as Error).message) });
-    }
-  };
-
-  const testConn = async () => {
-    setTest({ loading: true });
-    if (!apiEnabled) {
-      setTest({ loading: false, ok: false, message: "Testing needs a running API (set VITE_CYFLOW_API_URL)." });
-      return;
-    }
-    try {
-      const r = await api.testConnection(appKey, creds);
-      setTest({ loading: false, ok: r.ok, message: r.message });
-    } catch (e) {
-      setTest({ loading: false, ok: false, message: String((e as Error).message) });
-    }
-  };
-
   const save = async () => {
     setError(null);
     if (!name.trim()) {
       setError("Give the connection a name.");
       return;
     }
-    if (!isOAuth) {
+    if (!isOAuth && mode === "create") {
       const missing = fields.find((f) => f.required !== false && !creds[f.key]?.trim());
-      if (missing && mode === "create") {
+      if (missing) {
         setError(`${missing.label} is required.`);
         return;
       }
     }
     setBusy(true);
     try {
-      const credentials = isOAuth ? {} : creds;
       if (mode === "create") {
-        await store.createConnection({ appKey, name: name.trim(), credentials });
+        await store.createConnection({ appKey, name: name.trim(), credentials: isOAuth ? {} : creds });
       } else if (existing) {
         const hasNewCreds = Object.values(creds).some((v) => v.trim() !== "");
-        await store.updateConnection(existing.id, { name: name.trim(), ...(hasNewCreds ? { credentials } : {}) });
+        await store.updateConnection(existing.id, { name: name.trim(), ...(hasNewCreds ? { credentials: creds } : {}) });
       }
       onClose();
     } catch (e) {
@@ -190,6 +70,8 @@ export function ConnectionModal({ mode, existing, onClose }: Props) {
     }
   };
 
+  // OAuth create has no "Create" button — the popup connect flow IS the action.
+  const showFooter = step === "form" && !(isOAuth && mode === "create");
   const footer = (
     <>
       <Button variant="ghost" onClick={onClose}>Cancel</Button>
@@ -204,7 +86,7 @@ export function ConnectionModal({ mode, existing, onClose }: Props) {
       title={mode === "edit" ? "Edit connection" : app ? `Connect ${app.name}` : "Add a connection"}
       onClose={onClose}
       width={560}
-      footer={step === "form" ? footer : undefined}
+      footer={showFooter ? footer : undefined}
     >
       {step === "pick" ? (
         <>
@@ -238,55 +120,14 @@ export function ConnectionModal({ mode, existing, onClose }: Props) {
           </div>
 
           {isOAuth ? (
-            <div className="field">
-              <label>Authorization</label>
-              <Button variant="ghost" onClick={connectOAuth} disabled={oauth.loading}>
-                {oauth.loading ? "Starting…" : `Connect with ${app?.name ?? "provider"}`}
-              </Button>
-              {oauth.message ? (
-                <div className={`oauth-note${oauth.configured ? " is-ok" : ""}`}>
-                  {oauth.configured ? "✓ " : "⚠ "}
-                  {oauth.message}
-                  {oauth.authUrl ? (
-                    <>
-                      {" "}
-                      <a href={oauth.authUrl} target="_blank" rel="noreferrer noopener">Open authorization page ↗</a>
-                    </>
-                  ) : null}
-                </div>
-              ) : (
-                <span className="hint">You'll be redirected to the provider to authorize. No provider secrets are handled in the browser.</span>
-              )}
-            </div>
+            <>
+              {mode === "edit" ? <span className="hint">Re-authorize to refresh this connection's tokens.</span> : null}
+              <OAuthConnectFlow appKey={appKey} appName={app?.name ?? appKey} onConnected={() => onClose()} />
+            </>
           ) : (
-            fields.map((f) => (
-              <div className="field" key={f.key}>
-                <label htmlFor={`cred-${f.key}`}>{f.label}</label>
-                <input
-                  id={`cred-${f.key}`}
-                  className="input mono"
-                  type={f.type === "password" ? "password" : "text"}
-                  autoComplete="off"
-                  placeholder={mode === "edit" ? "•••••••• (leave blank to keep)" : undefined}
-                  value={creds[f.key] ?? ""}
-                  onChange={(e) => setCreds((c) => ({ ...c, [f.key]: e.target.value }))}
-                />
-              </div>
-            ))
+            <ApiKeyConnectionForm appKey={appKey} fields={fields} creds={creds} onChange={setCreds} editMode={mode === "edit"} />
           )}
 
-          {!isOAuth ? (
-            <div className="field">
-              <Button variant="ghost" onClick={testConn} disabled={test.loading}>
-                {test.loading ? "Testing…" : "Test connection"}
-              </Button>
-              {test.message ? (
-                <div className={`oauth-note${test.ok ? " is-ok" : ""}`}>{test.ok ? "✓ " : "⚠ "}{test.message}</div>
-              ) : (
-                <span className="hint">Encrypted with AES-256-GCM at rest. Never displayed again after saving.</span>
-              )}
-            </div>
-          ) : null}
           {error ? <div className="oauth-note">⚠ {error}</div> : null}
         </>
       )}

@@ -3,6 +3,7 @@ import { AppShell } from "./components/AppShell";
 import { ScenarioBuilder } from "./components/builder/ScenarioBuilder";
 import { ExecutionReplay } from "./components/replay/ExecutionReplay";
 import { AdminGate } from "./components/AdminGate";
+import { isOAuthPopupCallback, reportOAuthPopupResult } from "./components/connections/oauthPopup";
 
 /**
  * Cyflow — Make-style automation product. A glass SaaS shell (sidebar,
@@ -21,6 +22,12 @@ function Router() {
 }
 
 export default function App() {
+  // When this load is the OAuth callback inside our consent popup, hand the
+  // result back to the builder that opened it and close — never render the app.
+  if (isOAuthPopupCallback()) {
+    reportOAuthPopupResult();
+    return null;
+  }
   return (
     <AppStoreProvider>
       <Router />
