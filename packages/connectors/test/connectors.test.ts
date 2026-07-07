@@ -144,6 +144,36 @@ describe("Telegram Bot API (production)", () => {
     expect(out[0]).toMatchObject({ file_path: "photos/a.jpg", downloadUrl: "https://api.telegram.org/file/botT/photos/a.jpg" });
   });
 
+  it("covers more messaging + chat administration methods", async () => {
+    const m1 = stubFetch({ ok: true, result: { message_id: 9 } });
+    await telegramApp.modules.send_sticker.run({}, { chatId: "1", sticker: "CAAC-id" }, makeCtx({ token: "T" }));
+    expect(call(m1).url).toContain("/sendSticker");
+    expect(call(m1).body).toMatchObject({ chat_id: "1", sticker: "CAAC-id" });
+
+    const m2 = stubFetch({ ok: true, result: true });
+    await telegramApp.modules.ban_chat_member.run({}, { chatId: "1", userId: 42 }, makeCtx({ token: "T" }));
+    expect(call(m2).url).toContain("/banChatMember");
+    expect(call(m2).body).toMatchObject({ chat_id: "1", user_id: 42 });
+
+    const m3 = stubFetch({ ok: true, result: { id: 7, username: "cyflowbot" } });
+    const me = await telegramApp.modules.get_me.run({}, {}, makeCtx({ token: "T" }));
+    expect(call(m3).url).toContain("/getMe");
+    expect(me[0]).toMatchObject({ username: "cyflowbot" });
+
+    const m4 = stubFetch({ ok: true, result: true });
+    await telegramApp.modules.set_chat_title.run({}, { chatId: "1", title: "New title" }, makeCtx({ token: "T" }));
+    expect(call(m4).url).toContain("/setChatTitle");
+    expect(call(m4).body).toMatchObject({ chat_id: "1", title: "New title" });
+  });
+
+  it("classifies new reads as searches and admin ops as actions", () => {
+    expect(telegramApp.modules.get_me.kind).toBe("search");
+    expect(telegramApp.modules.get_chat_administrators.kind).toBe("search");
+    expect(telegramApp.modules.get_user_profile_photos.kind).toBe("search");
+    expect(telegramApp.modules.ban_chat_member.kind).toBe("action");
+    expect(telegramApp.modules.promote_chat_member.kind).toBe("action");
+  });
+
   it("set_webhook posts the URL (webhook management)", async () => {
     const m = stubFetch({ ok: true, result: true });
     await telegramApp.modules.set_webhook.run({}, { url: "https://api.cyflow.dev/hooks/scn_1" }, makeCtx({ token: "T" }));

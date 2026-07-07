@@ -253,6 +253,75 @@ export const CATALOG: CatalogApp[] = [
       ] },
       { operation: "delete_webhook", name: "Delete webhook", kind: "action", params: [] },
       { operation: "get_webhook_info", name: "Get webhook info", kind: "search", params: [] },
+      { operation: "send_sticker", name: "Send a sticker", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "sticker", label: "Sticker (file_id or URL)", type: "text", mappable: true },
+      ] },
+      { operation: "send_dice", name: "Send a dice", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "emoji", label: "Emoji", type: "text", placeholder: "🎲" },
+      ] },
+      { operation: "send_chat_action", name: "Send a chat action", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "action", label: "Action", type: "select", options: ["typing", "upload_photo", "upload_document", "record_voice"] },
+      ] },
+      { operation: "edit_message_caption", name: "Edit a caption", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "messageId", label: "Message ID", type: "number", mappable: true },
+        { key: "caption", label: "Caption", type: "textarea", mappable: true },
+      ] },
+      { operation: "edit_message_reply_markup", name: "Edit reply markup", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "messageId", label: "Message ID", type: "number", mappable: true },
+        { key: "replyMarkup", label: "Reply markup (map an object)", type: "text", mappable: true },
+      ] },
+      { operation: "stop_poll", name: "Stop a poll", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "messageId", label: "Message ID", type: "number", mappable: true },
+      ] },
+      { operation: "set_message_reaction", name: "Set a reaction", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "messageId", label: "Message ID", type: "number", mappable: true },
+        { key: "reaction", label: "Reaction (map an array)", type: "text", mappable: true },
+      ] },
+      { operation: "ban_chat_member", name: "Ban a member", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "userId", label: "User ID", type: "number", mappable: true },
+      ] },
+      { operation: "unban_chat_member", name: "Unban a member", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "userId", label: "User ID", type: "number", mappable: true },
+      ] },
+      { operation: "restrict_chat_member", name: "Restrict a member", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "userId", label: "User ID", type: "number", mappable: true },
+        { key: "permissions", label: "Permissions (map an object)", type: "text", mappable: true },
+      ] },
+      { operation: "promote_chat_member", name: "Promote a member", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "userId", label: "User ID", type: "number", mappable: true },
+      ] },
+      { operation: "set_chat_title", name: "Set chat title", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "title", label: "Title", type: "text", mappable: true },
+      ] },
+      { operation: "set_chat_description", name: "Set chat description", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+        { key: "description", label: "Description", type: "textarea", mappable: true },
+      ] },
+      { operation: "leave_chat", name: "Leave a chat", kind: "action", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+      ] },
+      { operation: "get_me", name: "Get bot info", kind: "search", params: [] },
+      { operation: "get_chat_administrators", name: "Get chat administrators", kind: "search", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+      ] },
+      { operation: "get_chat_member_count", name: "Get member count", kind: "search", params: [
+        { key: "chatId", label: "Chat ID", type: "text", mappable: true },
+      ] },
+      { operation: "get_user_profile_photos", name: "Get user profile photos", kind: "search", params: [
+        { key: "userId", label: "User ID", type: "number", mappable: true },
+      ] },
     ],
   },
   {
