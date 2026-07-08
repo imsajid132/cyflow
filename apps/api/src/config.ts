@@ -24,6 +24,12 @@ export interface ConfigStatus {
     google: { clientId: boolean; clientSecret: boolean; redirectUri: boolean };
     microsoft: { clientId: boolean; clientSecret: boolean; redirectUri: boolean };
     webAppUrl: boolean;
+    /**
+     * The actual env var KEY NAMES the process has that start with GOOGLE_ /
+     * MICROSOFT_ (names only — never values). Reveals a typo'd key (e.g.
+     * GOOGLE_REDIRECT_URL vs …_URI) that the booleans above can't show.
+     */
+    keysPresent: string[];
   };
   /** Public base for webhook URLs (from PUBLIC_API_URL), or null. */
   webhookBaseUrl: string | null;
@@ -64,6 +70,9 @@ export function readConfigStatus(env: NodeJS.ProcessEnv = process.env): ConfigSt
         redirectUri: Boolean(env.MICROSOFT_REDIRECT_URI),
       },
       webAppUrl: Boolean(env.WEB_APP_URL),
+      keysPresent: Object.keys(env)
+        .filter((k) => /^(GOOGLE|MICROSOFT)_/.test(k))
+        .sort(),
     },
     webhookBaseUrl: publicUrl ? `${publicUrl}/hooks` : null,
     adminProtected: Boolean(env.ADMIN_TOKEN || env.CYFLOW_ADMIN_TOKEN),
