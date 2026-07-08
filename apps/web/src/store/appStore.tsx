@@ -318,30 +318,42 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const loadFromApi = useCallback(async (): Promise<ApiStatus> => {
     if (!apiEnabled) return "local";
     try {
-      const [scn, conns, execs, stores] = await Promise.all([
+      // Core data the app needs to come online. If these are reachable we're
+      // connected — a single non-core endpoint failing must NOT blank the app.
+      const [scn, conns, execs] = await Promise.all([
         api.listScenarios(),
         api.listConnections(),
         api.listExecutions(),
-        api.listDataStores(),
       ]);
       const normExecs = execs.map((e) => ({ ...e, execution: normalizeExecution(e.execution) }));
       setConnections(conns);
       setExecutions(normExecs);
       setScenarios(enrichLastRun(scn, normExecs));
-      // Pull each store's records so the detail view + counts are accurate.
-      const withRecords: DataStoreDef[] = await Promise.all(
-        stores.map(async (s) => ({
-          id: s.id,
-          name: s.name,
-          updatedAt: s.updatedAt ?? new Date().toISOString(),
-          records: (await api.listDataStoreRecords(s.id)).map((r) => ({
-            key: r.key,
-            value: r.value,
-            updatedAt: r.updatedAt,
+
+      // Data stores are best-effort: if the endpoint errors (e.g. a pending
+      // migration), log it and continue with none rather than forcing the whole
+      // app "offline". A 401 still propagates so the token gate can show.
+      let withRecords: DataStoreDef[] = [];
+      try {
+        const stores = await api.listDataStores();
+        withRecords = await Promise.all(
+          stores.map(async (s) => ({
+            id: s.id,
+            name: s.name,
+            updatedAt: s.updatedAt ?? new Date().toISOString(),
+            records: (await api.listDataStoreRecords(s.id)).map((r) => ({
+              key: r.key,
+              value: r.value,
+              updatedAt: r.updatedAt,
+            })),
           })),
-        })),
-      );
+        );
+      } catch (storeErr) {
+        if (storeErr instanceof AuthError) throw storeErr;
+        console.warn("[cyflow] data stores unavailable — continuing without them:", storeErr);
+      }
       setDataStores(withRecords);
+
       setApiStatus("connected");
       return "connected";
     } catch (err) {
