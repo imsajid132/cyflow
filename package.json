@@ -6,10 +6,12 @@
   "scripts": {
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
-    "db:generate": "pnpm --filter @cyflow/db generate",
-    "hostinger:generate": "prisma generate --schema=packages/db/prisma/schema.prisma",
+    "db:generate": "prisma generate --schema packages/db/prisma/schema.prisma",
+    "db:generate:pnpm": "pnpm --filter @cyflow/db generate",
+    "build": "npm run db:generate",
+    "hostinger:generate": "npm run db:generate",
     "hostinger:migrate": "prisma migrate deploy --schema=packages/db/prisma/schema.prisma",
-    "hostinger:build": "npm run hostinger:generate",
+    "hostinger:build": "npm run build",
     "hostinger:start": "node hostinger.entry.mjs"
   },
   "engines": {

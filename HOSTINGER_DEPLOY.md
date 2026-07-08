@@ -14,24 +14,29 @@ with **npm only** — local `pnpm` development is untouched.
 
 ## Why the old build failed
 
-The Hostinger build ran `npm run db:generate`, whose script calls
+The Hostinger build ran `npm run db:generate`, whose script used to call
 `pnpm --filter @cyflow/db generate`. Hostinger has no `pnpm`, so it failed with
 `sh: line 1: pnpm: command not found`.
 
-**What changed (smallest safe additions — nothing removed):**
+Hostinger only lets you pick a build command from a dropdown (`npm run build`,
+`npm run db:generate`, …), so the fix is to make **those** scripts pnpm-free.
 
-1. Root `package.json` now declares npm **`workspaces`** (`packages/*`,
-   `apps/api`, `apps/worker`), so `npm install` resolves the internal
-   `workspace:*` packages exactly like pnpm does. `pnpm` keeps using
-   `pnpm-workspace.yaml` and ignores this field, so local dev is unchanged.
-2. Root `package.json` gained **npm-only scripts** that never call pnpm:
-   `hostinger:generate`, `hostinger:migrate`, `hostinger:build`,
-   `hostinger:start`.
-3. **`hostinger.entry.mjs`** — a tiny Passenger startup file that registers
+**What changed (smallest safe changes — nothing removed):**
+
+1. Root `package.json` declares npm **`workspaces`** (`packages/*`, `apps/api`,
+   `apps/worker`), so `npm install` resolves the internal packages exactly like
+   pnpm does. `pnpm` keeps using `pnpm-workspace.yaml` and ignores this field, so
+   local dev is unchanged.
+2. Root **`db:generate`** now runs Prisma directly
+   (`prisma generate --schema packages/db/prisma/schema.prisma`) — **no pnpm** —
+   and a new **`build`** script simply runs `db:generate`. So both dropdown
+   options Hostinger offers (`npm run build` / `npm run db:generate`) work.
+   The old pnpm form is preserved as **`db:generate:pnpm`** for local use.
+3. Root also has npm-only helpers `hostinger:migrate`, `hostinger:build`,
+   `hostinger:generate`, `hostinger:start` (all pnpm-free).
+4. **`hostinger.entry.mjs`** — a tiny Passenger startup file that registers
    `tsx` and boots the existing `apps/api/src/main.ts`. No app rewrite, no build
    step, no separate compiled output.
-
-The existing `db:generate` (pnpm) script and all other scripts are preserved.
 
 ---
 
@@ -46,7 +51,7 @@ In **hPanel → Websites → your site → Node.js**, use exactly:
 | **Root / Application directory** | repository root (where this `package.json` lives), e.g. `public_html` or the folder you deployed to |
 | **Package manager** | **npm** |
 | **Install command** | `npm install` |
-| **Build command** | `npm run hostinger:build` |
+| **Build command** | `npm run build` (or `npm run db:generate` — identical) |
 | **Startup / Entry file** | `hostinger.entry.mjs` |
 | **Application URL** | your domain / subdomain |
 
@@ -62,8 +67,8 @@ Both resolve to the same thing (`node hostinger.entry.mjs`).
 
 - **`npm install`** — installs all workspaces and links the internal
   `@cyflow/*` / `engine` / `functions` packages via the npm `workspaces` field.
-- **`npm run hostinger:build`** → `hostinger:generate` →
-  `prisma generate --schema=packages/db/prisma/schema.prisma`. Generates the
+- **`npm run build`** (= `npm run db:generate`) →
+  `prisma generate --schema packages/db/prisma/schema.prisma`. Generates the
   Prisma client. **No pnpm.**
 - **Startup** → `hostinger.entry.mjs` registers `tsx` and imports
   `apps/api/src/main.ts`. Passenger passes the port via `PORT`; `main.ts`
@@ -75,7 +80,7 @@ Both resolve to the same thing (`node hostinger.entry.mjs`).
 Postgres **once per schema change**. Either add it to the build command:
 
 ```
-npm run hostinger:build && npm run hostinger:migrate
+npm run build && npm run hostinger:migrate
 ```
 
 or run it manually from the Hostinger SSH terminal in the app directory:
