@@ -61,9 +61,11 @@ describe("Microsoft OAuth · callback", () => {
 
     stubMs({ access_token: "ms.SECRET", refresh_token: "ms.REFRESH", expires_in: 3600, token_type: "Bearer" });
     const cb = await request(app).get(`/oauth/microsoft/callback?code=CODE&state=${encodeURIComponent(state)}`);
-    expect(cb.status).toBe(200);
-    expect(cb.body).toMatchObject({ ok: true, app: "outlook" });
-    expect(cb.text).not.toContain("ms.SECRET");
+    // Single-domain: no WEB_APP_URL set -> redirect to the redirect URI's origin
+    // with a success marker (never a token) so the popup can close.
+    expect(cb.status).toBe(302);
+    expect(cb.headers.location).toContain("ms=outlook");
+    expect(cb.headers.location).not.toContain("ms.SECRET");
 
     const list = await connections.list("u1");
     expect(list).toHaveLength(1);
@@ -75,8 +77,8 @@ describe("Microsoft OAuth · callback", () => {
   it("rejects an invalid state", async () => {
     const { rt } = runtime();
     const res = await request(createApp(new InMemoryApiStore(), { microsoft: rt })).get("/oauth/microsoft/callback?code=X&state=forged");
-    expect(res.status).toBe(400);
-    expect(res.body.ok).toBe(false);
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toContain("ms_error=invalid_state");
   });
 });
 

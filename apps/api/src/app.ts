@@ -100,6 +100,25 @@ function isApiPath(p: string): boolean {
 }
 
 /**
+ * Where the OAuth popup redirects back to after the callback. Prefer an explicit
+ * WEB_APP_URL, but on a single-domain deploy the frontend is served from the
+ * same origin as the API — so fall back to the origin of the OAuth redirect URI
+ * (which is that same origin). This makes the popup close cleanly and the new
+ * connection appear without requiring WEB_APP_URL to be set.
+ */
+function oauthWebBase(webUrl: string | undefined, redirectUri: string | undefined): string | undefined {
+  if (webUrl) return webUrl.replace(/\/$/, "");
+  if (redirectUri) {
+    try {
+      return new URL(redirectUri).origin;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Build the Cyflow REST API over an ApiStore. Pure: the same routes serve the
  * Prisma store in production and the in-memory store in tests.
  *
@@ -164,7 +183,7 @@ export function createApp(store: ApiStore, options: ApiOptions = {}) {
     const g = options.google;
     app.get("/oauth/google/callback", h(async (req, res) => {
       const q = req.query as Record<string, string | undefined>;
-      const web = g.config?.webUrl?.replace(/\/$/, "");
+      const web = oauthWebBase(g.config?.webUrl, g.config?.redirectUri);
       const back = (params: string): boolean => {
         if (web) {
           res.redirect(`${web}/?${params}#/connections`);
@@ -209,7 +228,7 @@ export function createApp(store: ApiStore, options: ApiOptions = {}) {
     const ms = options.microsoft;
     app.get("/oauth/microsoft/callback", h(async (req, res) => {
       const q = req.query as Record<string, string | undefined>;
-      const web = ms.config?.webUrl?.replace(/\/$/, "");
+      const web = oauthWebBase(ms.config?.webUrl, ms.config?.redirectUri);
       const back = (params: string): boolean => {
         if (web) {
           res.redirect(`${web}/?${params}#/connections`);

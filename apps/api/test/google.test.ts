@@ -78,12 +78,13 @@ describe("Google OAuth · callback", () => {
 
     stubGoogle({ access_token: "ya29.SECRET", refresh_token: "1//REFRESH", expires_in: 3600, token_type: "Bearer", scope: "gmail.modify" });
     const cb = await request(app).get(`/oauth/google/callback?code=AUTH_CODE&state=${encodeURIComponent(state)}`);
-    expect(cb.status).toBe(200);
-    expect(cb.body.ok).toBe(true);
-    expect(cb.body.app).toBe("gmail");
-    // The callback response must not contain any token.
-    expect(cb.text).not.toContain("ya29.SECRET");
-    expect(cb.text).not.toContain("1//REFRESH");
+    // Single-domain: with no WEB_APP_URL set, the callback redirects back to the
+    // redirect URI's origin with a success marker (never a token) so the popup
+    // can post its result and close.
+    expect(cb.status).toBe(302);
+    expect(cb.headers.location).toContain("google=gmail");
+    expect(cb.headers.location).not.toContain("ya29.SECRET");
+    expect(cb.headers.location).not.toContain("1//REFRESH");
 
     // The connection is saved for the user; the list is redacted (no secrets).
     const list = await connections.list("u1");
@@ -102,15 +103,15 @@ describe("Google OAuth · callback", () => {
   it("rejects a tampered/invalid state (CSRF)", async () => {
     const { rt } = runtime();
     const res = await request(createApp(new InMemoryApiStore(), { google: rt })).get("/oauth/google/callback?code=X&state=forged");
-    expect(res.status).toBe(400);
-    expect(res.body.ok).toBe(false);
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toContain("google_error=invalid_state");
   });
 
   it("surfaces a provider error", async () => {
     const { rt } = runtime();
     const res = await request(createApp(new InMemoryApiStore(), { google: rt })).get("/oauth/google/callback?error=access_denied");
-    expect(res.status).toBe(400);
-    expect(res.body.ok).toBe(false);
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toContain("google_error=access_denied");
   });
 });
 

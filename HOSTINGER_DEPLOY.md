@@ -161,6 +161,57 @@ first three for a real deployment.
 
 ---
 
+## Connecting Google (Gmail / Sheets / Drive / Calendar)
+
+The "**Google OAuth is not configured on the server**" message means the three
+`GOOGLE_*` env vars aren't set — the code is ready, it just needs credentials.
+One Google OAuth client covers all Google apps (different scopes per app).
+
+**Current app URL:** `https://lightsteelblue-finch-859465.hostingersite.com`
+(replace with `https://cyflow.cyfrow.net` once the domain is attached — add
+*both* to Google while migrating).
+
+### 1. Google Cloud Console (console.cloud.google.com)
+
+1. Create/pick a project → **APIs & Services → Enable APIs** and enable the ones
+   you'll use: **Gmail API**, **Google Sheets API**, **Google Drive API**,
+   **Google Calendar API**.
+2. **OAuth consent screen** → External. While in **Testing**, add your Google
+   account under **Test users** (otherwise Google blocks sign-in). Add the
+   scopes for the apps you enabled (Gmail modify, Sheets, Drive, Calendar).
+3. **Credentials → Create credentials → OAuth client ID → Web application:**
+   - **Authorized JavaScript origins** (exact, no trailing slash):
+     ```
+     https://lightsteelblue-finch-859465.hostingersite.com
+     ```
+   - **Authorized redirect URIs** (exact):
+     ```
+     https://lightsteelblue-finch-859465.hostingersite.com/oauth/google/callback
+     ```
+   - Copy the **Client ID** and **Client secret**.
+
+### 2. Hostinger env vars (hPanel → Node.js → Environment variables)
+
+```
+GOOGLE_CLIENT_ID      = <client id>
+GOOGLE_CLIENT_SECRET  = <client secret>
+GOOGLE_REDIRECT_URI   = https://lightsteelblue-finch-859465.hostingersite.com/oauth/google/callback
+WEB_APP_URL           = https://lightsteelblue-finch-859465.hostingersite.com
+```
+
+`GOOGLE_REDIRECT_URI` **must exactly match** the redirect URI in Google Cloud.
+`WEB_APP_URL` is where the OAuth popup returns; on this single-domain deploy the
+API now falls back to the redirect URI's origin if it's unset, but setting it is
+recommended. Restart the Node app after saving.
+
+### 3. Use it
+
+Builder → add a Gmail module → **Connect with Gmail** → Google popup → approve →
+the popup closes and the connection auto-selects. (Microsoft is identical with
+`MICROSOFT_*` and `/oauth/microsoft/callback`.)
+
+---
+
 ## Verifying the deployment
 
 1. Open `https://<your-app>/` → the **Cyflow UI loads** (a "Connect to Cyflow"
