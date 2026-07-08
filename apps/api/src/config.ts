@@ -15,6 +15,16 @@ export interface ConfigStatus {
   vault: boolean;
   /** OAuth providers with all three of their vars configured. */
   oauth: { google: boolean; microsoft: boolean };
+  /**
+   * Per-variable presence (booleans only — never values) so a misconfigured
+   * OAuth setup is diagnosable from /health: it shows exactly which env var the
+   * running process is missing (e.g. a typo'd key or a value that didn't apply).
+   */
+  oauthEnv: {
+    google: { clientId: boolean; clientSecret: boolean; redirectUri: boolean };
+    microsoft: { clientId: boolean; clientSecret: boolean; redirectUri: boolean };
+    webAppUrl: boolean;
+  };
   /** Public base for webhook URLs (from PUBLIC_API_URL), or null. */
   webhookBaseUrl: string | null;
   /** An admin token is required to reach protected routes. */
@@ -41,6 +51,19 @@ export function readConfigStatus(env: NodeJS.ProcessEnv = process.env): ConfigSt
     oauth: {
       google: allSet(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, env.GOOGLE_REDIRECT_URI),
       microsoft: allSet(env.MICROSOFT_CLIENT_ID, env.MICROSOFT_CLIENT_SECRET, env.MICROSOFT_REDIRECT_URI),
+    },
+    oauthEnv: {
+      google: {
+        clientId: Boolean(env.GOOGLE_CLIENT_ID),
+        clientSecret: Boolean(env.GOOGLE_CLIENT_SECRET),
+        redirectUri: Boolean(env.GOOGLE_REDIRECT_URI),
+      },
+      microsoft: {
+        clientId: Boolean(env.MICROSOFT_CLIENT_ID),
+        clientSecret: Boolean(env.MICROSOFT_CLIENT_SECRET),
+        redirectUri: Boolean(env.MICROSOFT_REDIRECT_URI),
+      },
+      webAppUrl: Boolean(env.WEB_APP_URL),
     },
     webhookBaseUrl: publicUrl ? `${publicUrl}/hooks` : null,
     adminProtected: Boolean(env.ADMIN_TOKEN || env.CYFLOW_ADMIN_TOKEN),

@@ -25,17 +25,25 @@ describe("readConfigStatus", () => {
       redis: true,
       vault: true,
       oauth: { google: true, microsoft: true },
+      oauthEnv: {
+        google: { clientId: true, clientSecret: true, redirectUri: true },
+        microsoft: { clientId: true, clientSecret: true, redirectUri: true },
+        webAppUrl: false,
+      },
       webhookBaseUrl: "https://api.cyflow.app/hooks",
       adminProtected: true,
     });
+    // Booleans only: the actual secret VALUES never appear in the status.
+    const json = JSON.stringify(readConfigStatus({ ...env, GOOGLE_CLIENT_SECRET: "S3CR3T-VALUE-XYZ" }));
+    expect(json).not.toContain("S3CR3T-VALUE-XYZ");
   });
 
   it("reports an empty (demo) environment without leaking anything", () => {
     const s = readConfigStatus({} as NodeJS.ProcessEnv);
     expect(s).toMatchObject({ persistence: "in-memory", database: false, vault: false, adminProtected: false, webhookBaseUrl: null });
     expect(s.oauth).toEqual({ google: false, microsoft: false });
-    // the status object carries only booleans + a public URL — no secret values.
-    expect(JSON.stringify(s)).not.toMatch(/secret|key|password/i);
+    // Per-var OAuth diagnostic is booleans only (never values).
+    expect(s.oauthEnv.google).toEqual({ clientId: false, clientSecret: false, redirectUri: false });
   });
 });
 
