@@ -52,7 +52,26 @@ export interface RunOnceResult {
 export interface DataStoreDTO {
   id: string;
   name: string;
+  /** Number of records currently in the store. */
   records: number;
+  updatedAt?: string;
+}
+
+/** One key-value record inside a data store. */
+export interface DataStoreRecordDTO {
+  key: string;
+  value: unknown;
+  updatedAt: string;
+}
+
+export interface CreateDataStoreBody {
+  id?: string;
+  name?: string;
+}
+
+export interface UpsertRecordBody {
+  key: string;
+  value?: unknown;
 }
 
 /* ---- connections + apps + oauth (Phase 7 UI wiring) ---- */

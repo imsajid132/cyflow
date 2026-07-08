@@ -6,12 +6,30 @@
 import type { Blueprint, StoredExecution } from "@cyflow/shared";
 import type { Connection, ExecutionEntry, Scenario } from "./types";
 
-const RAW = import.meta.env.VITE_CYFLOW_API_URL;
-const BASE = RAW ? RAW.replace(/\/$/, "") : undefined;
+const RAW = String(import.meta.env.VITE_CYFLOW_API_URL ?? "").trim();
 
-export const apiEnabled = Boolean(BASE);
-/** Public base URL of the API (for building webhook URLs). */
-export const apiBaseUrl = BASE;
+// Single-domain deploy: the API serves this app, so `/` (or "same-origin")
+// means "talk to the origin that served this page" — requests use relative
+// paths and no separate API host is needed. A full URL points at a remote API;
+// unset means local demo mode (no backend).
+const SAME_ORIGIN = RAW === "/" || RAW.toLowerCase() === "same-origin";
+const BASE = SAME_ORIGIN ? "" : RAW ? RAW.replace(/\/$/, "") : undefined;
+
+export const apiEnabled = SAME_ORIGIN || Boolean(BASE);
+/** Public base URL of the API (for building absolute webhook URLs). */
+export const apiBaseUrl = SAME_ORIGIN
+  ? typeof window !== "undefined"
+    ? window.location.origin
+    : ""
+  : BASE;
+
+/**
+ * Demo mode: seed the no-backend build with sample scenarios/connections/etc.
+ * Off by default so a fresh install (and any real deployment) starts empty —
+ * set VITE_DEMO=1 to enable the try-it-without-a-server showcase. Only ever
+ * seeds in local mode; a real API backend always loads its own (empty) state.
+ */
+export const demoEnabled = String(import.meta.env.VITE_DEMO ?? "").trim() === "1";
 
 const TOKEN_KEY = "cyflow_admin_token";
 
@@ -97,6 +115,17 @@ export interface ConnectionInput {
   name: string;
   credentials?: Record<string, unknown>;
 }
+export interface DataStoreSummaryDTO {
+  id: string;
+  name: string;
+  records: number;
+  updatedAt?: string;
+}
+export interface DataRecordDTO {
+  key: string;
+  value: unknown;
+  updatedAt: string;
+}
 
 export type ScenarioInput = Partial<
   Pick<Scenario, "id" | "name" | "status" | "schedule" | "blueprint">
@@ -120,6 +149,15 @@ export const api = {
   updateConnection: (id: string, patch: { name?: string; credentials?: Record<string, unknown> }) =>
     req<Connection>(`/connections/${id}`, { method: "PUT", body: JSON.stringify(patch) }),
   deleteConnection: (id: string) => req<void>(`/connections/${id}`, { method: "DELETE" }),
+  listDataStores: () => req<DataStoreSummaryDTO[]>("/data-stores"),
+  createDataStore: (input: { id?: string; name: string }) =>
+    req<DataStoreSummaryDTO>("/data-stores", { method: "POST", body: JSON.stringify(input) }),
+  deleteDataStore: (id: string) => req<void>(`/data-stores/${id}`, { method: "DELETE" }),
+  listDataStoreRecords: (id: string) => req<DataRecordDTO[]>(`/data-stores/${id}/records`),
+  upsertDataStoreRecord: (id: string, key: string, value: unknown) =>
+    req<DataRecordDTO>(`/data-stores/${id}/records`, { method: "POST", body: JSON.stringify({ key, value }) }),
+  deleteDataStoreRecord: (id: string, key: string) =>
+    req<void>(`/data-stores/${id}/records?key=${encodeURIComponent(key)}`, { method: "DELETE" }),
   listApps: () => req<AppSummaryDTO[]>("/apps"),
   getAppAuth: (key: string) => req<AppAuthDTO>(`/apps/${key}/auth`),
   oauthStart: (provider: string) => req<OAuthStartDTO>(`/oauth/${provider}/start`),

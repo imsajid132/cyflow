@@ -29,6 +29,7 @@ import {
   rmSync,
   existsSync,
   statSync,
+  cpSync,
 } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -147,7 +148,18 @@ for (const [name, entry] of Object.entries(INTERNAL)) {
   writeFileSync(join(shimDir, "index.cjs"), `module.exports = require(${JSON.stringify(rel)});\n`);
 }
 
+// 5) Copy the prebuilt frontend (committed at web-dist/) into the output so the
+//    API can serve it. It is built locally with `npm run build:web` (Vite/
+//    esbuild) and committed — Hostinger never runs esbuild, only this copy.
+const webSrc = join(ROOT, "web-dist");
+const webDst = join(OUT, "web");
+let webNote = "no web-dist/ (UI not served — run `npm run build:web` and commit)";
+if (existsSync(join(webSrc, "index.html"))) {
+  cpSync(webSrc, webDst, { recursive: true });
+  webNote = `copied frontend -> ${relative(ROOT, webDst)}/`;
+}
+
 console.log(
   `[hostinger-build] transpiled ${count} files (skipped ${skipped} import.meta), ` +
-    `wrote ${Object.keys(INTERNAL).length} package shims -> ${relative(ROOT, OUT)}/`
+    `wrote ${Object.keys(INTERNAL).length} package shims; ${webNote}`
 );

@@ -20,6 +20,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const compiled = join(here, "dist-hostinger", "apps", "api", "src", "main.js");
 
+// Single-domain deploy: tell the API where the built frontend lives so it also
+// serves the UI at "/". (Set by build; the API no-ops if the dir is missing.)
+if (!process.env.WEB_DIST_DIR) {
+  process.env.WEB_DIST_DIR = join(here, "dist-hostinger", "web");
+}
+
 if (!existsSync(compiled)) {
   console.error(
     "[hostinger] compiled API not found at " +

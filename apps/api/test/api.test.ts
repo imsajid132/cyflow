@@ -92,6 +92,54 @@ describe("cyflow API", () => {
     expect(stores.body[0]).toHaveProperty("records");
   });
 
+  it("creates a data store, writes/reads/deletes records, then deletes the store", async () => {
+    const a = app();
+
+    // Create a named store.
+    const created = await request(a).post("/data-stores").send({ name: "Leads" });
+    expect(created.status).toBe(201);
+    const id = created.body.id as string;
+    expect(created.body.name).toBe("Leads");
+    expect(created.body.records).toBe(0);
+
+    // Upsert a record.
+    const put = await request(a)
+      .post(`/data-stores/${id}/records`)
+      .send({ key: "lead:ada@x.dev", value: { score: 42, tags: ["vip"] } });
+    expect(put.status).toBe(201);
+    expect(put.body.key).toBe("lead:ada@x.dev");
+
+    // Update the same key (still one record).
+    await request(a).post(`/data-stores/${id}/records`).send({ key: "lead:ada@x.dev", value: { score: 99 } });
+
+    const records = await request(a).get(`/data-stores/${id}/records`);
+    expect(records.status).toBe(200);
+    expect(records.body).toHaveLength(1);
+    expect(records.body[0].value).toEqual({ score: 99 });
+
+    // Count reflects the write.
+    const listed = await request(a).get("/data-stores");
+    expect(listed.body.find((s: { id: string }) => s.id === id).records).toBe(1);
+
+    // Delete the record.
+    const delRec = await request(a).delete(`/data-stores/${id}/records`).query({ key: "lead:ada@x.dev" });
+    expect(delRec.status).toBe(204);
+    expect((await request(a).get(`/data-stores/${id}/records`)).body).toHaveLength(0);
+
+    // Delete the store.
+    expect((await request(a).delete(`/data-stores/${id}`)).status).toBe(204);
+    expect((await request(a).get(`/data-stores/${id}/records`)).status).toBe(404);
+  });
+
+  it("rejects a record with no key and guards the default store", async () => {
+    const a = app();
+    expect((await request(a).post("/data-stores/default/records").send({ value: 1 })).status).toBe(400);
+    expect((await request(a).delete("/data-stores/default/records")).status).toBe(400);
+    // The default store cannot be deleted (it backs the engine keyspace).
+    expect((await request(a).delete("/data-stores/default")).status).toBe(404);
+    expect((await request(a).get("/data-stores/nope/records")).status).toBe(404);
+  });
+
   it("lists apps and their auth schemas", async () => {
     const a = app();
     const apps = await request(a).get("/apps");

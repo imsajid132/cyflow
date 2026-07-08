@@ -10,7 +10,14 @@ import {
 import type { Blueprint, StoredExecution } from "@cyflow/shared";
 import { sampleBlueprint } from "../scenario/sampleScenario";
 import { runOnce as localRunOnce } from "../scenario/localEngine";
-import { api, apiEnabled, AuthError, normalizeExecution, setAdminToken } from "./api";
+import { api, apiEnabled, demoEnabled, AuthError, normalizeExecution, setAdminToken } from "./api";
+
+/**
+ * Seed the demo dataset only in the no-backend build with VITE_DEMO=1. A real
+ * API backend always loads its own state; a plain local build starts empty so
+ * the first thing a user sees is a clean, fresh install (no fake data).
+ */
+const seedEnabled = demoEnabled && !apiEnabled;
 
 /** API connection state (only meaningful when apiEnabled). */
 export type ApiStatus = "local" | "connecting" | "connected" | "auth-required" | "offline";
@@ -297,12 +304,12 @@ function parseHash(): { view: ViewName; id: string | null } {
 }
 
 export function AppStoreProvider({ children }: { children: ReactNode }) {
-  const [scenarios, setScenarios] = useState<Scenario[]>(() => (apiEnabled ? [] : seedScenarios()));
-  const [connections, setConnections] = useState<Connection[]>(() => (apiEnabled ? [] : seedConnections()));
-  const [executions, setExecutions] = useState<ExecutionEntry[]>(() => (apiEnabled ? [] : seedExecutions()));
-  // Data-store records live in a local adapter (no API record endpoints yet),
-  // seeded in both modes so the feature works on the deployed demo.
-  const [dataStores, setDataStores] = useState<DataStoreDef[]>(seedDataStores);
+  const [scenarios, setScenarios] = useState<Scenario[]>(() => (seedEnabled ? seedScenarios() : []));
+  const [connections, setConnections] = useState<Connection[]>(() => (seedEnabled ? seedConnections() : []));
+  const [executions, setExecutions] = useState<ExecutionEntry[]>(() => (seedEnabled ? seedExecutions() : []));
+  // Data stores load from the API when a backend is configured; in the local
+  // build they use an in-browser adapter, seeded only in demo mode.
+  const [dataStores, setDataStores] = useState<DataStoreDef[]>(() => (seedEnabled ? seedDataStores() : []));
   const [search, setSearch] = useState("");
   const [apiStatus, setApiStatus] = useState<ApiStatus>(apiEnabled ? "connecting" : "local");
 
@@ -311,15 +318,30 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const loadFromApi = useCallback(async (): Promise<ApiStatus> => {
     if (!apiEnabled) return "local";
     try {
-      const [scn, conns, execs] = await Promise.all([
+      const [scn, conns, execs, stores] = await Promise.all([
         api.listScenarios(),
         api.listConnections(),
         api.listExecutions(),
+        api.listDataStores(),
       ]);
       const normExecs = execs.map((e) => ({ ...e, execution: normalizeExecution(e.execution) }));
       setConnections(conns);
       setExecutions(normExecs);
       setScenarios(enrichLastRun(scn, normExecs));
+      // Pull each store's records so the detail view + counts are accurate.
+      const withRecords: DataStoreDef[] = await Promise.all(
+        stores.map(async (s) => ({
+          id: s.id,
+          name: s.name,
+          updatedAt: s.updatedAt ?? new Date().toISOString(),
+          records: (await api.listDataStoreRecords(s.id)).map((r) => ({
+            key: r.key,
+            value: r.value,
+            updatedAt: r.updatedAt,
+          })),
+        })),
+      );
+      setDataStores(withRecords);
       setApiStatus("connected");
       return "connected";
     } catch (err) {
@@ -532,14 +554,19 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   // ---- data stores (local adapter) ----
   const dataStoreById = useCallback((id: string | null) => dataStores.find((d) => d.id === id), [dataStores]);
 
+  // Data-store mutations optimistically update local state and persist to the
+  // API when a backend is configured (same pattern as scenarios). In the local
+  // build they simply update the in-browser adapter.
   const createDataStore = useCallback((name: string): string => {
     const id = uid("ds");
     setDataStores((prev) => [...prev, { id, name: name.trim() || "New store", records: [], updatedAt: new Date().toISOString() }]);
+    if (apiEnabled) api.createDataStore({ id, name: name.trim() || "New store" }).catch((e) => console.error("[cyflow] create store failed", e));
     return id;
   }, []);
 
   const deleteDataStore = useCallback((id: string) => {
     setDataStores((prev) => prev.filter((d) => d.id !== id));
+    if (apiEnabled) api.deleteDataStore(id).catch((e) => console.error("[cyflow] delete store failed", e));
   }, []);
 
   const upsertRecord = useCallback((storeId: string, key: string, value: unknown) => {
@@ -554,6 +581,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         return { ...d, records, updatedAt: now };
       }),
     );
+    if (apiEnabled) api.upsertDataStoreRecord(storeId, key, value).catch((e) => console.error("[cyflow] upsert record failed", e));
   }, []);
 
   const deleteRecord = useCallback((storeId: string, key: string) => {
@@ -561,6 +589,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     setDataStores((prev) =>
       prev.map((d) => (d.id === storeId ? { ...d, records: d.records.filter((r) => r.key !== key), updatedAt: now } : d)),
     );
+    if (apiEnabled) api.deleteDataStoreRecord(storeId, key).catch((e) => console.error("[cyflow] delete record failed", e));
   }, []);
 
   const value = useMemo<AppStore>(

@@ -1,4 +1,5 @@
 import express, { type Request, type Response } from "express";
+import path from "node:path";
 import cors from "cors";
 import {
   ConnectionService,
@@ -72,6 +73,30 @@ export interface ApiOptions {
     status: ConfigStatus;
     checkDatabase?: () => Promise<boolean>;
   };
+  /**
+   * When set, the built frontend in this directory is served from the same
+   * origin as the API (single-domain deploy): static assets + an SPA fallback
+   * that returns index.html for non-API navigations. Left unset (tests, local
+   * API-only dev) the API behaves exactly as before — no static serving.
+   */
+  webDir?: string;
+}
+
+/** Top-level route prefixes owned by the API — never served the SPA shell. */
+const API_PREFIXES = [
+  "/health",
+  "/hooks",
+  "/oauth",
+  "/scenarios",
+  "/executions",
+  "/connections",
+  "/apps",
+  "/data-stores",
+  "/api",
+];
+
+function isApiPath(p: string): boolean {
+  return API_PREFIXES.some((pre) => p === pre || p.startsWith(pre + "/"));
 }
 
 /**
@@ -87,6 +112,13 @@ export function createApp(store: ApiStore, options: ApiOptions = {}) {
   const app = express();
   app.use(cors());
   app.use(express.json({ limit: "4mb" }));
+
+  // ---- public: built frontend (single-domain deploy) ----
+  // Serves existing static files only (index.html at "/", hashed assets). A
+  // request that isn't a file (e.g. /scenarios) falls through to the API routes.
+  if (options.webDir) {
+    app.use(express.static(options.webDir));
+  }
 
   // ---- public: health ----
   app.get("/health", h(async (_req: Request, res: Response) => {
@@ -215,6 +247,18 @@ export function createApp(store: ApiStore, options: ApiOptions = {}) {
         if (!back(`ms_error=${encodeURIComponent(msg)}`)) res.status(500).json({ ok: false, error: msg });
       }
     }));
+  }
+
+  // ---- public: SPA fallback (frontend routes only, never API/OAuth/hooks) ----
+  // Runs before the admin guard so loading the app never needs a token; API
+  // paths are excluded so they reach their (guarded) handlers below.
+  if (options.webDir) {
+    const indexHtml = path.join(options.webDir, "index.html");
+    app.use((req: Request, res: Response, next) => {
+      if (req.method !== "GET" && req.method !== "HEAD") return next();
+      if (isApiPath(req.path)) return next();
+      res.sendFile(indexHtml);
+    });
   }
 
   // ---- single-admin guard for everything below ----
@@ -366,8 +410,48 @@ export function createApp(store: ApiStore, options: ApiOptions = {}) {
     res.json(await store.oauthCallback(req.params.provider, req.query as Record<string, unknown>));
   }));
 
+  // ---- data stores (named key-value storage; records are durable) ----
   app.get("/data-stores", h(async (_req, res) => {
     res.json(await store.listDataStores());
+  }));
+
+  app.post("/data-stores", h(async (req, res) => {
+    const body = req.body ?? {};
+    res.status(201).json(await store.createDataStore(String(body.name ?? "New store"), body.id));
+  }));
+
+  app.delete("/data-stores/:id", h(async (req, res) => {
+    const ok = await store.deleteDataStore(req.params.id);
+    if (ok) res.status(204).end();
+    else res.status(404).json({ error: "data store not found or not deletable" });
+  }));
+
+  app.get("/data-stores/:id/records", h(async (req, res) => {
+    const records = await store.listDataStoreRecords(req.params.id);
+    if (records) res.json(records);
+    else res.status(404).json({ error: "data store not found" });
+  }));
+
+  app.post("/data-stores/:id/records", h(async (req, res) => {
+    const body = req.body ?? {};
+    if (typeof body.key !== "string" || !body.key) {
+      res.status(400).json({ error: "key is required" });
+      return;
+    }
+    const record = await store.upsertDataStoreRecord(req.params.id, body.key, body.value);
+    if (record) res.status(201).json(record);
+    else res.status(404).json({ error: "data store not found" });
+  }));
+
+  app.delete("/data-stores/:id/records", h(async (req, res) => {
+    const key = String(req.query.key ?? "");
+    if (!key) {
+      res.status(400).json({ error: "key query param is required" });
+      return;
+    }
+    const ok = await store.deleteDataStoreRecord(req.params.id, key);
+    if (ok) res.status(204).end();
+    else res.status(404).json({ error: "record not found" });
   }));
 
   return app;

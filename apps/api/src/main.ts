@@ -12,6 +12,7 @@
  */
 
 import "dotenv/config";
+import { existsSync } from "node:fs";
 
 import { createApp } from "./app";
 import { InMemoryApiStore } from "./store";
@@ -138,6 +139,13 @@ async function main(): Promise<void> {
     );
   }
 
+  // Single-domain deploy: when the compiled frontend is present (WEB_DIST_DIR,
+  // set by hostinger.entry.mjs), the API also serves the UI from "/". Unset in
+  // local dev, so the API stays API-only there.
+  const webDir = process.env.WEB_DIST_DIR;
+  const serveWeb = webDir && existsSync(webDir) ? webDir : undefined;
+  if (serveWeb) console.log(`[api] serving frontend from ${serveWeb}`);
+
   const app = createApp(store, {
     adminToken,
     google,
@@ -146,6 +154,7 @@ async function main(): Promise<void> {
       status: readConfigStatus(),
       checkDatabase,
     },
+    webDir: serveWeb,
   });
 
   const port = Number(process.env.PORT ?? 3001);

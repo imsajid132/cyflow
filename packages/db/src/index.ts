@@ -7,7 +7,13 @@ export { prisma, PrismaClient } from "./client";
 export { PrismaScenarioRepository } from "./repositories/scenario";
 export { PrismaExecutionRepository } from "./repositories/execution";
 export { PrismaConnectionStore } from "./repositories/connection";
-export { PrismaDataStore } from "./repositories/datastore";
+export {
+  PrismaDataStore,
+  PrismaDataStoreManager,
+  DEFAULT_STORE_ID,
+  DEFAULT_STORE_NAME,
+} from "./repositories/datastore";
+export type { DataStoreInfo, DataStoreRecordInfo } from "./repositories/datastore";
 
 export interface Repositories {
   scenarios: ScenarioRepository;

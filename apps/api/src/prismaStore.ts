@@ -7,6 +7,7 @@ import type {
 import {
   PrismaConnectionStore,
   PrismaDataStore,
+  PrismaDataStoreManager,
   PrismaExecutionRepository,
   PrismaScenarioRepository,
   prisma,
@@ -30,6 +31,7 @@ import type {
   CreateConnectionBody,
   CreateScenarioBody,
   DataStoreDTO,
+  DataStoreRecordDTO,
   ExecutionEntryDTO,
   OAuthCallbackResult,
   OAuthStartDTO,
@@ -122,6 +124,7 @@ export class PrismaApiStore implements ApiStore {
   private userId = "demo-user";
   private readonly scenarios = new PrismaScenarioRepository(prisma);
   private readonly executions = new PrismaExecutionRepository(prisma);
+  private readonly dataStores = new PrismaDataStoreManager(prisma);
   private connections: ConnectionService | null = null;
   private encryption: EncryptionService | null = null;
   private readonly deps: WorkerDeps;
@@ -340,7 +343,30 @@ export class PrismaApiStore implements ApiStore {
   }
 
   async listDataStores(): Promise<DataStoreDTO[]> {
-    const records = await prisma.dataStoreRecord.count();
-    return [{ id: "default", name: "Default store", records }];
+    return this.dataStores.listStores();
+  }
+
+  async createDataStore(name: string, id?: string): Promise<DataStoreDTO> {
+    return this.dataStores.createStore(name, id);
+  }
+
+  async deleteDataStore(id: string): Promise<boolean> {
+    return this.dataStores.deleteStore(id);
+  }
+
+  async listDataStoreRecords(storeId: string): Promise<DataStoreRecordDTO[] | null> {
+    const store = await prisma.dataStore.findUnique({ where: { id: storeId } });
+    if (!store) return null;
+    return this.dataStores.listRecords(storeId);
+  }
+
+  async upsertDataStoreRecord(storeId: string, key: string, value: unknown): Promise<DataStoreRecordDTO | null> {
+    const store = await prisma.dataStore.findUnique({ where: { id: storeId } });
+    if (!store) return null;
+    return this.dataStores.upsertRecord(storeId, key, value);
+  }
+
+  async deleteDataStoreRecord(storeId: string, key: string): Promise<boolean> {
+    return this.dataStores.deleteRecord(storeId, key);
   }
 }

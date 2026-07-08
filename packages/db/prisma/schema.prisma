@@ -139,10 +139,26 @@ model ExecutionStep {
   @@index([executionId])
 }
 
+// A named key-value data store (Make parity). Scenarios read/write records via
+// the built-in Data store modules; users manage stores/records in the UI.
+model DataStore {
+  id        String            @id @default(cuid())
+  name      String
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  records   DataStoreRecord[]
+}
+
 model DataStoreRecord {
-  id        String   @id @default(cuid())
-  key       String   @unique
+  id        String    @id @default(cuid())
+  storeId   String
+  store     DataStore @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  key       String
   value     Json
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // Keys are unique within a store (not globally).
+  @@unique([storeId, key])
+  @@index([storeId])
 }

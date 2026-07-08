@@ -7,6 +7,7 @@ import type {
   CreateConnectionBody,
   CreateScenarioBody,
   DataStoreDTO,
+  DataStoreRecordDTO,
   ExecutionEntryDTO,
   OAuthCallbackResult,
   OAuthStartDTO,
@@ -54,6 +55,11 @@ export interface ApiStore {
   oauthStart(provider: string): Promise<OAuthStartDTO>;
   oauthCallback(provider: string, query: Record<string, unknown>): Promise<OAuthCallbackResult>;
   listDataStores(): Promise<DataStoreDTO[]>;
+  createDataStore(name: string, id?: string): Promise<DataStoreDTO>;
+  deleteDataStore(id: string): Promise<boolean>;
+  listDataStoreRecords(storeId: string): Promise<DataStoreRecordDTO[] | null>;
+  upsertDataStoreRecord(storeId: string, key: string, value: unknown): Promise<DataStoreRecordDTO | null>;
+  deleteDataStoreRecord(storeId: string, key: string): Promise<boolean>;
 }
 
 let seq = 0;
@@ -87,9 +93,13 @@ export class InMemoryApiStore implements ApiStore {
   private readonly secrets = new Map<string, Record<string, unknown>>();
   private readonly registry = createDefaultRegistry();
   private readonly dataStore = new InMemoryDataStore();
+  /** Named stores for the management API. The default store's data is the same
+   *  `dataStore` the run-once engine uses, so UI edits and runs share state. */
+  private readonly stores = new Map<string, { id: string; name: string; updatedAt: string; data: InMemoryDataStore }>();
 
   constructor(seed: ScenarioDTO[] = [seedScenario()]) {
     this.scenarios = seed;
+    this.stores.set("default", { id: "default", name: "Default store", updatedAt: new Date().toISOString(), data: this.dataStore });
   }
 
   async listScenarios(): Promise<ScenarioDTO[]> {
@@ -221,7 +231,46 @@ export class InMemoryApiStore implements ApiStore {
   }
 
   async listDataStores(): Promise<DataStoreDTO[]> {
-    const records = await this.dataStore.list();
-    return [{ id: "default", name: "Default store", records: records.length }];
+    const out: DataStoreDTO[] = [];
+    for (const s of this.stores.values()) {
+      const records = await s.data.list();
+      out.push({ id: s.id, name: s.name, records: records.length, updatedAt: s.updatedAt });
+    }
+    return out;
+  }
+
+  async createDataStore(name: string, id?: string): Promise<DataStoreDTO> {
+    const storeId = id ?? uid("ds");
+    const store = { id: storeId, name: name.trim() || "New store", updatedAt: new Date().toISOString(), data: new InMemoryDataStore() };
+    this.stores.set(storeId, store);
+    return { id: store.id, name: store.name, records: 0, updatedAt: store.updatedAt };
+  }
+
+  async deleteDataStore(id: string): Promise<boolean> {
+    if (id === "default") return false;
+    return this.stores.delete(id);
+  }
+
+  async listDataStoreRecords(storeId: string): Promise<DataStoreRecordDTO[] | null> {
+    const store = this.stores.get(storeId);
+    if (!store) return null;
+    const records = await store.data.list();
+    return records.map((r) => ({ key: r.key, value: r.value, updatedAt: store.updatedAt }));
+  }
+
+  async upsertDataStoreRecord(storeId: string, key: string, value: unknown): Promise<DataStoreRecordDTO | null> {
+    const store = this.stores.get(storeId);
+    if (!store) return null;
+    await store.data.set(key, value);
+    store.updatedAt = new Date().toISOString();
+    return { key, value, updatedAt: store.updatedAt };
+  }
+
+  async deleteDataStoreRecord(storeId: string, key: string): Promise<boolean> {
+    const store = this.stores.get(storeId);
+    if (!store) return false;
+    const ok = await store.data.delete(key);
+    if (ok) store.updatedAt = new Date().toISOString();
+    return ok;
   }
 }
