@@ -1,22 +1,37 @@
 /**
  * Hostinger (Phusion Passenger) startup file for the Cyflow API.
  *
- * Hostinger's "Node.js Web App" runs this file directly with `node`, so it must
- * be plain JavaScript. The API itself is TypeScript run with no build step, so
- * we register tsx as a runtime loader and then import the SAME entrypoint used
- * locally (apps/api/src/main.ts) — nothing about the app changes.
+ * Hostinger runs this file with plain `node`. It boots the API from the
+ * PRECOMPILED JavaScript produced by `npm run build` (see
+ * scripts/hostinger-build.mjs). There is intentionally **no tsx / esbuild at
+ * runtime** — Hostinger blocks executing the esbuild native binary
+ * (`@esbuild/linux-x64/bin/esbuild EACCES`), so the API must be plain JS.
  *
- * Passenger provides the listening port via PORT, which main.ts already reads.
+ * Passenger provides the listening port via PORT, which the API already reads.
  *
- * Local dev is unaffected: developers keep using `pnpm --filter @cyflow/api start`.
+ * Local dev is unaffected: developers still use `pnpm --filter @cyflow/api start`
+ * (tsx), which never touches this file or dist-hostinger/.
  */
 
-import { register } from "tsx/esm/api";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-// Install the tsx ESM loader so `import(... .ts)` works under plain node.
-register();
+const here = dirname(fileURLToPath(import.meta.url));
+const compiled = join(here, "dist-hostinger", "apps", "api", "src", "main.js");
 
-import("./apps/api/src/main.ts").catch((err) => {
+if (!existsSync(compiled)) {
+  console.error(
+    "[hostinger] compiled API not found at " +
+      compiled +
+      "\n[hostinger] run `npm run build` before starting."
+  );
+  process.exit(1);
+}
+
+// Loading the compiled main runs its bootstrap (app.listen). It's CommonJS;
+// importing it from this ESM file is fine under Node.
+import(pathToFileURL(compiled).href).catch((err) => {
   console.error("[hostinger] failed to boot Cyflow API:", err);
   process.exit(1);
 });
