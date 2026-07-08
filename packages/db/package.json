@@ -22,7 +22,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@cyflow/shared": "workspace:*",
+    "@cyflow/shared": "0.0.0",
     "@prisma/client": "^6.1.0"
   },
   "devDependencies": {

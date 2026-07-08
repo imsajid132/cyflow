@@ -13,13 +13,13 @@
     "start": "tsx src/main.ts"
   },
   "dependencies": {
-    "@cyflow/connections": "workspace:*",
-    "@cyflow/connectors": "workspace:*",
-    "@cyflow/db": "workspace:*",
-    "@cyflow/shared": "workspace:*",
+    "@cyflow/connections": "0.0.0",
+    "@cyflow/connectors": "0.0.0",
+    "@cyflow/db": "0.0.0",
+    "@cyflow/shared": "0.0.0",
     "bullmq": "^5.34.5",
     "dotenv": "^17.4.2",
-    "engine": "workspace:*"
+    "engine": "0.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

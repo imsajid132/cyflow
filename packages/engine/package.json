@@ -19,8 +19,8 @@
     "start": "tsx src/run.ts"
   },
   "dependencies": {
-    "@cyflow/shared": "workspace:*",
-    "functions": "workspace:*",
+    "@cyflow/shared": "0.0.0",
+    "functions": "0.0.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
