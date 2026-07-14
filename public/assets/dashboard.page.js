@@ -408,6 +408,432 @@
     }
   }
 
+  // ===========================================================================
+  // Create Post + Scheduled Queue (Phase 4)
+  // ===========================================================================
+
+  var TONES = ['neutral', 'friendly', 'professional', 'playful', 'bold', 'informative'];
+  var HASHTAGS = ['none', 'minimal', 'moderate', 'rich'];
+  var TEMPLATES = ['minimal', 'bold', 'professional'];
+  var ASPECTS = ['square', 'portrait', 'landscape'];
+  var BACKGROUNDS = ['light', 'dark', 'gradient-blue', 'gradient-warm', 'neutral'];
+  var ACCOUNT_PLATFORM = { facebook_page: 'facebook', instagram_professional: 'instagram', threads_profile: 'threads' };
+
+  var cp = { postId: null, post: null, activePlatform: null, userTimezone: 'UTC' };
+
+  function fillSelect(id, values) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = '';
+    values.forEach(function (v) {
+      var o = document.createElement('option');
+      o.value = v;
+      o.textContent = v;
+      el.appendChild(o);
+    });
+  }
+
+  function cpNotice(msg, type) {
+    App.createSafeNotice(document.getElementById('cp-notice'), msg || '', type || 'info');
+  }
+  function sqNotice(msg, type) {
+    App.createSafeNotice(document.getElementById('sq-notice'), msg || '', type || 'info');
+  }
+
+  function collectFields() {
+    return {
+      title: document.getElementById('cp-title').value,
+      brief: document.getElementById('cp-brief').value,
+      brandName: document.getElementById('cp-brand').value,
+      language: document.getElementById('cp-language').value,
+      tone: document.getElementById('cp-tone').value,
+      hashtagPreference: document.getElementById('cp-hashtags').value,
+      callToAction: document.getElementById('cp-cta').value,
+      additionalInstructions: document.getElementById('cp-notes').value,
+      template: document.getElementById('cp-template').value,
+      aspectRatio: document.getElementById('cp-aspect').value,
+      backgroundStyle: document.getElementById('cp-bg').value,
+    };
+  }
+
+  function selectedAccountIds() {
+    var ids = [];
+    document.querySelectorAll('#cp-accounts input[type=checkbox]:checked').forEach(function (c) {
+      ids.push(c.value);
+    });
+    return ids;
+  }
+
+  async function loadCapabilities() {
+    var res = await App.apiRequest('/api/posts/capabilities');
+    if (res.unauthorized) return App.handleUnauthorized();
+    var caps = res.ok && res.data && res.data.data;
+    var openaiOk = !!(caps && caps.openai && caps.openai.available);
+    var hctiOk = !!(caps && caps.hcti && caps.hcti.configured && caps.hcti.verified);
+    var genContentBtn = document.getElementById('cp-gen-content');
+    var genImageBtn = document.getElementById('cp-gen-image');
+    if (genContentBtn) genContentBtn.disabled = !cp.postId || !openaiOk;
+    if (genImageBtn) genImageBtn.disabled = !cp.postId || !hctiOk;
+    document.getElementById('cp-openai-hint').classList.toggle('hidden', openaiOk);
+    document.getElementById('cp-hcti-hint').classList.toggle('hidden', hctiOk);
+  }
+
+  async function loadCreatePostAccounts() {
+    var res = await App.apiRequest('/api/social-accounts');
+    if (res.unauthorized) return App.handleUnauthorized();
+    var accounts = (res.ok && res.data && res.data.data && res.data.data.accounts) || [];
+    var active = accounts.filter(function (a) { return a.status === 'active'; });
+    var box = document.getElementById('cp-accounts');
+    box.textContent = '';
+    if (active.length === 0) {
+      box.appendChild(el('p', 'text-slate-400', 'No active connected accounts. Connect one above first.'));
+      return;
+    }
+    active.forEach(function (a) {
+      var label = document.createElement('label');
+      label.className = 'flex items-center gap-2';
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = a.id;
+      cb.dataset.accountType = a.accountType;
+      cb.addEventListener('change', renderCaptionTabs);
+      label.appendChild(cb);
+      var text = (PROVIDER_LABELS[a.provider] || a.provider) + ' · ' + (a.displayName || a.providerAccountId);
+      label.appendChild(el('span', '', text));
+      box.appendChild(label);
+    });
+  }
+
+  function selectedPlatforms() {
+    var set = {};
+    document.querySelectorAll('#cp-accounts input[type=checkbox]:checked').forEach(function (c) {
+      var p = ACCOUNT_PLATFORM[c.dataset.accountType];
+      if (p) set[p] = true;
+    });
+    return Object.keys(set);
+  }
+
+  function renderCaptionTabs() {
+    var tabs = document.getElementById('cp-preview-tabs');
+    if (!tabs) return;
+    tabs.textContent = '';
+    var platforms = selectedPlatforms();
+    if (platforms.length === 0) {
+      cp.activePlatform = null;
+      document.getElementById('cp-caption').value = '';
+      document.getElementById('cp-hashtag-preview').textContent = '';
+      return;
+    }
+    if (!cp.activePlatform || platforms.indexOf(cp.activePlatform) === -1) cp.activePlatform = platforms[0];
+    platforms.forEach(function (p) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = PROVIDER_LABELS[p === 'facebook' ? 'meta' : p] || p;
+      b.className = 'rounded-full px-3 py-1 ' + (p === cp.activePlatform ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600');
+      b.addEventListener('click', function () { cp.activePlatform = p; showCaptionFor(p); renderCaptionTabs(); });
+      tabs.appendChild(b);
+    });
+    showCaptionFor(cp.activePlatform);
+  }
+
+  function showCaptionFor(platform) {
+    var captions = (cp.post && cp.post.platformCaptions) || {};
+    var sec = captions[platform] || {};
+    document.getElementById('cp-caption').value = sec.caption || '';
+    document.getElementById('cp-hashtag-preview').textContent = (sec.hashtags || []).join(' ');
+  }
+
+  function renderImagePreview() {
+    var img = document.getElementById('cp-image');
+    var empty = document.getElementById('cp-image-empty');
+    var token = cp.post && cp.post.media && cp.post.media.publicToken;
+    if (token) {
+      img.src = '/media/' + encodeURIComponent(token);
+      img.alt = (cp.post && cp.post.imageAltText) || 'Generated image';
+      img.classList.remove('hidden');
+      empty.classList.add('hidden');
+      document.getElementById('cp-alt').textContent = cp.post.imageAltText ? 'Alt: ' + cp.post.imageAltText : '';
+      document.getElementById('cp-image-info').textContent =
+        'Template: ' + (cp.post.template || '—') + ' · Aspect: ' + (cp.post.aspectRatio || '—');
+    } else {
+      img.classList.add('hidden');
+      empty.classList.remove('hidden');
+      document.getElementById('cp-alt').textContent = '';
+      document.getElementById('cp-image-info').textContent = '';
+    }
+  }
+
+  function applyPostToForm(post) {
+    cp.post = post;
+    cp.postId = post.id;
+    document.getElementById('cp-mode').textContent = 'Editing draft #' + post.id;
+    document.getElementById('cp-title').value = post.title || '';
+    document.getElementById('cp-brief').value = post.brief || '';
+    var gp = post.generationParams || {};
+    document.getElementById('cp-brand').value = gp.brandName || '';
+    document.getElementById('cp-language').value = gp.language || '';
+    if (gp.tone) document.getElementById('cp-tone').value = gp.tone;
+    if (gp.hashtagPreference) document.getElementById('cp-hashtags').value = gp.hashtagPreference;
+    document.getElementById('cp-cta').value = gp.callToAction || '';
+    document.getElementById('cp-notes').value = gp.additionalInstructions || '';
+    if (post.template) document.getElementById('cp-template').value = post.template;
+    if (post.aspectRatio) document.getElementById('cp-aspect').value = post.aspectRatio;
+    if (post.backgroundStyle) document.getElementById('cp-bg').value = post.backgroundStyle;
+    renderCaptionTabs();
+    renderImagePreview();
+    document.getElementById('cp-schedule').disabled = false;
+    loadCapabilities();
+  }
+
+  function resetCreatePost() {
+    cp = { postId: null, post: null, activePlatform: null, userTimezone: cp.userTimezone };
+    document.getElementById('cp-form').reset();
+    document.getElementById('cp-mode').textContent = 'New draft';
+    document.getElementById('cp-preview-tabs').textContent = '';
+    document.getElementById('cp-caption').value = '';
+    document.getElementById('cp-hashtag-preview').textContent = '';
+    renderImagePreview();
+    document.getElementById('cp-schedule').disabled = true;
+    fillSelect('cp-template', TEMPLATES); fillSelect('cp-aspect', ASPECTS); fillSelect('cp-bg', BACKGROUNDS);
+    fillSelect('cp-tone', TONES); fillSelect('cp-hashtags', HASHTAGS);
+    loadCapabilities();
+    loadCreatePostAccounts();
+  }
+
+  async function saveTargets() {
+    var ids = selectedAccountIds();
+    if (!cp.postId) return;
+    var res = await App.apiRequest('/api/posts/' + cp.postId + '/targets', {
+      method: 'PUT',
+      body: { targets: ids.map(function (id) { return { socialAccountId: id }; }) },
+    });
+    if (res.unauthorized) return App.handleUnauthorized();
+    if (res.ok && res.data && res.data.data) cp.post = res.data.data.post;
+  }
+
+  async function handleSaveDraft(e) {
+    if (e) e.preventDefault();
+    var btn = document.getElementById('cp-save');
+    App.setButtonLoading(btn, true, 'Saving…');
+    try {
+      var fields = collectFields();
+      var res;
+      if (cp.postId) {
+        res = await App.apiRequest('/api/posts/' + cp.postId, { method: 'PATCH', body: fields });
+      } else {
+        res = await App.apiRequest('/api/posts', { method: 'POST', body: fields });
+      }
+      if (res.unauthorized) return App.handleUnauthorized();
+      if (res.ok && res.data && res.data.data) {
+        applyPostToForm(res.data.data.post);
+        await saveTargets();
+        cpNotice('Draft saved.', 'success');
+        loadQueue();
+      } else {
+        cpNotice(App.errorMessage(res, 'Could not save the draft.'), 'error');
+      }
+    } finally {
+      App.setButtonLoading(btn, false);
+    }
+  }
+
+  async function handleGenerateContent() {
+    if (!cp.postId) { cpNotice('Save the draft first.', 'error'); return; }
+    var btn = document.getElementById('cp-gen-content');
+    App.setButtonLoading(btn, true, 'Generating…');
+    try {
+      await saveTargets();
+      var res = await App.apiRequest('/api/posts/' + cp.postId + '/generate-content', { method: 'POST', body: {} });
+      if (res.unauthorized) return App.handleUnauthorized();
+      if (res.ok && res.data && res.data.data) {
+        cp.post = res.data.data.post;
+        renderCaptionTabs();
+        cpNotice('Content generated. You can edit each caption.', 'success');
+      } else {
+        cpNotice(App.errorMessage(res, 'Content generation failed.'), 'error');
+      }
+    } finally {
+      App.setButtonLoading(btn, false);
+      loadCapabilities();
+    }
+  }
+
+  async function handleGenerateImage() {
+    if (!cp.postId) { cpNotice('Save the draft first.', 'error'); return; }
+    var btn = document.getElementById('cp-gen-image');
+    App.setButtonLoading(btn, true, 'Generating…');
+    try {
+      var res = await App.apiRequest('/api/posts/' + cp.postId + '/generate-image', { method: 'POST', body: {} });
+      if (res.unauthorized) return App.handleUnauthorized();
+      if (res.ok && res.data && res.data.data) {
+        cp.post = res.data.data.post;
+        renderImagePreview();
+        cpNotice('Image generated.', 'success');
+      } else {
+        cpNotice(App.errorMessage(res, 'Image generation failed.'), 'error');
+      }
+    } finally {
+      App.setButtonLoading(btn, false);
+    }
+  }
+
+  async function handleSaveCaption() {
+    if (!cp.postId || !cp.activePlatform) return;
+    var caption = document.getElementById('cp-caption').value;
+    // Map platform back to the selected account(s) as caption overrides.
+    var overrides = [];
+    document.querySelectorAll('#cp-accounts input[type=checkbox]:checked').forEach(function (c) {
+      var platform = ACCOUNT_PLATFORM[c.dataset.accountType];
+      overrides.push({ socialAccountId: c.value, captionOverride: platform === cp.activePlatform ? caption : undefined });
+    });
+    var res = await App.apiRequest('/api/posts/' + cp.postId + '/targets', { method: 'PUT', body: { targets: overrides.map(function (o) { return o.captionOverride === undefined ? { socialAccountId: o.socialAccountId } : o; }) } });
+    if (res.ok) cpNotice('Caption saved for ' + cp.activePlatform + '.', 'success');
+    else cpNotice(App.errorMessage(res, 'Could not save caption.'), 'error');
+  }
+
+  async function handleSchedule() {
+    if (!cp.postId) { cpNotice('Save the draft first.', 'error'); return; }
+    var date = document.getElementById('cp-date').value;
+    var time = document.getElementById('cp-time').value;
+    if (!date || !time) { cpNotice('Choose a schedule date and time.', 'error'); return; }
+    var btn = document.getElementById('cp-schedule');
+    App.setButtonLoading(btn, true, 'Scheduling…');
+    try {
+      await saveTargets();
+      var res = await App.apiRequest('/api/posts/' + cp.postId + '/schedule', {
+        method: 'POST',
+        body: { scheduledDate: date, scheduledTime: time, timezone: cp.userTimezone },
+      });
+      if (res.unauthorized) return App.handleUnauthorized();
+      if (res.ok && res.data && res.data.data) {
+        cpNotice(res.data.data.notice || 'Post queued.', 'success');
+        loadQueue();
+      } else {
+        cpNotice(App.errorMessage(res, 'Could not schedule the post.'), 'error');
+      }
+    } finally {
+      App.setButtonLoading(btn, false);
+    }
+  }
+
+  // --- Scheduled Queue ------------------------------------------------------
+
+  function statusPillClass(status) {
+    if (status === 'queued' || status === 'published') return 'pill-ok';
+    if (status === 'failed' || status === 'partial') return 'pill-err';
+    return 'pill-warn';
+  }
+
+  async function loadQueue() {
+    var res = await App.apiRequest('/api/posts?limit=50');
+    if (res.unauthorized) return App.handleUnauthorized();
+    var posts = (res.ok && res.data && res.data.data && res.data.data.posts) || [];
+    var list = document.getElementById('sq-list');
+    var empty = document.getElementById('sq-empty');
+    Array.prototype.slice.call(list.querySelectorAll('[data-post]')).forEach(function (n) { n.remove(); });
+    if (posts.length === 0) { empty.classList.remove('hidden'); return; }
+    empty.classList.add('hidden');
+
+    posts.forEach(function (post) {
+      var card = el('div', 'rounded-xl border border-slate-200 bg-white p-4');
+      card.setAttribute('data-post', post.id);
+      var top = el('div', 'flex items-start justify-between gap-3');
+      var left = el('div', '');
+      left.appendChild(el('div', 'text-sm font-medium text-slate-800', post.title || '(untitled)'));
+      var meta = el('div', 'mt-1 flex items-center gap-2');
+      meta.appendChild(el('span', 'text-xs font-medium px-2 py-0.5 rounded-full ' + statusPillClass(post.status), post.status));
+      if (post.scheduledAtUtc) {
+        meta.appendChild(el('span', 'text-xs text-slate-500', 'Scheduled: ' + formatDate(post.scheduledAtUtc) + (post.originalTimezone ? ' (' + post.originalTimezone + ')' : '')));
+      }
+      left.appendChild(meta);
+      var accts = (post.targets || []).map(function (t) { return (PROVIDER_LABELS[t.provider] || t.provider); }).join(', ');
+      left.appendChild(el('div', 'mt-1 text-xs text-slate-500', accts ? 'Accounts: ' + accts : 'No accounts'));
+      var firstCaption = '';
+      var pc = post.platformCaptions || {};
+      var keys = Object.keys(pc);
+      if (keys.length) firstCaption = (pc[keys[0]].caption || '').slice(0, 120);
+      if (firstCaption) left.appendChild(el('div', 'mt-1 text-xs text-slate-400', firstCaption));
+      left.appendChild(el('div', 'mt-1 text-xs text-slate-300', 'Created ' + formatDate(post.createdAt)));
+      top.appendChild(left);
+
+      if (post.media && post.media.publicToken) {
+        var thumb = document.createElement('img');
+        thumb.src = '/media/' + encodeURIComponent(post.media.publicToken);
+        thumb.alt = '';
+        thumb.className = 'h-16 w-16 rounded object-cover';
+        top.appendChild(thumb);
+      }
+      card.appendChild(top);
+
+      var actions = el('div', 'mt-3 flex flex-wrap gap-2');
+      var editBtn = el('button', 'rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100', 'Edit');
+      editBtn.type = 'button';
+      editBtn.addEventListener('click', function () { openForEdit(post.id); });
+      actions.appendChild(editBtn);
+      if (post.status === 'draft' || post.status === 'queued' || post.status === 'retrying') {
+        if (post.status !== 'draft') {
+          var cancelBtn = el('button', 'rounded-lg border border-amber-300 px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-50', 'Cancel');
+          cancelBtn.type = 'button';
+          cancelBtn.addEventListener('click', function () { cancelPost(post.id); });
+          actions.appendChild(cancelBtn);
+        }
+        var delBtn = el('button', 'rounded-lg border border-red-300 px-3 py-1.5 text-xs text-red-700 hover:bg-red-50', 'Delete');
+        delBtn.type = 'button';
+        delBtn.addEventListener('click', function () { deletePost(post.id); });
+        actions.appendChild(delBtn);
+      }
+      card.appendChild(actions);
+      list.appendChild(card);
+    });
+  }
+
+  async function openForEdit(postId) {
+    var res = await App.apiRequest('/api/posts/' + encodeURIComponent(postId));
+    if (res.ok && res.data && res.data.data) {
+      applyPostToForm(res.data.data.post);
+      // Re-check the target account checkboxes.
+      var targetIds = (res.data.data.post.targets || []).map(function (t) { return t.socialAccountId; });
+      document.querySelectorAll('#cp-accounts input[type=checkbox]').forEach(function (c) {
+        c.checked = targetIds.indexOf(c.value) !== -1;
+      });
+      renderCaptionTabs();
+      document.getElementById('create-post').scrollIntoView({ behavior: 'smooth' });
+    }
+  }
+
+  async function cancelPost(postId) {
+    if (!window.confirm('Cancel this scheduled post?')) return;
+    var res = await App.apiRequest('/api/posts/' + encodeURIComponent(postId) + '/cancel', { method: 'POST', body: {} });
+    if (res.unauthorized) return App.handleUnauthorized();
+    sqNotice(res.ok ? 'Post cancelled.' : App.errorMessage(res, 'Could not cancel.'), res.ok ? 'success' : 'error');
+    loadQueue();
+  }
+
+  async function deletePost(postId) {
+    if (!window.confirm('Delete this draft? This cannot be undone.')) return;
+    var res = await App.apiRequest('/api/posts/' + encodeURIComponent(postId), { method: 'DELETE', body: {} });
+    if (res.unauthorized) return App.handleUnauthorized();
+    sqNotice(res.ok ? 'Draft deleted.' : App.errorMessage(res, 'Could not delete.'), res.ok ? 'success' : 'error');
+    if (String(cp.postId) === String(postId)) resetCreatePost();
+    loadQueue();
+  }
+
+  function wireCreatePost(user) {
+    cp.userTimezone = (user && user.timezone) || 'UTC';
+    var tzSpan = document.getElementById('cp-tz');
+    if (tzSpan) tzSpan.textContent = cp.userTimezone;
+    resetCreatePost();
+
+    document.getElementById('cp-form').addEventListener('submit', handleSaveDraft);
+    document.getElementById('cp-gen-content').addEventListener('click', handleGenerateContent);
+    document.getElementById('cp-gen-image').addEventListener('click', handleGenerateImage);
+    document.getElementById('cp-schedule').addEventListener('click', handleSchedule);
+    document.getElementById('cp-save-caption').addEventListener('click', handleSaveCaption);
+    document.getElementById('cp-cancel-edit').addEventListener('click', function () { resetCreatePost(); cpNotice('', 'info'); });
+    var sqRefresh = document.getElementById('sq-refresh');
+    if (sqRefresh) sqRefresh.addEventListener('click', loadQueue);
+  }
+
   // --- init -----------------------------------------------------------------
   document.addEventListener('DOMContentLoaded', async function () {
     var user = await App.me();
@@ -421,6 +847,8 @@
     handleOAuthResultFromUrl();
     loadProviders();
     loadAccounts();
+    wireCreatePost(user);
+    loadQueue();
 
     var logoutBtn = document.getElementById('logout-btn');
     if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);

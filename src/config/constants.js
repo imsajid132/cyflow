@@ -167,6 +167,19 @@ export const EVENT_TYPES = Object.freeze({
   SOCIAL_ACCOUNT_DISCONNECTED: 'social_account.disconnected',
   THREADS_UNINSTALLED: 'threads.uninstalled',
   THREADS_DATA_DELETION_REQUESTED: 'threads.data_deletion_requested',
+  // Phase 4: content/image generation, drafts, scheduling
+  POST_DRAFT_CREATED: 'post.draft_created',
+  POST_DRAFT_UPDATED: 'post.draft_updated',
+  POST_CONTENT_GENERATED: 'post.content_generated',
+  POST_CONTENT_GENERATION_FAILED: 'post.content_generation_failed',
+  POST_IMAGE_GENERATED: 'post.image_generated',
+  POST_IMAGE_GENERATION_FAILED: 'post.image_generation_failed',
+  POST_TARGETS_UPDATED: 'post.targets_updated',
+  POST_SCHEDULED: 'post.scheduled',
+  POST_CANCELLED: 'post.cancelled',
+  POST_DELETED: 'post.deleted',
+  MEDIA_ASSET_CREATED: 'media.asset_created',
+  MEDIA_ASSET_FAILED: 'media.asset_failed',
 });
 
 // Least-privilege OAuth scopes requested per provider. Do NOT add unrelated
@@ -193,4 +206,78 @@ export const PASSWORD_POLICY = Object.freeze({
 export const HCTI_LIMITS = Object.freeze({
   USER_ID_MAX: 255,
   API_KEY_MAX: 255,
+});
+
+// --- Phase 4: content generation, image templates, scheduling --------------
+
+// Platform keys used for generated content (derived from account types).
+export const PLATFORMS = Object.freeze({
+  FACEBOOK: 'facebook',
+  INSTAGRAM: 'instagram',
+  THREADS: 'threads',
+});
+export const PLATFORM_VALUES = Object.freeze(Object.values(PLATFORMS));
+
+// Map a connected account_type to its content platform key.
+export const ACCOUNT_TYPE_TO_PLATFORM = Object.freeze({
+  facebook_page: PLATFORMS.FACEBOOK,
+  instagram_professional: PLATFORMS.INSTAGRAM,
+  threads_profile: PLATFORMS.THREADS,
+});
+
+// Server-owned image templates (trusted HTML/CSS only).
+export const IMAGE_TEMPLATES = Object.freeze(['minimal', 'bold', 'professional']);
+
+// Supported aspect ratios (pixels).
+export const ASPECT_RATIOS = Object.freeze({
+  square: Object.freeze({ width: 1080, height: 1080 }),
+  portrait: Object.freeze({ width: 1080, height: 1350 }),
+  landscape: Object.freeze({ width: 1200, height: 630 }),
+});
+export const ASPECT_RATIO_VALUES = Object.freeze(Object.keys(ASPECT_RATIOS));
+
+// Safe background-style presets (never arbitrary CSS from the client).
+export const BACKGROUND_STYLES = Object.freeze([
+  'light',
+  'dark',
+  'gradient-blue',
+  'gradient-warm',
+  'neutral',
+]);
+
+// Safe preset tones + hashtag preferences for content generation.
+export const CONTENT_TONES = Object.freeze([
+  'neutral',
+  'friendly',
+  'professional',
+  'playful',
+  'bold',
+  'informative',
+]);
+export const HASHTAG_PREFERENCES = Object.freeze(['none', 'minimal', 'moderate', 'rich']);
+
+// api_usage operation identifiers.
+export const USAGE_OPERATIONS = Object.freeze({
+  OPENAI_GENERATE_CONTENT: 'generate_content',
+  HCTI_GENERATE_IMAGE: 'generate_image',
+});
+
+// Input length limits for generation fields (defence-in-depth bounds).
+export const GENERATION_LIMITS = Object.freeze({
+  TITLE_MAX: 200,
+  BRIEF_MAX: 5000,
+  BRAND_MAX: 120,
+  CTA_MAX: 200,
+  LANGUAGE_MAX: 40,
+  INSTRUCTIONS_MAX: 1000,
+  CAPTION_OVERRIDE_MAX: 4000,
+  HEADLINE_MAX: 80,
+  SUBHEADLINE_MAX: 140,
+  ALT_TEXT_MAX: 420,
+});
+
+// Visual text bounds enforced on generated image text (keep it template-safe).
+export const IMAGE_TEXT_LIMITS = Object.freeze({
+  HEADLINE_MAX: 80,
+  SUBHEADLINE_MAX: 140,
 });

@@ -28,6 +28,8 @@ import { createAuthRoutes } from './routes/authRoutes.js';
 import { createIntegrationRoutes } from './routes/integrationRoutes.js';
 import { createOAuthRoutes } from './routes/oauthRoutes.js';
 import { createSocialAccountRoutes } from './routes/socialAccountRoutes.js';
+import { createPostRoutes } from './routes/postRoutes.js';
+import { createMediaRoutes } from './routes/mediaRoutes.js';
 import { buildContainer } from './container.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -185,6 +187,15 @@ export function createApp(overrides = {}) {
       requireAuth: container.requireAuth,
     }),
   );
+  app.use(
+    '/api/posts',
+    createPostRoutes({
+      postController: container.postController,
+      requireAuth: container.requireAuth,
+    }),
+  );
+  // Public media proxy (no session/CSRF; opaque token + SSRF-safe upstream).
+  app.use('/media', createMediaRoutes({ mediaController: container.mediaController }));
 
   // Explicit frontend pages.
   app.get('/', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'index.html')));

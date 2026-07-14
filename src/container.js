@@ -13,17 +13,24 @@ import * as logRepository from './repositories/logRepository.js';
 import * as oauthStateRepositoryModule from './repositories/oauthStateRepository.js';
 import * as socialAccountRepositoryModule from './repositories/socialAccountRepository.js';
 import * as dataDeletionRepositoryModule from './repositories/dataDeletionRepository.js';
+import * as postRepositoryModule from './repositories/postRepository.js';
+import * as mediaAssetRepositoryModule from './repositories/mediaAssetRepository.js';
+import * as apiUsageRepositoryModule from './repositories/apiUsageRepository.js';
 import { createLoggingService } from './services/loggingService.js';
 import { createAuthService } from './services/authService.js';
 import { hctiService as realHctiService } from './services/hctiService.js';
 import { createOAuthService } from './services/oauthService.js';
 import { createThreadsCallbackService } from './services/threadsCallbackService.js';
+import { createPostService } from './services/postService.js';
+import { mediaAssetService as realMediaAssetService } from './services/mediaAssetService.js';
 import { providerRegistry as realProviderRegistry } from './providers/providerRegistry.js';
 import { createAuthController } from './controllers/authController.js';
 import { createIntegrationController } from './controllers/integrationController.js';
 import { createOAuthController } from './controllers/oauthController.js';
 import { createSocialAccountController } from './controllers/socialAccountController.js';
 import { createThreadsCallbackController } from './controllers/threadsCallbackController.js';
+import { createPostController } from './controllers/postController.js';
+import { createMediaController } from './controllers/mediaController.js';
 import { createAuthMiddleware } from './middleware/auth.js';
 import { withTransaction as realWithTransaction } from './db/transactions.js';
 
@@ -72,9 +79,31 @@ export function buildContainer(overrides = {}) {
     overrides.threadsCallbackService ??
     createThreadsCallbackService({ socialAccounts, dataDeletion, logging });
 
+  // Phase 4: content generation, media, posts, scheduling.
+  const postRepo = overrides.postRepository ?? postRepositoryModule;
+  const mediaRepo = overrides.mediaAssetRepository ?? mediaAssetRepositoryModule;
+  const apiUsage = overrides.apiUsageRepository ?? apiUsageRepositoryModule;
+  const mediaAssetService = overrides.mediaAssetService ?? realMediaAssetService;
+  const postService =
+    overrides.postService ??
+    createPostService({
+      posts: postRepo,
+      socialAccounts,
+      mediaRepository: mediaRepo,
+      apiUsage,
+      integrationRepository: integrations,
+      openaiContentService: overrides.openaiContentService,
+      socialImageService: overrides.socialImageService,
+      mediaAssetService,
+      logging,
+      withTransaction,
+    });
+
   const oauthController = createOAuthController({ oauthService });
   const socialAccountController = createSocialAccountController({ oauthService, socialAccounts });
   const threadsCallbackController = createThreadsCallbackController({ threadsCallbackService });
+  const postController = createPostController({ postService });
+  const mediaController = createMediaController({ mediaAssetService });
 
   const { requireAuth, guestOnly, attachUser } = createAuthMiddleware({ users });
 
@@ -91,11 +120,18 @@ export function buildContainer(overrides = {}) {
     oauthService,
     dataDeletion,
     threadsCallbackService,
+    postRepository: postRepo,
+    mediaAssetRepository: mediaRepo,
+    apiUsageRepository: apiUsage,
+    mediaAssetService,
+    postService,
     authController,
     integrationController,
     oauthController,
     socialAccountController,
     threadsCallbackController,
+    postController,
+    mediaController,
     requireAuth,
     guestOnly,
     attachUser,

@@ -68,6 +68,48 @@ export function addSecondsUtc(seconds, base = new Date()) {
   return toMysqlUtc(new Date(base.getTime() + seconds * 1000));
 }
 
+/**
+ * Offset (ms) of a timezone at a given instant: how far ahead of UTC the zone
+ * is. local = utc + offset.
+ */
+export function tzOffsetMs(timeZone, date) {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  const parts = dtf.formatToParts(date).reduce((acc, p) => {
+    acc[p.type] = p.value;
+    return acc;
+  }, {});
+  const asUtcFromZone = Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    Number(parts.hour),
+    Number(parts.minute),
+    Number(parts.second),
+  );
+  return asUtcFromZone - date.getTime();
+}
+
+/**
+ * Convert a wall-clock time in a given IANA timezone to the UTC instant.
+ * @param {{ year, month, day, hour, minute }} wall  month is 1-based
+ * @param {string} timeZone
+ * @returns {Date}
+ */
+export function zonedWallTimeToUtc(wall, timeZone) {
+  const guess = Date.UTC(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute, 0);
+  const offset = tzOffsetMs(timeZone, new Date(guess));
+  return new Date(guess - offset);
+}
+
 /** True if the given IANA timezone string is recognized by this runtime. */
 export function isValidTimezone(tz) {
   if (typeof tz !== 'string' || tz.length === 0) return false;

@@ -6,9 +6,11 @@
 
 import { sanitizeUser } from '../../src/repositories/userRepository.js';
 import { sanitizeAccount } from '../../src/repositories/socialAccountRepository.js';
+import { sanitizePost } from '../../src/repositories/postRepository.js';
 import { evaluateStateRow } from '../../src/repositories/oauthStateRepository.js';
 import { normalizeEmail } from '../../src/utils/validation.js';
 import { OAuthError, OAUTH_ERROR_CODES } from '../../src/utils/oauthErrors.js';
+import { createMediaAssetService } from '../../src/services/mediaAssetService.js';
 
 /** Fake `userRepository`. */
 export function createFakeUserRepository(seed = []) {
@@ -429,6 +431,314 @@ export function createFakeDataDeletionRepository() {
   };
 }
 
+/** Fake `apiUsageRepository`. `forcedCount` overrides countUserOperationsSince. */
+export function createFakeApiUsageRepository({ forcedCount = null } = {}) {
+  const rows = [];
+  return {
+    _rows: rows,
+    async recordUsage(input) {
+      rows.push({ ...input, created_at: '2026-01-01 00:00:00' });
+    },
+    async countUserOperationsSince(userId, since, opts = {}) {
+      if (forcedCount != null) return forcedCount;
+      const ops = Array.isArray(opts.operations) ? opts.operations : null;
+      return rows.filter(
+        (r) => String(r.userId) === String(userId) && (!ops || ops.includes(r.operation)),
+      ).length;
+    },
+    async summarizeUserUsage() {
+      return [];
+    },
+  };
+}
+
+/** Default fake OpenAI content result for the requested platforms. */
+function defaultContentResult(platforms) {
+  const result = {
+    visual: { headline: 'Great Headline', subheadline: 'A concise subheadline', imageAltText: 'Alt text' },
+    _meta: { model: 'test-model', responseId: 'resp_test', usage: { inputUnits: 12, outputUnits: 34 } },
+  };
+  for (const p of platforms || []) {
+    result[p] = { caption: `Caption for ${p}`, hashtags: ['#cyflow', '#social'] };
+  }
+  return result;
+}
+
+/** Fake OpenAI content service. */
+export function createFakeOpenAIContentService(opts = {}) {
+  const calls = [];
+  const available = opts.available !== false;
+  return {
+    _calls: calls,
+    isAvailable: () => available,
+    async generateSocialContent(input, ctx) {
+      calls.push({ input, ctx });
+      if (opts.error) throw opts.error;
+      return opts.result ? opts.result(input) : defaultContentResult(input.targetPlatforms);
+    },
+  };
+}
+
+/** Fake social image service. */
+export function createFakeSocialImageService(opts = {}) {
+  const calls = [];
+  return {
+    _calls: calls,
+    async generateSocialImage(input, ctx) {
+      calls.push({ input, ctx });
+      if (opts.error) throw opts.error;
+      return {
+        imageId: 'hcti_img_1',
+        sourceUrl: 'https://hcti.io/v1/image/hcti_img_1.png',
+        width: 1080,
+        height: 1080,
+        template: input.template,
+        aspectRatio: input.aspectRatio,
+        backgroundStyle: input.backgroundStyle,
+      };
+    },
+    dimensionsFor: () => ({ width: 1080, height: 1080 }),
+  };
+}
+
+/** Fake `mediaAssetRepository`. */
+export function createFakeMediaAssetRepository() {
+  const rows = [];
+  let nextId = 1;
+  const find = (id, userId) =>
+    rows.find((r) => String(r.id) === String(id) && String(r.user_id) === String(userId));
+  function toApi(r) {
+    if (!r) return null;
+    return {
+      id: String(r.id),
+      userId: String(r.user_id),
+      scheduledPostId: r.scheduled_post_id == null ? null : String(r.scheduled_post_id),
+      publicToken: r.public_token,
+      sourceProvider: r.source_provider,
+      sourceUrl: r.source_url ?? null,
+      sourceAssetId: r.source_asset_id ?? null,
+      mimeType: r.mime_type ?? null,
+      fileExtension: r.file_extension ?? null,
+      status: r.status,
+      expiresAt: r.expires_at ?? null,
+      createdAt: r.created_at ?? null,
+      updatedAt: r.updated_at ?? null,
+    };
+  }
+  return {
+    _rows: rows,
+    async createMediaAsset(input) {
+      const row = {
+        id: String(nextId++),
+        user_id: String(input.userId),
+        scheduled_post_id: input.scheduledPostId ?? null,
+        public_token: input.publicToken,
+        source_provider: input.sourceProvider ?? 'hcti',
+        source_url: input.sourceUrl ?? null,
+        source_asset_id: input.sourceAssetId ?? null,
+        mime_type: input.mimeType ?? null,
+        file_extension: input.fileExtension ?? null,
+        status: input.status ?? 'pending',
+        expires_at: input.expiresAt ?? null,
+        created_at: '2026-01-01 00:00:00',
+      };
+      rows.push(row);
+      return toApi(row);
+    },
+    async findMediaAssetByIdForUser(id, userId) {
+      return toApi(find(id, userId));
+    },
+    async findReadyMediaAssetByPublicToken(token) {
+      const r = rows.find((x) => x.public_token === token && x.status === 'ready');
+      if (!r) return null;
+      if (r.expires_at && new Date(String(r.expires_at).replace(' ', 'T') + 'Z') <= new Date()) return null;
+      return toApi(r);
+    },
+    async markMediaAssetReady(id, userId, upd) {
+      const r = find(id, userId);
+      if (r) {
+        r.status = 'ready';
+        if (upd.mimeType) r.mime_type = upd.mimeType;
+        if (upd.sourceUrl) r.source_url = upd.sourceUrl;
+      }
+      return toApi(r);
+    },
+    async markMediaAssetFailed(id, userId) {
+      const r = find(id, userId);
+      if (r) r.status = 'failed';
+    },
+    async associateAssetWithPost(id, userId, postId) {
+      const r = find(id, userId);
+      if (r) r.scheduled_post_id = postId;
+    },
+    async deleteUnusedMediaAsset(id, userId) {
+      const i = rows.findIndex((r) => String(r.id) === String(id) && String(r.user_id) === String(userId) && r.scheduled_post_id == null);
+      if (i >= 0) { rows.splice(i, 1); return true; }
+      return false;
+    },
+  };
+}
+
+/** Fake `postRepository`. `socialAccounts` resolves target account info. */
+export function createFakePostRepository({ socialAccounts } = {}) {
+  const posts = [];
+  const targets = [];
+  let nextPostId = 1;
+  let nextTargetId = 1;
+  const findRow = (id, userId) =>
+    posts.find((p) => String(p.id) === String(id) && String(p.user_id) === String(userId));
+
+  return {
+    _posts: posts,
+    _targets: targets,
+    async createDraftPost(input) {
+      const row = {
+        id: String(nextPostId++),
+        user_id: String(input.userId),
+        title: input.title ?? null,
+        prompt: input.prompt ?? null,
+        status: 'draft',
+        scheduled_at_utc: null,
+        original_timezone: null,
+        generation_params_json: input.generationParams ?? null,
+        generated_platform_captions_json: null,
+        generated_base_caption: null,
+        generated_image_headline: null,
+        generated_image_subheadline: null,
+        generated_image_alt_text: null,
+        template_name: input.templateName ?? null,
+        aspect_ratio: input.aspectRatio ?? null,
+        background_style: input.backgroundStyle ?? null,
+        media_asset_id: null,
+        openai_model: null,
+        content_generated_at: null,
+        image_generated_at: null,
+        created_at: '2026-01-01 00:00:00',
+        updated_at: '2026-01-01 00:00:00',
+      };
+      posts.push(row);
+      return sanitizePost(row);
+    },
+    async findPostByIdForUser(postId, userId) {
+      return sanitizePost(findRow(postId, userId) || null);
+    },
+    async listPostsForUser(userId, { limit = 25, offset = 0, status = null } = {}) {
+      let list = posts.filter((p) => String(p.user_id) === String(userId));
+      if (status) list = list.filter((p) => p.status === status);
+      list = list.slice().reverse().slice(offset, offset + limit);
+      return list.map(sanitizePost);
+    },
+    async updateDraftPost(postId, userId, fields) {
+      const r = findRow(postId, userId);
+      if (!r) return null;
+      if (fields.title !== undefined) r.title = fields.title;
+      if (fields.prompt !== undefined) r.prompt = fields.prompt;
+      if (fields.templateName !== undefined) r.template_name = fields.templateName;
+      if (fields.aspectRatio !== undefined) r.aspect_ratio = fields.aspectRatio;
+      if (fields.backgroundStyle !== undefined) r.background_style = fields.backgroundStyle;
+      if (fields.generationParams !== undefined) r.generation_params_json = fields.generationParams;
+      return sanitizePost(r);
+    },
+    async updateGeneratedContent(postId, userId, content) {
+      const r = findRow(postId, userId);
+      if (!r) return null;
+      r.generated_platform_captions_json = content.platformCaptions ?? null;
+      r.generated_base_caption = content.baseCaption ?? null;
+      r.generated_image_headline = content.headline ?? null;
+      r.generated_image_subheadline = content.subheadline ?? null;
+      r.generated_image_alt_text = content.altText ?? null;
+      r.openai_model = content.openaiModel ?? null;
+      r.content_generated_at = content.contentGeneratedAt ?? null;
+      return sanitizePost(r);
+    },
+    async attachMediaAsset(postId, userId, info) {
+      const r = findRow(postId, userId);
+      if (!r) return null;
+      r.media_asset_id = info.mediaAssetId;
+      if (info.template) r.template_name = info.template;
+      if (info.aspectRatio) r.aspect_ratio = info.aspectRatio;
+      if (info.backgroundStyle) r.background_style = info.backgroundStyle;
+      r.image_generated_at = info.imageGeneratedAt ?? null;
+      return sanitizePost(r);
+    },
+    async replacePostTargets(postId, userId, list) {
+      if (!findRow(postId, userId)) return [];
+      for (let i = targets.length - 1; i >= 0; i--) {
+        if (String(targets[i].scheduled_post_id) === String(postId) && targets[i].status !== 'published') {
+          targets.splice(i, 1);
+        }
+      }
+      for (const t of list) {
+        targets.push({
+          id: String(nextTargetId++),
+          scheduled_post_id: String(postId),
+          social_account_id: String(t.socialAccountId),
+          caption_override: t.captionOverride ?? null,
+          status: 'pending',
+          attempt_count: 0,
+        });
+      }
+      return this.listPostTargets(postId, userId);
+    },
+    async listPostTargets(postId, userId) {
+      const post = findRow(postId, userId);
+      if (!post) return [];
+      const out = [];
+      for (const t of targets.filter((x) => String(x.scheduled_post_id) === String(postId))) {
+        // eslint-disable-next-line no-await-in-loop
+        const acc = socialAccounts ? await socialAccounts.findAccountByIdForUser(t.social_account_id, userId) : null;
+        out.push({
+          id: t.id,
+          socialAccountId: t.social_account_id,
+          provider: acc ? acc.provider : null,
+          accountType: acc ? acc.accountType : null,
+          displayName: acc ? acc.displayName : null,
+          username: acc ? acc.username : null,
+          accountStatus: acc ? acc.status : 'revoked',
+          captionOverride: t.caption_override,
+          status: t.status,
+          attemptCount: t.attempt_count,
+        });
+      }
+      return out;
+    },
+    async schedulePost(postId, userId, { scheduledAtUtc, originalTimezone }) {
+      const r = findRow(postId, userId);
+      if (!r) return null;
+      r.status = 'queued';
+      r.scheduled_at_utc = scheduledAtUtc;
+      r.original_timezone = originalTimezone;
+      targets
+        .filter((t) => String(t.scheduled_post_id) === String(postId) && t.status !== 'published')
+        .forEach((t) => { t.status = 'pending'; });
+      return sanitizePost(r);
+    },
+    async cancelScheduledPost(postId, userId) {
+      const r = findRow(postId, userId);
+      if (!r) return null;
+      r.status = 'cancelled';
+      targets
+        .filter((t) => String(t.scheduled_post_id) === String(postId) && t.status !== 'published')
+        .forEach((t) => { t.status = 'cancelled'; });
+      return sanitizePost(r);
+    },
+    async hasPublishedTargets(postId, userId) {
+      if (!findRow(postId, userId)) return false;
+      return targets.some((t) => String(t.scheduled_post_id) === String(postId) && t.status === 'published');
+    },
+    async deleteDraftPost(postId, userId) {
+      if (await this.hasPublishedTargets(postId, userId)) return { deleted: false, reason: 'has_history' };
+      const i = posts.findIndex((p) => String(p.id) === String(postId) && String(p.user_id) === String(userId));
+      if (i < 0) return { deleted: false };
+      posts.splice(i, 1);
+      for (let j = targets.length - 1; j >= 0; j--) {
+        if (String(targets[j].scheduled_post_id) === String(postId)) targets.splice(j, 1);
+      }
+      return { deleted: true };
+    },
+  };
+}
+
 /** Fake transaction runner: invokes the callback with a marker connection. */
 export async function fakeWithTransaction(callback) {
   return callback({ _fakeConnection: true });
@@ -436,17 +746,35 @@ export async function fakeWithTransaction(callback) {
 
 /** Build a full override bundle for createApp/buildContainer. */
 export function createFakeOverrides(extra = {}) {
+  const socialAccountRepository = extra.socialAccountRepository ?? createFakeSocialAccountRepository();
+  const mediaAssetRepository = extra.mediaAssetRepository ?? createFakeMediaAssetRepository();
+  const postRepository =
+    extra.postRepository ?? createFakePostRepository({ socialAccounts: socialAccountRepository });
+  const apiUsageRepository = extra.apiUsageRepository ?? createFakeApiUsageRepository();
+  const mediaAssetService =
+    extra.mediaAssetService ?? createMediaAssetService({ mediaRepository: mediaAssetRepository });
+  const openaiContentService = extra.openaiContentService ?? createFakeOpenAIContentService();
+  const socialImageService = extra.socialImageService ?? createFakeSocialImageService();
+
   return {
     userRepository: createFakeUserRepository(),
     integrationRepository: createFakeIntegrationRepository(),
     logRepository: createFakeLogRepository(),
     hctiService: createFakeHctiService(),
     oauthStateRepository: createFakeOAuthStateRepository(),
-    socialAccountRepository: createFakeSocialAccountRepository(),
     providerRegistry: createFakeProviderRegistry(),
     dataDeletionRepository: createFakeDataDeletionRepository(),
     withTransaction: fakeWithTransaction,
     ...extra,
+    // These are wired together (postRepository resolves accounts via the same
+    // socialAccountRepository), so set them AFTER the spread.
+    socialAccountRepository,
+    mediaAssetRepository,
+    postRepository,
+    apiUsageRepository,
+    mediaAssetService,
+    openaiContentService,
+    socialImageService,
   };
 }
 

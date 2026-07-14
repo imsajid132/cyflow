@@ -162,6 +162,47 @@ export const dataDeletionStatusLimiter = limiter({
   message: 'Too many requests',
 });
 
+// --- Phase 4: generation / posts / media -----------------------------------
+
+/** Draft create/update: moderate — 60 / 15 min / user+IP. */
+export const postWriteLimiter = limiter({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  keyGenerator: userOrIpKey,
+  message: 'Too many requests, please slow down',
+});
+
+/** OpenAI content generation: strict — 15 / hour / user+IP. */
+export const contentGenerationLimiter = limiter({
+  windowMs: 60 * 60 * 1000,
+  max: 15,
+  keyGenerator: userOrIpKey,
+  message: 'Too many content generations, please try again later',
+});
+
+/** HCTI image generation: strict — 15 / hour / user+IP. */
+export const imageGenerationLimiter = limiter({
+  windowMs: 60 * 60 * 1000,
+  max: 15,
+  keyGenerator: userOrIpKey,
+  message: 'Too many image generations, please try again later',
+});
+
+/** Schedule/cancel/delete: moderate — 60 / hour / user+IP. */
+export const scheduleLimiter = limiter({
+  windowMs: 60 * 60 * 1000,
+  max: 60,
+  keyGenerator: userOrIpKey,
+  message: 'Too many requests, please try again later',
+});
+
+/** Public media proxy: IP-based — 120 / 15 min. */
+export const mediaProxyLimiter = limiter({
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  message: 'Too many requests',
+});
+
 export default {
   createRateLimiter,
   generalApiLimiter,
@@ -177,4 +218,9 @@ export default {
   accountDisconnectLimiter,
   threadsWebhookLimiter,
   dataDeletionStatusLimiter,
+  postWriteLimiter,
+  contentGenerationLimiter,
+  imageGenerationLimiter,
+  scheduleLimiter,
+  mediaProxyLimiter,
 };

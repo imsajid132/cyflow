@@ -172,22 +172,132 @@
           </div>
         </section>
 
-        <!-- Create Post (later phase) -->
+        <!-- Create Post (functional) -->
         <section id="create-post" aria-labelledby="cp-h" class="scroll-mt-20">
-          <h2 id="cp-h" class="text-lg font-semibold text-slate-900">Create Post</h2>
-          <p class="mt-1 text-sm text-slate-500">Generate a caption and image, choose targets, and schedule.</p>
-          <div class="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center">
-            <p class="text-sm text-slate-500">Content generation and scheduling arrive in later phases.</p>
-            <button type="button" disabled class="mt-3 rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-400 cursor-not-allowed">Create post</button>
+          <div class="flex items-center justify-between">
+            <h2 id="cp-h" class="text-lg font-semibold text-slate-900">Create Post</h2>
+            <span id="cp-mode" class="text-xs text-slate-400">New draft</span>
+          </div>
+          <p class="mt-1 text-sm text-slate-500">Generate captions and an image, choose targets, and schedule. Publishing is enabled in a later phase.</p>
+          <div id="cp-notice" class="mt-3 hidden" role="alert" aria-live="polite"></div>
+
+          <div class="mt-4 grid gap-6 lg:grid-cols-2">
+            <!-- Left: brief + options -->
+            <form id="cp-form" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4" novalidate>
+              <div>
+                <label for="cp-title" class="block text-sm font-medium text-slate-700">Internal title</label>
+                <input id="cp-title" type="text" maxlength="200" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="For your reference only" />
+              </div>
+              <div>
+                <label for="cp-brief" class="block text-sm font-medium text-slate-700">Content brief</label>
+                <textarea id="cp-brief" rows="4" maxlength="5000" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="What is this post about?"></textarea>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label for="cp-brand" class="block text-sm font-medium text-slate-700">Brand name</label>
+                  <input id="cp-brand" type="text" maxlength="120" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                </div>
+                <div>
+                  <label for="cp-language" class="block text-sm font-medium text-slate-700">Language</label>
+                  <input id="cp-language" type="text" maxlength="40" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="English" />
+                </div>
+                <div>
+                  <label for="cp-tone" class="block text-sm font-medium text-slate-700">Tone</label>
+                  <select id="cp-tone" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"></select>
+                </div>
+                <div>
+                  <label for="cp-hashtags" class="block text-sm font-medium text-slate-700">Hashtags</label>
+                  <select id="cp-hashtags" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"></select>
+                </div>
+              </div>
+              <div>
+                <label for="cp-cta" class="block text-sm font-medium text-slate-700">Call to action</label>
+                <input id="cp-cta" type="text" maxlength="200" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label for="cp-notes" class="block text-sm font-medium text-slate-700">Additional instructions</label>
+                <textarea id="cp-notes" rows="2" maxlength="1000" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"></textarea>
+              </div>
+              <div class="grid grid-cols-3 gap-3">
+                <div>
+                  <label for="cp-template" class="block text-sm font-medium text-slate-700">Template</label>
+                  <select id="cp-template" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"></select>
+                </div>
+                <div>
+                  <label for="cp-aspect" class="block text-sm font-medium text-slate-700">Aspect</label>
+                  <select id="cp-aspect" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"></select>
+                </div>
+                <div>
+                  <label for="cp-bg" class="block text-sm font-medium text-slate-700">Background</label>
+                  <select id="cp-bg" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"></select>
+                </div>
+              </div>
+
+              <fieldset>
+                <legend class="block text-sm font-medium text-slate-700">Target accounts</legend>
+                <div id="cp-accounts" class="mt-2 space-y-2 text-sm text-slate-600">
+                  <p class="text-slate-400">Loading accounts…</p>
+                </div>
+              </fieldset>
+
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label for="cp-date" class="block text-sm font-medium text-slate-700">Schedule date</label>
+                  <input id="cp-date" type="date" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                </div>
+                <div>
+                  <label for="cp-time" class="block text-sm font-medium text-slate-700">Schedule time</label>
+                  <input id="cp-time" type="time" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                </div>
+              </div>
+              <p class="text-xs text-slate-400">Times are interpreted in your profile timezone (<span id="cp-tz">UTC</span>) and stored in UTC.</p>
+
+              <div class="flex flex-wrap gap-2 pt-2">
+                <button id="cp-save" type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:bg-slate-300">Save draft</button>
+                <button id="cp-gen-content" type="button" class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50" disabled>Generate content</button>
+                <button id="cp-gen-image" type="button" class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50" disabled>Generate image</button>
+                <button id="cp-schedule" type="button" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:bg-slate-300" disabled>Schedule post</button>
+                <button id="cp-cancel-edit" type="button" class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">Cancel editing</button>
+              </div>
+              <p id="cp-openai-hint" class="hidden text-xs text-amber-700">Content generation is unavailable (OpenAI not configured on the server).</p>
+              <p id="cp-hcti-hint" class="hidden text-xs text-amber-700">Image generation needs verified HCTI credentials (HCTI Settings).</p>
+            </form>
+
+            <!-- Right: preview -->
+            <div class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+              <h3 class="text-sm font-semibold text-slate-800">Preview</h3>
+              <div id="cp-preview-tabs" class="flex gap-2 text-xs"></div>
+              <div>
+                <label class="block text-xs text-slate-500">Caption (editable per platform)</label>
+                <textarea id="cp-caption" rows="6" maxlength="4000" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Generate content to see captions here"></textarea>
+                <div class="mt-1 flex items-center justify-between">
+                  <span id="cp-hashtag-preview" class="text-xs text-indigo-600"></span>
+                  <button id="cp-save-caption" type="button" class="text-xs text-slate-500 hover:text-slate-800">Save caption override</button>
+                </div>
+              </div>
+              <div>
+                <label class="block text-xs text-slate-500">Image</label>
+                <div class="mt-1 rounded-lg border border-dashed border-slate-300 p-3 text-center">
+                  <img id="cp-image" alt="" class="mx-auto max-h-64 hidden rounded" />
+                  <p id="cp-image-empty" class="text-xs text-slate-400">No image generated yet.</p>
+                </div>
+                <p id="cp-alt" class="mt-1 text-xs text-slate-400"></p>
+                <p id="cp-image-info" class="text-xs text-slate-400"></p>
+              </div>
+            </div>
           </div>
         </section>
 
-        <!-- Scheduled Queue (later phase) -->
+        <!-- Scheduled Queue (functional) -->
         <section id="scheduled-queue" aria-labelledby="sq-h" class="scroll-mt-20">
-          <h2 id="sq-h" class="text-lg font-semibold text-slate-900">Scheduled Queue</h2>
-          <p class="mt-1 text-sm text-slate-500">Upcoming and past posts will appear here.</p>
-          <div class="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center">
-            <p class="text-sm text-slate-500">The queue populates once scheduling is available.</p>
+          <div class="flex items-center justify-between">
+            <h2 id="sq-h" class="text-lg font-semibold text-slate-900">Scheduled Queue</h2>
+            <button id="sq-refresh" type="button" class="text-xs text-slate-500 hover:text-slate-800">Refresh</button>
+          </div>
+          <p class="mt-1 text-sm text-slate-500">Your drafts and queued posts. Nothing is published automatically yet.</p>
+          <div id="sq-notice" class="mt-3 hidden" role="alert" aria-live="polite"></div>
+          <div id="sq-list" class="mt-4 space-y-3">
+            <p id="sq-empty" class="text-sm text-slate-500">No posts yet.</p>
           </div>
         </section>
       </main>
@@ -196,7 +306,7 @@
     <footer class="border-t border-slate-200 bg-white">
       <div class="mx-auto max-w-7xl px-4 py-4 text-xs text-slate-400 flex items-center justify-between">
         <span>© <span id="year"></span> Cyflow Social</span>
-        <span>Phase 2 · Accounts</span>
+        <span>Phase 4 · Content &amp; Scheduling</span>
       </div>
     </footer>
   </div>

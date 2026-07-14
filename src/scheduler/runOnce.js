@@ -1,36 +1,49 @@
 /**
  * `npm run scheduler:once` entrypoint.
  *
- * Phase 1 provides configuration validation only. The actual publishing
- * pipeline (claiming due posts, generating content/images, publishing to
- * providers, retries) is implemented in a later phase.
- *
- * This stub validates configuration (by importing the validated config),
- * reports database connectivity as informational, and exits cleanly WITHOUT
- * processing any posts. It never pretends to have done work. Because it does no
- * real work, an unreachable database is reported but is not treated as a
- * failure — the honest Phase 1 outcome is "nothing processed".
+ * Phase 4 status: content generation + scheduling exist, but PROVIDER PUBLISHING
+ * IS NOT IMPLEMENTED. This one-shot run only REPORTS what is queued — it never
+ * publishes, never moves queued posts to published, never increments publish
+ * attempts, and never calls Meta/Instagram/Threads APIs. Read-only.
  */
 
 import { config } from '../config/env.js';
-import { checkHealth, closePool } from '../db/pool.js';
+import { getPool, checkHealth, closePool } from '../db/pool.js';
 
 async function main() {
   console.log(`[scheduler] one-shot run in "${config.env}" mode`);
+  console.log(`[scheduler] SCHEDULER_ENABLED=${config.scheduler.enabled}`);
 
   const db = await checkHealth();
-  console.log(
-    db.ok
-      ? '[scheduler] database: reachable'
-      : `[scheduler] database: unreachable (${db.error}) — informational only`,
-  );
+  if (!db.ok) {
+    console.log(`[scheduler] database unreachable (${db.error}) — nothing to report`);
+    await closePool();
+    process.exit(0);
+    return;
+  }
 
-  console.log(
-    '[scheduler] Phase 1: publishing pipeline is NOT implemented — 0 posts processed',
-  );
+  // Read-only counts. No writes, no publishing.
+  let queued = 0;
+  let dueNow = 0;
+  try {
+    const [q] = await getPool().execute("SELECT COUNT(*) AS n FROM scheduled_posts WHERE status = 'queued'");
+    queued = Number(q[0]?.n ?? 0);
+    const [d] = await getPool().execute(
+      "SELECT COUNT(*) AS n FROM scheduled_posts WHERE status = 'queued' AND scheduled_at_utc IS NOT NULL AND scheduled_at_utc <= UTC_TIMESTAMP()",
+    );
+    dueNow = Number(d[0]?.n ?? 0);
+  } catch (err) {
+    console.log(`[scheduler] could not read queue (${err.code || 'error'})`);
+    await closePool();
+    process.exit(0);
+    return;
+  }
+
+  console.log(`[scheduler] queued posts: ${queued}`);
+  console.log(`[scheduler] posts ready for a future publishing phase (due now): ${dueNow}`);
+  console.log('[scheduler] posts published: 0 (provider publishing is not implemented yet)');
 
   await closePool();
-  // Honest, safe exit: the stub did no work, so this is success, not failure.
   process.exit(0);
 }
 

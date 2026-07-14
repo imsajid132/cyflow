@@ -3,17 +3,104 @@
 A web-based platform to **generate**, **schedule**, and **automatically publish**
 social media content — captions and images — to your connected accounts.
 
-> **Status: Phase 3 — OAuth account connections.** Completed so far: the
-> Phase 1 foundation, Phase 2 auth + HCTI, **plus** connecting **Facebook Pages**,
-> **Instagram Professional** accounts, and **Threads** profiles via official
-> OAuth, with encrypted token storage, account listing, verification, token
-> refresh (where officially supported), and local disconnect.
+> **Status: Phase 4 — content generation & scheduling.** Completed so far: the
+> Phase 1 foundation, Phase 2 auth + HCTI, Phase 3 OAuth connections, **plus**
+> centralized **OpenAI** caption generation, per-user **HCTI** image generation
+> from trusted templates, a safe **media proxy**, post **drafts**, target
+> selection with per-account caption overrides, **scheduling** (timezone → UTC),
+> the **scheduled queue**, cancellation/deletion, and **API-usage metering**.
 >
-> **Not implemented yet** (later phases): **OpenAI** caption generation,
-> **post creation**, the **scheduling queue**, **cron publishing**, provider
-> **publishing** (Facebook/Instagram/Threads posts), **HCTI image use in posts**,
-> a **media proxy**, and an automatic **token-refresh cron**. Those areas remain
-> clearly disabled in the UI. **App Review approval is NOT claimed** — see below.
+> **NOT implemented yet:** provider **publishing** (Facebook/Instagram/Threads
+> posts), the **cron publishing** pipeline, an automatic **token-refresh cron**,
+> and post analytics. **Scheduling saves a validated post for a future
+> publishing phase — nothing is published, and `scheduler:once` never publishes.**
+> **App Review approval is NOT claimed.**
+
+## Phase 4 — content generation & scheduling
+
+### Centralized OpenAI (never user-provided)
+
+Caption generation uses ONE backend OpenAI key (`OPENAI_API_KEY`) with the
+configured model (`OPENAI_TEXT_MODEL` — never hardcoded). Users never enter or
+see a key; it is never returned to the frontend or logged. OpenAI is "available"
+only when `OPENAI_API_KEY` + `OPENAI_TEXT_MODEL` are both set (production fails
+clearly on partial config). All user text is treated as data — the trusted
+system prompt forbids following embedded instructions, and connected-account
+tokens / HCTI credentials / emails are never sent to OpenAI.
+
+Content flow: save a draft → select active target accounts → **Generate content**
+(one caption + separate hashtags per selected platform, plus a short image
+headline/subheadline/alt text) → edit any caption → **Generate image**.
+
+### HCTI image generation
+
+`POST /api/posts/:id/generate-image` renders the image with the **user's own
+verified HCTI credentials** (decrypted only in memory), using trusted
+server-owned templates — **minimal**, **bold**, **professional** — at
+**square 1080×1080**, **portrait 1080×1350**, or **landscape 1200×630**, with a
+safe background preset. User text is HTML-escaped and the HTML is sanitized
+(defence-in-depth): no scripts, iframes, forms, event handlers, or arbitrary
+CSS/URLs.
+
+### Media proxy
+
+`GET /media/:publicToken` serves ready, unexpired assets by an **opaque random
+token** (never a DB id), proxied only from the **trusted HCTI host** (SSRF-safe;
+no client URLs), with a timeout, max byte-size, image-only content types,
+`X-Content-Type-Options: nosniff`, and a cache policy. Base64 image data is never
+stored in MySQL.
+
+### Post & scheduling endpoints (all auth; state-changing = CSRF)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/posts/capabilities` | OpenAI/HCTI availability + daily-generation usage |
+| GET | `/api/posts` | list drafts/queued (paginated, sanitized) |
+| POST | `/api/posts` | create draft |
+| GET | `/api/posts/:id` | get a post + targets + media preview |
+| PATCH | `/api/posts/:id` | update draft (no privileged fields) |
+| POST | `/api/posts/:id/generate-content` | OpenAI (strict rate limit) |
+| POST | `/api/posts/:id/generate-image` | HCTI (strict rate limit) |
+| PUT | `/api/posts/:id/targets` | select accounts + caption overrides |
+| POST | `/api/posts/:id/schedule` | queue for a future publishing phase |
+| POST | `/api/posts/:id/cancel` | cancel a pre-publication post |
+| DELETE | `/api/posts/:id` | delete a draft (blocked if published history) |
+| GET | `/media/:publicToken` | public, SSRF-safe image proxy |
+
+### Timezone & UTC
+
+Scheduling takes a **local date + time** and the user's **IANA timezone**,
+converts to the UTC instant (via `Intl`), stores `scheduled_at_utc` (UTC) plus
+the `original_timezone`, and rejects past times and invalid zones. Example:
+`14:30 Asia/Karachi` → `09:30 UTC`.
+
+### Daily generation limit & metering
+
+Each successful/failed OpenAI content call and each HCTI image call is recorded
+in `api_usage` (safe accounting only — never prompts, captions, tokens, or
+keys). Both operation types count toward `MAX_DAILY_GENERATIONS_PER_USER`
+(default 100) over a rolling 24h window; the limit is enforced before each
+generation.
+
+### Migration 005
+
+Phase 4 adds a few columns to `scheduled_posts` (aspect ratio, background style,
+image alt text, generation params, generation timestamps). Apply
+[`005_phase4_generation_scheduling.sql`](database/migrations/005_phase4_generation_scheduling.sql)
+to an existing database (additive only, no data reset); fresh installs get them
+from `schema.sql`. **No new environment variable is required** (OpenAI/HCTI vars
+already existed).
+
+### Manual smoke test
+
+Sign in → **Create Post**: enter a brief + brand, pick tone/template/aspect,
+check an active account, **Save draft**, **Generate content** (edit captions per
+platform), **Generate image** (preview appears), set a **schedule date/time**,
+**Schedule post** → it appears in **Scheduled Queue** as *queued* (not
+published). Use the queue to **Edit**, **Cancel**, or **Delete**.
+
+> Publishing is still unfinished: no Facebook/Instagram/Threads post is created,
+> and `npm run scheduler:once` only reports the queue (0 published).
 
 ## Phase 3 — OAuth account connections
 
@@ -252,16 +339,17 @@ cyflow-social/
 │   ├── container.js          # DI wiring (repos → services → controllers)
 │   ├── shutdown.js           # graceful close helpers
 │   ├── config/               # env.js (validated config) + constants.js
-│   ├── controllers/          # auth, integration, oauth, socialAccount
+│   ├── controllers/          # auth, integration, oauth, socialAccount, post, media, threadsCallback
 │   ├── db/                   # pool.js + transactions.js
 │   ├── middleware/           # requestId, errorHandler, rateLimits, validate, auth, csrf
 │   ├── providers/            # baseProvider, meta/instagram/threads, providerRegistry
-│   ├── repositories/         # user, integration, log, oauthState, socialAccount
-│   ├── routes/               # health, csrf, auth, integration, oauth, socialAccount
-│   ├── services/             # encryption, auth, hcti, logging, oauth
-│   ├── validators/           # auth, integration, socialAccount
-│   ├── scheduler/            # runOnce.js (Phase 1 stub)
-│   └── utils/                # errors, redaction, validation, time, session, providerHttp, oauthErrors, asyncHandler, apiResponse
+│   ├── repositories/         # user, integration, log, oauthState, socialAccount, post, mediaAsset, apiUsage, dataDeletion
+│   ├── routes/               # health, csrf, auth, integration, oauth, socialAccount, post, media
+│   ├── services/             # encryption, auth, hcti, logging, oauth, openaiContent, socialImage, mediaAsset, post, threadsCallback
+│   ├── templates/            # socialImageTemplates (trusted HTML/CSS)
+│   ├── validators/           # auth, integration, socialAccount, post, threadsCallback
+│   ├── scheduler/            # runOnce.js (reports queue; does NOT publish)
+│   └── utils/                # errors, redaction, validation, time, session, providerHttp, oauthErrors, signedRequest, asyncHandler, apiResponse
 └── tests/                    # node:test + supertest (with in-memory fakes)
 ```
 
