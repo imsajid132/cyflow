@@ -1,8 +1,0 @@
-**/node_modules
-**/dist
-**/.turbo
-apps/web/dist
-.git
-*.log
-.env
-.env.*

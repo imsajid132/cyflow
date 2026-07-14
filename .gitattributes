@@ -1,3 +1,0 @@
-# The committed frontend build (served on Hostinger) must stay byte-for-byte
-# identical across platforms — never apply line-ending conversion to it.
-web-dist/** -text
