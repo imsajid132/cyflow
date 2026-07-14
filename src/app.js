@@ -107,6 +107,9 @@ export function createApp() {
   // --- Session (server-side MySQL store) ------------------------------------
   // Tests run without a database — fall back to the default in-memory store.
   const sessionStore = config.env === 'test' ? undefined : buildSessionStore();
+  // Expose the store so the server can close it (its own pool + expiry timer)
+  // during graceful shutdown. `null` when using the default MemoryStore.
+  app.set('sessionStore', sessionStore ?? null);
   app.use(
     session({
       name: config.session.cookieName,

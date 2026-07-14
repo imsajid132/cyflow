@@ -10,9 +10,11 @@ import http from 'node:http';
 
 import { config } from './config/env.js';
 import { createApp } from './app.js';
-import { checkHealth, closePool } from './db/pool.js';
+import { checkHealth } from './db/pool.js';
+import { gracefulClose } from './shutdown.js';
 
 let server = null;
+let app = null;
 let shuttingDown = false;
 
 function log(message) {
@@ -35,7 +37,7 @@ async function start() {
   log('Database connection OK');
 
   // 3) Build the app and listen.
-  const app = createApp();
+  app = createApp();
   server = http.createServer(app);
 
   server.listen(config.port, '0.0.0.0', () => {
@@ -49,7 +51,7 @@ async function start() {
   });
 }
 
-async function shutdown(signal) {
+async function shutdown(signal, exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
   log(`Received ${signal}, shutting down gracefully...`);
@@ -61,34 +63,32 @@ async function shutdown(signal) {
   forceTimer.unref();
 
   try {
-    if (server) {
-      await new Promise((resolve) => server.close(resolve));
-      log('HTTP server closed');
-    }
-    await closePool();
-    log('Database pool closed');
+    // Ordered release: HTTP server → session store → database pool.
+    await gracefulClose({ server, app });
+    log('HTTP server, session store, and database pool closed');
     clearTimeout(forceTimer);
-    process.exit(0);
+    process.exit(exitCode);
   } catch (err) {
     log(`Error during shutdown: ${err?.code || err?.name || 'unknown'}`);
     process.exit(1);
   }
 }
 
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM', 0));
+process.on('SIGINT', () => shutdown('SIGINT', 0));
 
 process.on('unhandledRejection', (reason) => {
   // Log a sanitized reason; do not print full objects that may hold secrets.
   const detail = reason instanceof Error ? reason.message : 'non-error rejection';
   log(`Unhandled promise rejection: ${detail}`);
-  shutdown('unhandledRejection');
+  // Corrupt/unknown state — exit non-zero after attempting a clean close.
+  shutdown('unhandledRejection', 1);
 });
 
 process.on('uncaughtException', (err) => {
   log(`Uncaught exception: ${err?.message || 'unknown'}`);
-  // Exit after attempting a graceful close — state may be corrupt.
-  shutdown('uncaughtException');
+  // Corrupt/unknown state — exit non-zero after attempting a clean close.
+  shutdown('uncaughtException', 1);
 });
 
 start().catch((err) => {

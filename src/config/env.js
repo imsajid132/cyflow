@@ -158,11 +158,21 @@ export function buildConfig(raw = process.env) {
   });
 
   // --- OpenAI (centralized admin key — never user-provided) ----------------
+  // OpenAI is "enabled" when OPENAI_API_KEY is set. When enabled, the model
+  // name MUST come from OPENAI_TEXT_MODEL — we never invent/hardcode a model.
+  // In production a missing model is a hard error; in development the provider
+  // is simply reported unavailable.
   const openaiKey = optionalString('OPENAI_API_KEY');
+  const openaiModel = optionalString('OPENAI_TEXT_MODEL');
+  const openaiEnabled = openaiKey !== '';
+  if (openaiEnabled && openaiModel === '' && IS_PROD) {
+    errors.push('OPENAI_TEXT_MODEL is required when OPENAI_API_KEY is set');
+  }
   const openai = {
     apiKey: openaiKey,
-    available: openaiKey !== '',
-    textModel: optionalString('OPENAI_TEXT_MODEL') || 'gpt-4o-mini',
+    // No invented default — empty string until configured.
+    textModel: openaiModel,
+    available: openaiKey !== '' && openaiModel !== '',
     requestTimeoutMs: toNumber('OPENAI_REQUEST_TIMEOUT_MS', {
       required: false,
       fallback: 45000,
@@ -195,28 +205,44 @@ export function buildConfig(raw = process.env) {
   };
 
   // --- Providers — optional in dev; unavailable when absent -----------------
-  function buildProvider(prefix, { defaultGraphVersion } = {}) {
+  // A provider is "enabled" when ANY of its required fields is set. Once
+  // enabled, ALL required fields must be present: in production this is a hard
+  // error; in development the provider is reported unavailable. No provider
+  // value (e.g. Meta Graph API version) is ever invented/hardcoded.
+  function buildProvider(prefix, { requireGraphVersion = false } = {}) {
     const appId = optionalString(`${prefix}_APP_ID`);
     const appSecret = optionalString(`${prefix}_APP_SECRET`);
     const redirectUri = optionalString(`${prefix}_REDIRECT_URI`);
-    const graphVersion = defaultGraphVersion
-      ? optionalString('META_GRAPH_API_VERSION') || defaultGraphVersion
+    // Graph API version has a fixed env name (META_GRAPH_API_VERSION), no default.
+    const graphVersion = requireGraphVersion
+      ? optionalString('META_GRAPH_API_VERSION')
       : undefined;
 
     if (redirectUri) validateUrl(`${prefix}_REDIRECT_URI`, redirectUri, { required: false });
 
-    const available = appId !== '' && appSecret !== '' && redirectUri !== '';
+    const requiredFields = [
+      [`${prefix}_APP_ID`, appId],
+      [`${prefix}_APP_SECRET`, appSecret],
+      [`${prefix}_REDIRECT_URI`, redirectUri],
+    ];
+    if (requireGraphVersion) {
+      requiredFields.push(['META_GRAPH_API_VERSION', graphVersion]);
+    }
 
-    if (IS_PROD && !available && (appId || appSecret || redirectUri)) {
+    const enabled = requiredFields.some(([, v]) => v !== '' && v !== undefined);
+    const available = requiredFields.every(([, v]) => v !== '' && v !== undefined);
+
+    if (IS_PROD && enabled && !available) {
+      const missing = requiredFields.filter(([, v]) => !v).map(([k]) => k);
       errors.push(
-        `${prefix} provider is partially configured; set APP_ID, APP_SECRET and REDIRECT_URI or leave all empty`,
+        `${prefix} provider is enabled but missing required configuration: ${missing.join(', ')}`,
       );
     }
 
     return { appId, appSecret, redirectUri, graphVersion, available };
   }
 
-  const meta = buildProvider('META', { defaultGraphVersion: 'v21.0' });
+  const meta = buildProvider('META', { requireGraphVersion: true });
   const instagram = buildProvider('INSTAGRAM');
   const threads = buildProvider('THREADS');
 

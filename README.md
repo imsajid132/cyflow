@@ -158,6 +158,25 @@ never be committed. It holds secrets: the encryption key, session secret,
 database password, OpenAI key, and provider app secrets. Only `.env.example`
 (placeholders, no values) is tracked.
 
+## Security Status
+
+Dependency audit (Phase 1.1 hardening, 2026-07-15):
+
+- **`npm audit`: 0 vulnerabilities.**
+- **`npm audit --omit=dev` (production): 0 vulnerabilities.**
+
+Two dependencies were upgraded to patched majors after verifying compatibility:
+
+| Package | From → To | Reason | Compatibility |
+|---|---|---|---|
+| `bcrypt` | 5.1.1 → 6.0.0 | Cleared high-severity `tar`/`node-pre-gyp` chain (bcrypt 6 uses prebuilt binaries, no `node-pre-gyp`) | `hash`/`compare` API unchanged; verified at runtime by `tests/bcrypt.test.js` |
+| `node-cron` | 3.0.3 → 4.6.0 | Cleared moderate `uuid` advisory | Not yet used in code; `validate`/`schedule`/`stop` verified to import and run |
+
+No high or moderate vulnerabilities remain unresolved. If a future audit surfaces
+an advisory whose only fix is a breaking upgrade, it will be documented here
+honestly rather than dismissed — unresolved high-severity issues are never
+described as safe.
+
 ## Roadmap (later phases)
 
 OAuth connection flows, OpenAI caption generation, HCTI image generation, the

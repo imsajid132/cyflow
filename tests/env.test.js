@@ -54,13 +54,92 @@ test('env: reports providers unavailable when credentials are absent', () => {
   assert.equal(providerAvailability.openai, false);
 });
 
-test('env: reports a provider available when fully configured', () => {
+test('env: reports Meta available only when fully configured (incl. graph version)', () => {
+  const fullyConfigured = {
+    META_APP_ID: 'app-id',
+    META_APP_SECRET: 'app-secret',
+    META_REDIRECT_URI: 'http://localhost:3000/oauth/meta/callback',
+    META_GRAPH_API_VERSION: 'v21.0',
+  };
+  const ok = buildConfig(validRawEnv(fullyConfigured));
+  assert.equal(ok.providerAvailability.meta, true);
+  assert.equal(ok.config.providers.meta.graphVersion, 'v21.0');
+});
+
+// --- No invented defaults --------------------------------------------------
+
+test('env: does not invent an OpenAI model default', () => {
+  const { config } = buildConfig(validRawEnv()); // no OPENAI_* set
+  assert.equal(config.openai.textModel, '');
+  assert.equal(config.openai.available, false);
+});
+
+test('env: does not invent a Meta Graph API version default', () => {
+  const { config } = buildConfig(validRawEnv()); // no META_* set
+  // Unset → falsy (empty string), never a hardcoded version like "v21.0".
+  assert.ok(!config.providers.meta.graphVersion);
+  assert.doesNotMatch(String(config.providers.meta.graphVersion), /^v\d/);
+});
+
+// --- OpenAI model required when enabled ------------------------------------
+
+test('env: OpenAI key without a model is unavailable in development (no throw)', () => {
+  const { config, providerAvailability } = buildConfig(
+    validRawEnv({ NODE_ENV: 'development', OPENAI_API_KEY: 'sk-test-key' }),
+  );
+  assert.equal(providerAvailability.openai, false);
+  assert.equal(config.openai.textModel, '');
+});
+
+test('env: OpenAI key without a model FAILS in production', () => {
+  assert.throws(
+    () => buildConfig(validRawEnv({ NODE_ENV: 'production', OPENAI_API_KEY: 'sk-test-key' })),
+    /OPENAI_TEXT_MODEL is required/,
+  );
+});
+
+test('env: OpenAI available when key and model are both set', () => {
+  const { providerAvailability } = buildConfig(
+    validRawEnv({ OPENAI_API_KEY: 'sk-test-key', OPENAI_TEXT_MODEL: 'some-model' }),
+  );
+  assert.equal(providerAvailability.openai, true);
+});
+
+// --- Meta graph version required when enabled ------------------------------
+
+test('env: partial Meta config is unavailable in development (no throw)', () => {
   const { providerAvailability } = buildConfig(
     validRawEnv({
+      NODE_ENV: 'development',
       META_APP_ID: 'app-id',
       META_APP_SECRET: 'app-secret',
       META_REDIRECT_URI: 'http://localhost:3000/oauth/meta/callback',
+      // META_GRAPH_API_VERSION intentionally missing
     }),
   );
-  assert.equal(providerAvailability.meta, true);
+  assert.equal(providerAvailability.meta, false);
+});
+
+test('env: enabled Meta missing the graph version FAILS in production', () => {
+  assert.throws(
+    () =>
+      buildConfig(
+        validRawEnv({
+          NODE_ENV: 'production',
+          META_APP_ID: 'app-id',
+          META_APP_SECRET: 'app-secret',
+          META_REDIRECT_URI: 'https://example.com/oauth/meta/callback',
+          // META_GRAPH_API_VERSION intentionally missing
+        }),
+      ),
+    /META_GRAPH_API_VERSION/,
+  );
+});
+
+test('env: production with no provider config does not fail (providers simply unavailable)', () => {
+  const { providerAvailability } = buildConfig(validRawEnv({ NODE_ENV: 'production' }));
+  assert.equal(providerAvailability.meta, false);
+  assert.equal(providerAvailability.instagram, false);
+  assert.equal(providerAvailability.threads, false);
+  assert.equal(providerAvailability.openai, false);
 });
