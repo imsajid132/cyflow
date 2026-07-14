@@ -294,6 +294,27 @@ CREATE TABLE IF NOT EXISTS `api_usage` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------------------------------
+-- K. data_deletion_requests  (Meta/Threads data-deletion callback receipts)
+--    Tracks confirmation codes so the public status endpoint can report on a
+--    deletion WITHOUT storing personal data. `provider_user_id` is an opaque
+--    provider identifier (never exposed by the status endpoint). No FK to users
+--    — a deletion request may outlive the connected account.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `data_deletion_requests` (
+  `id`                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `confirmation_code` VARCHAR(64)     NOT NULL,
+  `provider`          ENUM('meta','instagram','threads') NOT NULL,
+  `provider_user_id`  VARCHAR(255)    NULL DEFAULT NULL,
+  `status`            ENUM('received','completed','failed') NOT NULL DEFAULT 'received',
+  `accounts_removed`  INT UNSIGNED    NOT NULL DEFAULT 0,
+  `created_at`        DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`        DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_data_deletion_confirmation` (`confirmation_code`),
+  KEY `idx_data_deletion_provider_user` (`provider`, `provider_user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------------------------------
 -- J. sessions  (server-side session store for express-mysql-session)
 --    Matches the library's default schema (utf8mb4_bin session_id).
 -- -----------------------------------------------------------------------------

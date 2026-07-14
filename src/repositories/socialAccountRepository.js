@@ -241,6 +241,21 @@ export async function deleteAccountForUser(accountId, userId, connection) {
   return (result.affectedRows ?? 0) > 0;
 }
 
+/**
+ * Find ALL Threads accounts (across users) matching a provider user id — used
+ * by the server-to-server uninstall/data-deletion webhooks, which are not
+ * session-scoped. Matches either provider_user_id or provider_account_id.
+ */
+export async function findThreadsAccountsByProviderUserId(providerUserId, connection) {
+  const [rows] = await runner(connection).execute(
+    `SELECT ${NON_TOKEN_COLUMNS} FROM social_accounts
+      WHERE provider = 'threads'
+        AND (provider_user_id = ? OR provider_account_id = ?)`,
+    [providerUserId, providerUserId],
+  );
+  return rows.map(sanitizeAccount);
+}
+
 /** True if any scheduled_post_targets reference this account (history to keep). */
 export async function hasPublishedHistory(accountId, connection) {
   const [rows] = await runner(connection).execute(
@@ -263,5 +278,6 @@ export default {
   markAccountError,
   markAccountRevoked,
   deleteAccountForUser,
+  findThreadsAccountsByProviderUserId,
   hasPublishedHistory,
 };

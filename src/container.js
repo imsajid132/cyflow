@@ -12,15 +12,18 @@ import * as integrationRepository from './repositories/integrationRepository.js'
 import * as logRepository from './repositories/logRepository.js';
 import * as oauthStateRepositoryModule from './repositories/oauthStateRepository.js';
 import * as socialAccountRepositoryModule from './repositories/socialAccountRepository.js';
+import * as dataDeletionRepositoryModule from './repositories/dataDeletionRepository.js';
 import { createLoggingService } from './services/loggingService.js';
 import { createAuthService } from './services/authService.js';
 import { hctiService as realHctiService } from './services/hctiService.js';
 import { createOAuthService } from './services/oauthService.js';
+import { createThreadsCallbackService } from './services/threadsCallbackService.js';
 import { providerRegistry as realProviderRegistry } from './providers/providerRegistry.js';
 import { createAuthController } from './controllers/authController.js';
 import { createIntegrationController } from './controllers/integrationController.js';
 import { createOAuthController } from './controllers/oauthController.js';
 import { createSocialAccountController } from './controllers/socialAccountController.js';
+import { createThreadsCallbackController } from './controllers/threadsCallbackController.js';
 import { createAuthMiddleware } from './middleware/auth.js';
 import { withTransaction as realWithTransaction } from './db/transactions.js';
 
@@ -63,8 +66,15 @@ export function buildContainer(overrides = {}) {
     logging,
     withTransaction,
   });
+  // Threads uninstall / data-deletion webhooks.
+  const dataDeletion = overrides.dataDeletionRepository ?? dataDeletionRepositoryModule;
+  const threadsCallbackService =
+    overrides.threadsCallbackService ??
+    createThreadsCallbackService({ socialAccounts, dataDeletion, logging });
+
   const oauthController = createOAuthController({ oauthService });
   const socialAccountController = createSocialAccountController({ oauthService, socialAccounts });
+  const threadsCallbackController = createThreadsCallbackController({ threadsCallbackService });
 
   const { requireAuth, guestOnly, attachUser } = createAuthMiddleware({ users });
 
@@ -79,10 +89,13 @@ export function buildContainer(overrides = {}) {
     hctiService,
     authService,
     oauthService,
+    dataDeletion,
+    threadsCallbackService,
     authController,
     integrationController,
     oauthController,
     socialAccountController,
+    threadsCallbackController,
     requireAuth,
     guestOnly,
     attachUser,

@@ -14,11 +14,39 @@
 import { Router } from 'express';
 
 import { csrfProtection } from '../middleware/csrf.js';
-import { oauthStartLimiter } from '../middleware/rateLimits.js';
+import { validate } from '../middleware/validateRequest.js';
+import {
+  oauthStartLimiter,
+  threadsWebhookLimiter,
+  dataDeletionStatusLimiter,
+} from '../middleware/rateLimits.js';
+import { signedRequestValidator } from '../validators/threadsCallbackValidators.js';
 
-export function createOAuthRoutes({ oauthController, requireAuth }) {
+export function createOAuthRoutes({ oauthController, threadsCallbackController, requireAuth }) {
   const router = Router();
 
+  // --- Threads server-to-server webhooks (PUBLIC; signed_request auth) -------
+  // No session/CSRF: Meta calls these directly and authenticates via the
+  // signed_request signature (verified with THREADS_APP_SECRET).
+  router.post(
+    '/threads/uninstall',
+    threadsWebhookLimiter,
+    validate(signedRequestValidator),
+    threadsCallbackController.uninstall,
+  );
+  router.post(
+    '/threads/data-deletion',
+    threadsWebhookLimiter,
+    validate(signedRequestValidator),
+    threadsCallbackController.dataDeletion,
+  );
+  router.get(
+    '/threads/data-deletion/status/:confirmationCode',
+    dataDeletionStatusLimiter,
+    threadsCallbackController.deletionStatus,
+  );
+
+  // --- Authenticated OAuth connection endpoints -----------------------------
   router.get('/providers', requireAuth, oauthController.getProviders);
 
   router.post('/:provider/start', requireAuth, oauthStartLimiter, csrfProtection, oauthController.startOAuth);

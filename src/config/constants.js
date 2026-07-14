@@ -165,6 +165,8 @@ export const EVENT_TYPES = Object.freeze({
   SOCIAL_ACCOUNT_VERIFICATION_FAILED: 'social_account.verification_failed',
   SOCIAL_ACCOUNT_TOKEN_REFRESHED: 'social_account.token_refreshed',
   SOCIAL_ACCOUNT_DISCONNECTED: 'social_account.disconnected',
+  THREADS_UNINSTALLED: 'threads.uninstalled',
+  THREADS_DATA_DELETION_REQUESTED: 'threads.data_deletion_requested',
 });
 
 // Least-privilege OAuth scopes requested per provider. Do NOT add unrelated

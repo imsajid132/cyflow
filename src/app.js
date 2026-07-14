@@ -174,6 +174,7 @@ export function createApp(overrides = {}) {
     '/api/oauth',
     createOAuthRoutes({
       oauthController: container.oauthController,
+      threadsCallbackController: container.threadsCallbackController,
       requireAuth: container.requireAuth,
     }),
   );

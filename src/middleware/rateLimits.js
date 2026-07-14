@@ -148,6 +148,20 @@ export const accountDisconnectLimiter = limiter({
   message: 'Too many disconnect attempts, please try again later',
 });
 
+/** Threads server-to-server webhooks (uninstall / data-deletion): 60 / 15 min / IP. */
+export const threadsWebhookLimiter = limiter({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  message: 'Too many requests',
+});
+
+/** Public data-deletion status lookups: 30 / 15 min / IP. */
+export const dataDeletionStatusLimiter = limiter({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: 'Too many requests',
+});
+
 export default {
   createRateLimiter,
   generalApiLimiter,
@@ -161,4 +175,6 @@ export default {
   oauthStartLimiter,
   accountVerifyLimiter,
   accountDisconnectLimiter,
+  threadsWebhookLimiter,
+  dataDeletionStatusLimiter,
 };

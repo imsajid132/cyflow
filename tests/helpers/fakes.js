@@ -316,6 +316,16 @@ export function createFakeSocialAccountRepository({ publishedHistory = false } =
       }
       return false;
     },
+    async findThreadsAccountsByProviderUserId(providerUserId) {
+      return rows
+        .filter(
+          (r) =>
+            r.provider === 'threads' &&
+            (String(r.provider_user_id) === String(providerUserId) ||
+              String(r.provider_account_id) === String(providerUserId)),
+        )
+        .map(sanitizeAccount);
+    },
     async hasPublishedHistory() {
       return publishedHistory;
     },
@@ -396,6 +406,29 @@ export function createFakeProviderRegistry(providers) {
   };
 }
 
+/** Fake `dataDeletionRepository` — in-memory. */
+export function createFakeDataDeletionRepository() {
+  const rows = [];
+  return {
+    _rows: rows,
+    async createDeletionRequest(input) {
+      rows.push({
+        confirmation_code: input.confirmationCode,
+        provider: input.provider,
+        provider_user_id: input.providerUserId ?? null,
+        status: input.status ?? 'received',
+        accounts_removed: input.accountsRemoved ?? 0,
+        created_at: '2026-01-01 00:00:00',
+      });
+    },
+    async findByConfirmationCode(code) {
+      const r = rows.find((x) => x.confirmation_code === code);
+      if (!r) return null;
+      return { confirmationCode: r.confirmation_code, provider: r.provider, status: r.status, createdAt: r.created_at };
+    },
+  };
+}
+
 /** Fake transaction runner: invokes the callback with a marker connection. */
 export async function fakeWithTransaction(callback) {
   return callback({ _fakeConnection: true });
@@ -411,6 +444,7 @@ export function createFakeOverrides(extra = {}) {
     oauthStateRepository: createFakeOAuthStateRepository(),
     socialAccountRepository: createFakeSocialAccountRepository(),
     providerRegistry: createFakeProviderRegistry(),
+    dataDeletionRepository: createFakeDataDeletionRepository(),
     withTransaction: fakeWithTransaction,
     ...extra,
   };

@@ -66,6 +66,30 @@ https://cyflow.cyfrow.net/api/oauth/threads/callback
 | POST | `/api/social-accounts/:id/verify` | user | ✅ | refresh (if supported) + verify |
 | DELETE | `/api/social-accounts/:id` | user | ✅ | body `{ "confirm": "DISCONNECT" }` |
 
+### Threads compliance callbacks (uninstall & data deletion)
+
+Server-to-server webhooks from Meta/Threads, authenticated by a `signed_request`
+(HMAC-SHA256 verified with `THREADS_APP_SECRET`) — **no session or CSRF**.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `/api/oauth/threads/uninstall` | signed_request | removes the matching Threads connection + tokens |
+| POST | `/api/oauth/threads/data-deletion` | signed_request | removes data; returns `{ url, confirmation_code }` |
+| GET | `/api/oauth/threads/data-deletion/status/:confirmationCode` | public | simple non-personal status |
+
+On a valid uninstall/data-deletion the matching Threads account(s) are found by
+the signed_request `user_id`; their tokens are erased and the connection is
+deleted (or **revoked** when publish history must be preserved). The
+data-deletion response is exactly `{ "url": "…/status/<code>", "confirmation_code": "<code>" }`,
+where the base URL comes from `PUBLIC_BASE_URL` (production:
+`https://cyflow.cyfrow.net/api/oauth/threads/data-deletion/status/<code>`). The
+status endpoint reports `received`/`completed` **without any personal data**.
+Invalid signatures are rejected; signed requests, tokens, secrets, and provider
+user ids are never logged. **No new environment variable is required** — the
+existing `THREADS_APP_SECRET` and `PUBLIC_BASE_URL` are reused. A migration
+[`004_threads_data_deletion.sql`](database/migrations/004_threads_data_deletion.sql)
+adds a `data_deletion_requests` receipts table.
+
 ### State & replay protection
 
 OAuth `state` carries ≥32 random bytes; only its **SHA-256 hash** is stored.
