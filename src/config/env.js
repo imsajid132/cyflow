@@ -206,28 +206,38 @@ export function buildConfig(raw = process.env) {
 
   // --- Providers — optional in dev; unavailable when absent -----------------
   // A provider is "enabled" when ANY of its required fields is set. Once
-  // enabled, ALL required fields must be present: in production this is a hard
-  // error; in development the provider is reported unavailable. No provider
-  // value (e.g. Meta Graph API version) is ever invented/hardcoded.
-  function buildProvider(prefix, { requireGraphVersion = false } = {}) {
+  // enabled, ALL required fields (app id, app secret, redirect URI, and the
+  // provider's Graph API version) must be present: production hard-errors while
+  // development reports the provider unavailable. No API version is invented.
+  // In production, redirect URIs must be absolute HTTPS URLs.
+  function buildProvider(prefix, { graphVersionEnvKey }) {
     const appId = optionalString(`${prefix}_APP_ID`);
     const appSecret = optionalString(`${prefix}_APP_SECRET`);
     const redirectUri = optionalString(`${prefix}_REDIRECT_URI`);
-    // Graph API version has a fixed env name (META_GRAPH_API_VERSION), no default.
-    const graphVersion = requireGraphVersion
-      ? optionalString('META_GRAPH_API_VERSION')
-      : undefined;
+    const graphVersion = optionalString(graphVersionEnvKey);
 
-    if (redirectUri) validateUrl(`${prefix}_REDIRECT_URI`, redirectUri, { required: false });
+    if (redirectUri) {
+      validateUrl(`${prefix}_REDIRECT_URI`, redirectUri, { required: false });
+      // Enforce HTTPS for redirect URIs in production only.
+      if (IS_PROD) {
+        let parsed;
+        try {
+          parsed = new URL(redirectUri);
+        } catch {
+          parsed = null;
+        }
+        if (parsed && parsed.protocol !== 'https:') {
+          errors.push(`${prefix}_REDIRECT_URI must be an absolute HTTPS URL in production`);
+        }
+      }
+    }
 
     const requiredFields = [
       [`${prefix}_APP_ID`, appId],
       [`${prefix}_APP_SECRET`, appSecret],
       [`${prefix}_REDIRECT_URI`, redirectUri],
+      [graphVersionEnvKey, graphVersion],
     ];
-    if (requireGraphVersion) {
-      requiredFields.push(['META_GRAPH_API_VERSION', graphVersion]);
-    }
 
     const enabled = requiredFields.some(([, v]) => v !== '' && v !== undefined);
     const available = requiredFields.every(([, v]) => v !== '' && v !== undefined);
@@ -242,9 +252,30 @@ export function buildConfig(raw = process.env) {
     return { appId, appSecret, redirectUri, graphVersion, available };
   }
 
-  const meta = buildProvider('META', { requireGraphVersion: true });
-  const instagram = buildProvider('INSTAGRAM');
-  const threads = buildProvider('THREADS');
+  const meta = buildProvider('META', { graphVersionEnvKey: 'META_GRAPH_API_VERSION' });
+  const instagram = buildProvider('INSTAGRAM', {
+    graphVersionEnvKey: 'INSTAGRAM_GRAPH_API_VERSION',
+  });
+  const threads = buildProvider('THREADS', { graphVersionEnvKey: 'THREADS_GRAPH_API_VERSION' });
+
+  // --- OAuth (state + provider HTTP behavior) -------------------------------
+  const oauth = {
+    stateTtlMinutes: toNumber('OAUTH_STATE_TTL_MINUTES', {
+      required: false,
+      fallback: 10,
+      min: 1,
+    }),
+    httpTimeoutMs: toNumber('OAUTH_HTTP_TIMEOUT_MS', {
+      required: false,
+      fallback: 30000,
+      min: 1000,
+    }),
+    tokenRefreshLeewayMinutes: toNumber('OAUTH_TOKEN_REFRESH_LEEWAY_MINUTES', {
+      required: false,
+      fallback: 10,
+      min: 0,
+    }),
+  };
 
   // --- Scheduler ------------------------------------------------------------
   const scheduler = {
@@ -306,6 +337,7 @@ export function buildConfig(raw = process.env) {
       instagram: Object.freeze(instagram),
       threads: Object.freeze(threads),
     }),
+    oauth: Object.freeze(oauth),
     scheduler: Object.freeze(scheduler),
     limits: Object.freeze(limits),
   });

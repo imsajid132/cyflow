@@ -143,3 +143,93 @@ test('env: production with no provider config does not fail (providers simply un
   assert.equal(providerAvailability.threads, false);
   assert.equal(providerAvailability.openai, false);
 });
+
+// --- Phase 3: per-provider Graph API versions + OAuth config ---------------
+
+function fullMeta(overrides = {}) {
+  return {
+    META_APP_ID: 'meta-id',
+    META_APP_SECRET: 'meta-secret',
+    META_REDIRECT_URI: 'https://cyflow.cyfrow.net/api/oauth/meta/callback',
+    META_GRAPH_API_VERSION: 'v21.0',
+    ...overrides,
+  };
+}
+function fullInstagram(overrides = {}) {
+  return {
+    INSTAGRAM_APP_ID: 'ig-id',
+    INSTAGRAM_APP_SECRET: 'ig-secret',
+    INSTAGRAM_REDIRECT_URI: 'https://cyflow.cyfrow.net/api/oauth/instagram/callback',
+    INSTAGRAM_GRAPH_API_VERSION: 'v21.0',
+    ...overrides,
+  };
+}
+function fullThreads(overrides = {}) {
+  return {
+    THREADS_APP_ID: 'th-id',
+    THREADS_APP_SECRET: 'th-secret',
+    THREADS_REDIRECT_URI: 'https://cyflow.cyfrow.net/api/oauth/threads/callback',
+    THREADS_GRAPH_API_VERSION: 'v1.0',
+    ...overrides,
+  };
+}
+
+test('env: instagram/threads available only when their graph version is set', () => {
+  const ok = buildConfig(validRawEnv({ ...fullInstagram(), ...fullThreads() }));
+  assert.equal(ok.providerAvailability.instagram, true);
+  assert.equal(ok.providerAvailability.threads, true);
+  assert.equal(ok.config.providers.instagram.graphVersion, 'v21.0');
+  assert.equal(ok.config.providers.threads.graphVersion, 'v1.0');
+
+  // Missing the instagram graph version -> unavailable in development.
+  const missing = buildConfig(
+    validRawEnv({ ...fullInstagram({ INSTAGRAM_GRAPH_API_VERSION: '' }) }),
+  );
+  assert.equal(missing.providerAvailability.instagram, false);
+});
+
+test('env: instagram uses its own version key, not META_GRAPH_API_VERSION', () => {
+  const { config } = buildConfig(
+    validRawEnv({
+      ...fullInstagram({ INSTAGRAM_GRAPH_API_VERSION: 'vIG' }),
+      META_GRAPH_API_VERSION: 'vMETA',
+    }),
+  );
+  assert.equal(config.providers.instagram.graphVersion, 'vIG');
+});
+
+test('env: enabled provider missing graph version FAILS in production', () => {
+  assert.throws(
+    () =>
+      buildConfig(
+        validRawEnv({ NODE_ENV: 'production', ...fullThreads({ THREADS_GRAPH_API_VERSION: '' }) }),
+      ),
+    /THREADS_GRAPH_API_VERSION/,
+  );
+});
+
+test('env: production rejects a non-HTTPS redirect URI', () => {
+  assert.throws(
+    () =>
+      buildConfig(
+        validRawEnv({
+          NODE_ENV: 'production',
+          ...fullMeta({ META_REDIRECT_URI: 'http://cyflow.cyfrow.net/api/oauth/meta/callback' }),
+        }),
+      ),
+    /HTTPS/,
+  );
+});
+
+test('env: OAuth settings have sane defaults and coerce numbers', () => {
+  const { config } = buildConfig(validRawEnv());
+  assert.equal(config.oauth.stateTtlMinutes, 10);
+  assert.equal(config.oauth.httpTimeoutMs, 30000);
+  assert.equal(config.oauth.tokenRefreshLeewayMinutes, 10);
+
+  const custom = buildConfig(
+    validRawEnv({ OAUTH_STATE_TTL_MINUTES: '5', OAUTH_HTTP_TIMEOUT_MS: '12000' }),
+  );
+  assert.strictEqual(custom.config.oauth.stateTtlMinutes, 5);
+  assert.strictEqual(custom.config.oauth.httpTimeoutMs, 12000);
+});

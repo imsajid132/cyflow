@@ -93,5 +93,46 @@ function redactInner(value, depth, seen) {
   return out;
 }
 
+/**
+ * Sensitive URL query parameters that must never be logged (OAuth callbacks
+ * carry these in req.originalUrl, not in the body).
+ */
+const URL_SENSITIVE_PARAMS = [
+  'code',
+  'state',
+  'access_token',
+  'refresh_token',
+  'client_secret',
+  'error_description',
+];
+
+/**
+ * Return a log-safe version of a URL: the pathname is preserved and any
+ * sensitive query parameter value is replaced with `REDACTED`. The full raw URL
+ * is never returned.
+ * @param {string} originalUrl e.g. "/api/oauth/meta/callback?code=abc&state=xyz"
+ * @returns {string}
+ */
+export function redactUrl(originalUrl) {
+  if (typeof originalUrl !== 'string' || originalUrl.length === 0) return '';
+  const qIndex = originalUrl.indexOf('?');
+  if (qIndex === -1) return originalUrl;
+
+  const path = originalUrl.slice(0, qIndex);
+  const query = originalUrl.slice(qIndex + 1);
+  let params;
+  try {
+    params = new URLSearchParams(query);
+  } catch {
+    return path;
+  }
+  const out = new URLSearchParams();
+  for (const [key, value] of params) {
+    out.append(key, URL_SENSITIVE_PARAMS.includes(key.toLowerCase()) ? 'REDACTED' : value);
+  }
+  const redacted = out.toString();
+  return redacted ? `${path}?${redacted}` : path;
+}
+
 export { REDACTED, isSensitiveKey };
-export default { redact, isSensitiveKey, REDACTED };
+export default { redact, isSensitiveKey, redactUrl, REDACTED };

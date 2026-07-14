@@ -3,16 +3,121 @@
 A web-based platform to **generate**, **schedule**, and **automatically publish**
 social media content — captions and images — to your connected accounts.
 
-> **Status: Phase 2 — Authentication & HCTI settings.** Completed so far:
-> the Phase 1 foundation (config, schema, security utilities, Express server,
-> health/CSRF), **plus** user registration/login/logout, sessions, profile
-> editing, password change, and encrypted per-user HCTI credential management
-> with a live credential test.
+> **Status: Phase 3 — OAuth account connections.** Completed so far: the
+> Phase 1 foundation, Phase 2 auth + HCTI, **plus** connecting **Facebook Pages**,
+> **Instagram Professional** accounts, and **Threads** profiles via official
+> OAuth, with encrypted token storage, account listing, verification, token
+> refresh (where officially supported), and local disconnect.
 >
-> **Not implemented yet** (later phases): Meta/Instagram/Threads **OAuth**,
-> **OpenAI** caption generation, **HCTI image generation** in posts, **scheduled
-> post creation**, the **cron publishing** pipeline, and provider **publishing**.
-> Those areas remain clearly disabled in the UI.
+> **Not implemented yet** (later phases): **OpenAI** caption generation,
+> **post creation**, the **scheduling queue**, **cron publishing**, provider
+> **publishing** (Facebook/Instagram/Threads posts), **HCTI image use in posts**,
+> a **media proxy**, and an automatic **token-refresh cron**. Those areas remain
+> clearly disabled in the UI. **App Review approval is NOT claimed** — see below.
+
+## Phase 3 — OAuth account connections
+
+Connect and manage social accounts (no publishing yet).
+
+### Supported providers & least-privilege scopes
+
+| Provider | Account type | Scopes requested |
+|---|---|---|
+| Facebook Pages (`meta`) | `facebook_page` | `pages_show_list`, `pages_read_engagement`, `pages_manage_posts` |
+| Instagram (`instagram`) | `instagram_professional` | `instagram_business_basic`, `instagram_business_content_publish` |
+| Threads (`threads`) | `threads_profile` | `threads_basic`, `threads_content_publish` |
+
+Only these three are supported. TikTok, Pinterest, X, LinkedIn, YouTube,
+WhatsApp, personal Instagram accounts, and personal Facebook profile publishing
+are **out of scope**.
+
+### Required environment variables (per provider)
+
+```
+META_APP_ID= / META_APP_SECRET= / META_GRAPH_API_VERSION= / META_REDIRECT_URI=
+INSTAGRAM_APP_ID= / INSTAGRAM_APP_SECRET= / INSTAGRAM_GRAPH_API_VERSION= / INSTAGRAM_REDIRECT_URI=
+THREADS_APP_ID= / THREADS_APP_SECRET= / THREADS_GRAPH_API_VERSION= / THREADS_REDIRECT_URI=
+OAUTH_STATE_TTL_MINUTES=10 / OAUTH_HTTP_TIMEOUT_MS=30000 / OAUTH_TOKEN_REFRESH_LEEWAY_MINUTES=10
+```
+
+A provider is **available** only when its app id, app secret, Graph API version,
+and redirect URI are all set. Graph API versions are **never** hardcoded. In
+production, redirect URIs must be absolute **HTTPS** URLs and an enabled-but-
+partial provider fails startup with a sanitized error.
+
+### Exact callback paths
+
+The redirect URI env var must match the corresponding callback exactly:
+
+```
+https://cyflow.cyfrow.net/api/oauth/meta/callback
+https://cyflow.cyfrow.net/api/oauth/instagram/callback
+https://cyflow.cyfrow.net/api/oauth/threads/callback
+```
+
+### API endpoints
+
+| Method | Path | Auth | CSRF | Notes |
+|---|---|---|---|---|
+| GET | `/api/oauth/providers` | user | — | availability only (no ids/secrets) |
+| POST | `/api/oauth/:provider/start` | user | ✅ | returns a server-built `authorizationUrl` |
+| GET | `/api/oauth/:provider/callback` | user | — (state protects) | consumes state, redirects to `/dashboard?oauth=...` |
+| GET | `/api/social-accounts` | user | — | sanitized, token-free list |
+| POST | `/api/social-accounts/:id/verify` | user | ✅ | refresh (if supported) + verify |
+| DELETE | `/api/social-accounts/:id` | user | ✅ | body `{ "confirm": "DISCONNECT" }` |
+
+### State & replay protection
+
+OAuth `state` carries ≥32 random bytes; only its **SHA-256 hash** is stored.
+State is consumed **exactly once** (atomic `SELECT ... FOR UPDATE`), and is
+verified for matching provider, non-expiry (TTL), the authenticated user, and
+the exact configured redirect URI. Replayed, expired, cross-user, forged, and
+redirect-mismatched states are all rejected. Raw state and authorization codes
+are never logged (see request-log redaction below).
+
+### Token encryption & refresh
+
+Every access/refresh token is encrypted with **AES-256-GCM** before any DB
+write and decrypted only in memory immediately before a provider call. Tokens,
+ciphertext, IVs, and auth tags are never returned to the frontend. Token
+lifetimes come from the provider's `expires_in` (never hardcoded). Instagram and
+Threads long-lived tokens are refreshed via their official refresh endpoints
+when near the configured leeway; Facebook Page tokens have no conventional
+refresh (a reconnect is required if they become invalid).
+
+### Local disconnect
+
+Disconnecting removes the account **locally only** — it never broadly
+deauthorizes the provider app and never affects other connected accounts. If a
+disconnected account is referenced by published-post history (later phases), it
+is marked **revoked** with its tokens securely erased instead of being deleted,
+preserving audit history.
+
+### Request-log redaction
+
+OAuth callback URLs carry sensitive query params. The HTTP logger uses a
+redacted URL token — `code`, `state`, `access_token`, `refresh_token`,
+`client_secret`, and `error_description` are replaced with `REDACTED` and the
+full raw callback URL is never written. Pathname + status remain in the log.
+
+### Tester/developer requirements before App Review
+
+Until each Meta/Instagram/Threads app passes **App Review**, only users added as
+**app roles** (admins/developers/testers) — with the requested permissions
+granted to them — can complete these OAuth flows. This is a Meta platform
+requirement, external to Cyflow. This project does **not** claim App Review
+approval, business verification, or that live publishing is enabled.
+
+### Manual OAuth smoke test
+
+With a provider configured and its tester account, from the dashboard:
+
+1. **Connected Accounts** → click **Connect** on a configured provider →
+   complete consent → you return to `/dashboard?oauth=success&provider=...`.
+2. The connected account appears with its status. Click **Verify** to re-check
+   it, or **Disconnect** (confirm) to remove it locally.
+
+> Publishing and scheduling remain **disabled** — Phase 3 only connects accounts.
 
 ## Phase 2 features
 
@@ -123,15 +228,16 @@ cyflow-social/
 │   ├── container.js          # DI wiring (repos → services → controllers)
 │   ├── shutdown.js           # graceful close helpers
 │   ├── config/               # env.js (validated config) + constants.js
-│   ├── controllers/          # authController, integrationController
+│   ├── controllers/          # auth, integration, oauth, socialAccount
 │   ├── db/                   # pool.js + transactions.js
 │   ├── middleware/           # requestId, errorHandler, rateLimits, validate, auth, csrf
-│   ├── repositories/         # userRepository, integrationRepository, logRepository
-│   ├── routes/               # health, csrf, auth, integration routes
-│   ├── services/             # encryption, auth, hcti, logging
-│   ├── validators/           # authValidators, integrationValidators
+│   ├── providers/            # baseProvider, meta/instagram/threads, providerRegistry
+│   ├── repositories/         # user, integration, log, oauthState, socialAccount
+│   ├── routes/               # health, csrf, auth, integration, oauth, socialAccount
+│   ├── services/             # encryption, auth, hcti, logging, oauth
+│   ├── validators/           # auth, integration, socialAccount
 │   ├── scheduler/            # runOnce.js (Phase 1 stub)
-│   └── utils/                # errors, redaction, validation, time, session, asyncHandler, apiResponse
+│   └── utils/                # errors, redaction, validation, time, session, providerHttp, oauthErrors, asyncHandler, apiResponse
 └── tests/                    # node:test + supertest (with in-memory fakes)
 ```
 
@@ -236,10 +342,11 @@ database password, OpenAI key, and provider app secrets. Only `.env.example`
 
 ## Security Status
 
-Dependency audit (Phase 1.1 hardening, 2026-07-15):
+Dependency audit (re-verified through Phase 3):
 
 - **`npm audit`: 0 vulnerabilities.**
 - **`npm audit --omit=dev` (production): 0 vulnerabilities.**
+- No new dependencies were added in Phase 3 (OAuth uses native `fetch` + `node:crypto`).
 
 Two dependencies were upgraded to patched majors after verifying compatibility:
 

@@ -124,6 +124,30 @@ export const hctiTestLimiter = limiter({
   message: 'Too many credential tests, please try again later',
 });
 
+/** OAuth start: 15 / 15 minutes / user+IP. */
+export const oauthStartLimiter = limiter({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  keyGenerator: userOrIpKey,
+  message: 'Too many connection attempts, please try again later',
+});
+
+/** Account verify: 20 / 15 minutes / user+IP. */
+export const accountVerifyLimiter = limiter({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  keyGenerator: userOrIpKey,
+  message: 'Too many verification attempts, please try again later',
+});
+
+/** Account disconnect: 20 / hour / user+IP. */
+export const accountDisconnectLimiter = limiter({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  keyGenerator: userOrIpKey,
+  message: 'Too many disconnect attempts, please try again later',
+});
+
 export default {
   createRateLimiter,
   generalApiLimiter,
@@ -134,4 +158,7 @@ export default {
   passwordChangeLimiter,
   hctiSaveLimiter,
   hctiTestLimiter,
+  oauthStartLimiter,
+  accountVerifyLimiter,
+  accountDisconnectLimiter,
 };

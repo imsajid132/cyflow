@@ -21,10 +21,13 @@ import { config } from './config/env.js';
 import { requestId } from './middleware/requestId.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { generalApiLimiter } from './middleware/rateLimits.js';
+import { redactUrl } from './utils/redaction.js';
 import healthRoutes from './routes/healthRoutes.js';
 import csrfRoutes from './routes/csrfRoutes.js';
 import { createAuthRoutes } from './routes/authRoutes.js';
 import { createIntegrationRoutes } from './routes/integrationRoutes.js';
+import { createOAuthRoutes } from './routes/oauthRoutes.js';
+import { createSocialAccountRoutes } from './routes/socialAccountRoutes.js';
 import { buildContainer } from './container.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -95,11 +98,14 @@ export function createApp(overrides = {}) {
   app.use(compression());
 
   // --- Request id + sanitized HTTP logging ----------------------------------
+  // A custom `safeurl` token redacts sensitive OAuth query params (code, state,
+  // tokens, secrets) so the raw callback URL is NEVER written to logs.
   app.use(requestId);
   morgan.token('id', (req) => req.id);
+  morgan.token('safeurl', (req) => redactUrl(req.originalUrl));
   const logFormat = config.isProd
-    ? ':id :method :url :status :res[content-length] - :response-time ms'
-    : 'dev';
+    ? ':id :method :safeurl :status :res[content-length] - :response-time ms'
+    : ':method :safeurl :status :response-time ms';
   app.use(
     morgan(logFormat, {
       skip: () => config.env === 'test',
@@ -161,6 +167,20 @@ export function createApp(overrides = {}) {
     '/api/integrations',
     createIntegrationRoutes({
       integrationController: container.integrationController,
+      requireAuth: container.requireAuth,
+    }),
+  );
+  app.use(
+    '/api/oauth',
+    createOAuthRoutes({
+      oauthController: container.oauthController,
+      requireAuth: container.requireAuth,
+    }),
+  );
+  app.use(
+    '/api/social-accounts',
+    createSocialAccountRoutes({
+      socialAccountController: container.socialAccountController,
       requireAuth: container.requireAuth,
     }),
   );

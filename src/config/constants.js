@@ -153,7 +153,33 @@ export const EVENT_TYPES = Object.freeze({
   HCTI_CREDENTIALS_VERIFIED: 'hcti.credentials_verified',
   HCTI_CREDENTIALS_VERIFICATION_FAILED: 'hcti.credentials_verification_failed',
   HCTI_CREDENTIALS_DELETED: 'hcti.credentials_deleted',
+  // OAuth + social account lifecycle
+  OAUTH_STARTED: 'oauth.started',
+  OAUTH_AUTHORIZATION_DENIED: 'oauth.authorization_denied',
+  OAUTH_STATE_REJECTED: 'oauth.state_rejected',
+  OAUTH_COMPLETED: 'oauth.completed',
+  OAUTH_FAILED: 'oauth.failed',
+  SOCIAL_ACCOUNT_CONNECTED: 'social_account.connected',
+  SOCIAL_ACCOUNT_UPDATED: 'social_account.updated',
+  SOCIAL_ACCOUNT_VERIFIED: 'social_account.verified',
+  SOCIAL_ACCOUNT_VERIFICATION_FAILED: 'social_account.verification_failed',
+  SOCIAL_ACCOUNT_TOKEN_REFRESHED: 'social_account.token_refreshed',
+  SOCIAL_ACCOUNT_DISCONNECTED: 'social_account.disconnected',
 });
+
+// Least-privilege OAuth scopes requested per provider. Do NOT add unrelated
+// permissions (email, business_management, messaging, insights, etc.).
+export const OAUTH_SCOPES = Object.freeze({
+  meta: Object.freeze(['pages_show_list', 'pages_read_engagement', 'pages_manage_posts']),
+  instagram: Object.freeze(['instagram_business_basic', 'instagram_business_content_publish']),
+  threads: Object.freeze(['threads_basic', 'threads_content_publish']),
+});
+
+// Facebook Page "tasks" that indicate the user can publish content on a Page.
+export const META_PUBLISHABLE_TASKS = Object.freeze(['CREATE_CONTENT', 'MANAGE']);
+
+// Minimum entropy (bytes) for a raw OAuth state value.
+export const OAUTH_STATE_BYTES = 32;
 
 // Password policy.
 export const PASSWORD_POLICY = Object.freeze({
