@@ -15,56 +15,58 @@
 </head>
 <body class="h-full bg-slate-50 text-slate-800 antialiased">
   <div class="min-h-full flex flex-col">
-    <!-- Top bar -->
     <header class="w-full border-b border-slate-200 bg-white">
       <div class="mx-auto max-w-7xl px-4 py-3 flex items-center justify-between">
-        <a href="/" class="flex items-center gap-3">
+        <a href="/dashboard" class="flex items-center gap-3">
           <img src="/assets/favicon.svg" alt="" width="28" height="28" class="rounded-lg" />
           <span class="font-semibold tracking-tight">Cyflow&nbsp;Social</span>
         </a>
-        <div class="flex items-center gap-2 text-xs">
-          <span class="text-slate-400">Status</span>
-          <span id="health-status" class="font-medium px-2.5 py-1 rounded-full pill-warn" role="status" aria-live="polite">Checking…</span>
+        <div class="flex items-center gap-3 text-sm">
+          <span class="text-slate-500 hidden sm:inline">Signed in as <span id="user-name" class="font-medium text-slate-800">…</span></span>
+          <button id="logout-btn" type="button"
+            class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50">
+            Log out
+          </button>
         </div>
       </div>
     </header>
 
     <div class="mx-auto w-full max-w-7xl flex-1 px-4 py-6 grid gap-6 lg:grid-cols-[220px_1fr]">
-      <!-- Sidebar nav -->
       <aside aria-label="Sections">
         <nav class="space-y-1 text-sm">
           <a href="#overview" class="block rounded-lg px-3 py-2 font-medium bg-indigo-50 text-indigo-700">Overview</a>
           <a href="#connected-accounts" class="block rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">Connected Accounts</a>
           <a href="#hcti-settings" class="block rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">HCTI Settings</a>
+          <a href="#profile" class="block rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">Profile</a>
           <a href="#create-post" class="block rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">Create Post</a>
           <a href="#scheduled-queue" class="block rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">Scheduled Queue</a>
         </nav>
       </aside>
 
-      <!-- Main content -->
       <main class="space-y-8">
         <!-- Overview -->
         <section id="overview" aria-labelledby="overview-h" class="scroll-mt-20">
           <h1 id="overview-h" class="text-xl font-semibold text-slate-900">Overview</h1>
-          <p class="mt-1 text-sm text-slate-500">Live status of the Cyflow Social backend.</p>
+          <p class="mt-1 text-sm text-slate-500">Welcome back, <span id="overview-name">…</span>.</p>
           <div class="mt-4 grid gap-4 sm:grid-cols-3">
             <div class="rounded-xl border border-slate-200 bg-white p-4">
-              <div class="text-xs text-slate-500">Application</div>
-              <div class="mt-2"><span id="db-status" class="text-xs font-medium px-2.5 py-1 rounded-full pill-warn">—</span></div>
-              <div class="mt-2 text-xs text-slate-400">Version <span id="health-version">—</span></div>
+              <div class="text-xs text-slate-500">Timezone</div>
+              <div class="mt-2 text-sm font-medium text-slate-800" id="overview-timezone">—</div>
             </div>
             <div class="rounded-xl border border-slate-200 bg-white p-4">
-              <div class="text-xs text-slate-500">Scheduler</div>
-              <div class="mt-2"><span id="scheduler-status" class="text-xs font-medium px-2.5 py-1 rounded-full pill-warn">—</span></div>
+              <div class="text-xs text-slate-500">Member since</div>
+              <div class="mt-2 text-sm font-medium text-slate-800" id="overview-created">—</div>
             </div>
             <div class="rounded-xl border border-slate-200 bg-white p-4">
-              <div class="text-xs text-slate-500">Server time (UTC)</div>
-              <div class="mt-2 text-sm font-mono text-slate-700" id="health-timestamp">—</div>
+              <div class="text-xs text-slate-500">Backend</div>
+              <div class="mt-2"><span id="health-status" class="text-xs font-medium px-2.5 py-1 rounded-full pill-warn">…</span></div>
+              <span id="db-status" class="hidden"></span><span id="scheduler-status" class="hidden"></span>
+              <span id="health-version" class="hidden"></span><span id="health-timestamp" class="hidden"></span>
             </div>
           </div>
         </section>
 
-        <!-- Connected Accounts -->
+        <!-- Connected Accounts (later phase) -->
         <section id="connected-accounts" aria-labelledby="ca-h" class="scroll-mt-20">
           <h2 id="ca-h" class="text-lg font-semibold text-slate-900">Connected Accounts</h2>
           <p class="mt-1 text-sm text-slate-500">Connect Facebook Pages, Instagram Professional, and Threads.</p>
@@ -79,53 +81,107 @@
           </div>
         </section>
 
-        <!-- HCTI Settings -->
+        <!-- HCTI Settings (functional) -->
         <section id="hcti-settings" aria-labelledby="hcti-h" class="scroll-mt-20">
           <h2 id="hcti-h" class="text-lg font-semibold text-slate-900">HCTI Settings</h2>
-          <p class="mt-1 text-sm text-slate-500">Your HCTI credentials are encrypted at rest and never shown again after saving.</p>
-          <form class="mt-4 rounded-xl border border-slate-200 bg-white p-6 space-y-4 max-w-lg" novalidate>
-            <div>
-              <label for="hcti-user" class="block text-sm font-medium text-slate-700">HCTI User ID</label>
-              <input id="hcti-user" name="hctiUserId" type="text" disabled
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400" placeholder="Enter your HCTI User ID" />
+          <p class="mt-1 text-sm text-slate-500">
+            Your HCTI credentials are <strong>encrypted at rest</strong> and never shown again after saving.
+          </p>
+
+          <div class="mt-4 rounded-xl border border-slate-200 bg-white p-6 max-w-lg space-y-4">
+            <div class="flex flex-wrap items-center gap-3 text-sm">
+              <span id="hcti-configured" class="text-xs font-medium px-2.5 py-1 rounded-full pill-warn">Not configured</span>
+              <span id="hcti-verified" class="text-xs font-medium px-2.5 py-1 rounded-full pill-warn">Not verified</span>
             </div>
-            <div>
-              <label for="hcti-key" class="block text-sm font-medium text-slate-700">HCTI API Key</label>
-              <input id="hcti-key" name="hctiApiKey" type="password" disabled autocomplete="off"
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400" placeholder="Enter your HCTI API Key" />
-            </div>
-            <button type="submit" disabled class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300 disabled:cursor-not-allowed">Save credentials</button>
-            <p class="text-xs text-slate-400">Saving is implemented in a later phase.</p>
-          </form>
+            <dl class="text-xs text-slate-500 space-y-1">
+              <div class="flex gap-2"><dt>Masked User ID:</dt><dd id="hcti-masked" class="font-mono text-slate-700">—</dd></div>
+              <div class="flex gap-2"><dt>Last verified:</dt><dd id="hcti-verified-at" class="text-slate-700">—</dd></div>
+            </dl>
+
+            <div id="hcti-notice" class="hidden" role="alert" aria-live="polite"></div>
+
+            <form id="hcti-form" class="space-y-4" novalidate autocomplete="off">
+              <div>
+                <label for="hcti-user" class="block text-sm font-medium text-slate-700">HCTI User ID</label>
+                <input id="hcti-user" name="hctiUserId" type="text" autocomplete="off"
+                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500"
+                  placeholder="Enter your HCTI User ID" />
+              </div>
+              <div>
+                <label for="hcti-key" class="block text-sm font-medium text-slate-700">HCTI API Key</label>
+                <input id="hcti-key" name="hctiApiKey" type="password" autocomplete="off"
+                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500"
+                  placeholder="Enter your HCTI API Key (never shown again)" />
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button id="hcti-save" type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:bg-slate-300">Save credentials</button>
+                <button id="hcti-test" type="button" class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50" disabled>Test credentials</button>
+                <button id="hcti-delete" type="button" class="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50" disabled>Delete</button>
+              </div>
+              <p class="text-xs text-slate-400">Testing renders a tiny image and may consume one HCTI render/operation.</p>
+            </form>
+          </div>
         </section>
 
-        <!-- Create Post -->
+        <!-- Profile (functional) -->
+        <section id="profile" aria-labelledby="profile-h" class="scroll-mt-20">
+          <h2 id="profile-h" class="text-lg font-semibold text-slate-900">Profile</h2>
+          <p class="mt-1 text-sm text-slate-500">Update your name, timezone, and password.</p>
+
+          <div class="mt-4 grid gap-6 md:grid-cols-2">
+            <form id="profile-form" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4" novalidate>
+              <h3 class="text-sm font-semibold text-slate-800">Details</h3>
+              <div id="profile-notice" class="hidden" role="alert" aria-live="polite"></div>
+              <div>
+                <label for="profile-name" class="block text-sm font-medium text-slate-700">Name</label>
+                <input id="profile-name" name="name" type="text" autocomplete="name"
+                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500" />
+              </div>
+              <div>
+                <label for="profile-timezone" class="block text-sm font-medium text-slate-700">Timezone</label>
+                <select id="profile-timezone" name="timezone"
+                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white focus:border-indigo-500 focus:ring-indigo-500">
+                  <option value="">Loading…</option>
+                </select>
+              </div>
+              <button id="profile-save" type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:bg-slate-300">Save profile</button>
+            </form>
+
+            <form id="password-form" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4" novalidate autocomplete="off">
+              <h3 class="text-sm font-semibold text-slate-800">Change password</h3>
+              <div id="password-notice" class="hidden" role="alert" aria-live="polite"></div>
+              <div>
+                <label for="current-password" class="block text-sm font-medium text-slate-700">Current password</label>
+                <input id="current-password" name="currentPassword" type="password" autocomplete="current-password"
+                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500" />
+              </div>
+              <div>
+                <label for="new-password" class="block text-sm font-medium text-slate-700">New password</label>
+                <input id="new-password" name="newPassword" type="password" autocomplete="new-password"
+                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500" />
+                <p class="mt-1 text-xs text-slate-500">At least 12 characters, with upper, lower, and a number.</p>
+              </div>
+              <button id="password-save" type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:bg-slate-300">Change password</button>
+            </form>
+          </div>
+        </section>
+
+        <!-- Create Post (later phase) -->
         <section id="create-post" aria-labelledby="cp-h" class="scroll-mt-20">
           <h2 id="cp-h" class="text-lg font-semibold text-slate-900">Create Post</h2>
           <p class="mt-1 text-sm text-slate-500">Generate a caption and image, choose targets, and schedule.</p>
-          <form class="mt-4 rounded-xl border border-slate-200 bg-white p-6 space-y-4 max-w-2xl" novalidate>
-            <div>
-              <label for="post-title" class="block text-sm font-medium text-slate-700">Title</label>
-              <input id="post-title" name="title" type="text" disabled
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400" placeholder="Internal title" />
-            </div>
-            <div>
-              <label for="post-prompt" class="block text-sm font-medium text-slate-700">Prompt</label>
-              <textarea id="post-prompt" name="prompt" rows="4" disabled
-                class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400" placeholder="Describe the post you want to generate"></textarea>
-            </div>
-            <button type="submit" disabled class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300 disabled:cursor-not-allowed">Generate &amp; schedule</button>
-            <p class="text-xs text-slate-400">Generation and scheduling are implemented in later phases.</p>
-          </form>
+          <div class="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center">
+            <p class="text-sm text-slate-500">Content generation and scheduling arrive in later phases.</p>
+            <button type="button" disabled class="mt-3 rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-400 cursor-not-allowed">Create post</button>
+          </div>
         </section>
 
-        <!-- Scheduled Queue -->
+        <!-- Scheduled Queue (later phase) -->
         <section id="scheduled-queue" aria-labelledby="sq-h" class="scroll-mt-20">
           <h2 id="sq-h" class="text-lg font-semibold text-slate-900">Scheduled Queue</h2>
           <p class="mt-1 text-sm text-slate-500">Upcoming and past posts will appear here.</p>
           <div class="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center">
-            <p class="text-sm text-slate-500">Nothing scheduled yet.</p>
-            <p class="mt-1 text-xs text-slate-400">The queue populates once scheduling is available.</p>
+            <p class="text-sm text-slate-500">The queue populates once scheduling is available.</p>
           </div>
         </section>
       </main>
@@ -134,7 +190,7 @@
     <footer class="border-t border-slate-200 bg-white">
       <div class="mx-auto max-w-7xl px-4 py-4 text-xs text-slate-400 flex items-center justify-between">
         <span>© <span id="year"></span> Cyflow Social</span>
-        <span>Phase 1 · Foundation</span>
+        <span>Phase 2 · Accounts</span>
       </div>
     </footer>
   </div>

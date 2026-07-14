@@ -140,3 +140,29 @@ export const SESSION_KEYS = Object.freeze({
   USER_ID: 'userId',
   CSRF_TOKEN: 'csrfToken',
 });
+
+// Activity/security event types (persisted to activity_logs).
+export const EVENT_TYPES = Object.freeze({
+  USER_REGISTERED: 'user.registered',
+  USER_LOGIN_SUCCEEDED: 'user.login_succeeded',
+  USER_LOGIN_FAILED: 'user.login_failed',
+  USER_LOGGED_OUT: 'user.logged_out',
+  USER_PROFILE_UPDATED: 'user.profile_updated',
+  USER_PASSWORD_CHANGED: 'user.password_changed',
+  HCTI_CREDENTIALS_SAVED: 'hcti.credentials_saved',
+  HCTI_CREDENTIALS_VERIFIED: 'hcti.credentials_verified',
+  HCTI_CREDENTIALS_VERIFICATION_FAILED: 'hcti.credentials_verification_failed',
+  HCTI_CREDENTIALS_DELETED: 'hcti.credentials_deleted',
+});
+
+// Password policy.
+export const PASSWORD_POLICY = Object.freeze({
+  MIN_LENGTH: 12,
+  MAX_LENGTH: 128,
+});
+
+// HCTI field bounds (defensive limits for user-supplied credentials).
+export const HCTI_LIMITS = Object.freeze({
+  USER_ID_MAX: 255,
+  API_KEY_MAX: 255,
+});

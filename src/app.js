@@ -19,11 +19,13 @@ import expressMySQLSession from 'express-mysql-session';
 
 import { config } from './config/env.js';
 import { requestId } from './middleware/requestId.js';
-import { attachUser } from './middleware/auth.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { generalApiLimiter } from './middleware/rateLimits.js';
 import healthRoutes from './routes/healthRoutes.js';
 import csrfRoutes from './routes/csrfRoutes.js';
+import { createAuthRoutes } from './routes/authRoutes.js';
+import { createIntegrationRoutes } from './routes/integrationRoutes.js';
+import { buildContainer } from './container.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, '..', 'public');
@@ -53,8 +55,12 @@ function buildSessionStore() {
   });
 }
 
-export function createApp() {
+export function createApp(overrides = {}) {
   const app = express();
+
+  // Wire dependencies (repositories → services → controllers → middleware).
+  // Tests pass `overrides` (fakes) to run without a database or network.
+  const container = buildContainer(overrides);
 
   // Behind Hostinger's proxy/load balancer in production.
   if (config.isProd) {
@@ -105,8 +111,10 @@ export function createApp() {
   app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 
   // --- Session (server-side MySQL store) ------------------------------------
-  // Tests run without a database — fall back to the default in-memory store.
-  const sessionStore = config.env === 'test' ? undefined : buildSessionStore();
+  // Tests run without a database — a test may inject a store to introspect, or
+  // fall back to the default in-memory store.
+  const sessionStore =
+    overrides.sessionStore ?? (config.env === 'test' ? undefined : buildSessionStore());
   // Expose the store so the server can close it (its own pool + expiry timer)
   // during graceful shutdown. `null` when using the default MemoryStore.
   app.set('sessionStore', sessionStore ?? null);
@@ -127,7 +135,7 @@ export function createApp() {
     }),
   );
 
-  app.use(attachUser);
+  app.use(container.attachUser);
 
   // --- Static assets --------------------------------------------------------
   app.use(
@@ -141,6 +149,21 @@ export function createApp() {
   // --- Routes ---------------------------------------------------------------
   app.use('/', healthRoutes);
   app.use('/api', generalApiLimiter, csrfRoutes);
+  app.use(
+    '/api/auth',
+    createAuthRoutes({
+      authController: container.authController,
+      requireAuth: container.requireAuth,
+      guestOnly: container.guestOnly,
+    }),
+  );
+  app.use(
+    '/api/integrations',
+    createIntegrationRoutes({
+      integrationController: container.integrationController,
+      requireAuth: container.requireAuth,
+    }),
+  );
 
   // Explicit frontend pages.
   app.get('/', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'index.html')));

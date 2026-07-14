@@ -3,11 +3,82 @@
 A web-based platform to **generate**, **schedule**, and **automatically publish**
 social media content — captions and images — to your connected accounts.
 
-> **Phase 1 status: Foundation.** This repository currently contains the project
-> foundation only: configuration, database schema, security utilities, and a
-> working Express server with health/CSRF endpoints and static frontend shells.
-> OAuth, OpenAI generation, HCTI image generation, the cron scheduler, and
-> provider publishing are **not implemented yet** — they arrive in later phases.
+> **Status: Phase 2 — Authentication & HCTI settings.** Completed so far:
+> the Phase 1 foundation (config, schema, security utilities, Express server,
+> health/CSRF), **plus** user registration/login/logout, sessions, profile
+> editing, password change, and encrypted per-user HCTI credential management
+> with a live credential test.
+>
+> **Not implemented yet** (later phases): Meta/Instagram/Threads **OAuth**,
+> **OpenAI** caption generation, **HCTI image generation** in posts, **scheduled
+> post creation**, the **cron publishing** pipeline, and provider **publishing**.
+> Those areas remain clearly disabled in the UI.
+
+## Phase 2 features
+
+- **Authentication** — register, login, logout, current-user endpoint, all
+  session-based (no tokens in the browser). Passwords hashed with **bcrypt**
+  using the configured cost factor.
+- **Sessions** — server-side store; the session holds only `userId` (+ a CSRF
+  token), never a user record. Sessions are **regenerated** on
+  register/login/password-change (fixation prevention) and **destroyed** on
+  logout with the cookie cleared.
+- **CSRF** — synchronizer tokens stored in the session; every state-changing
+  request must send `X-CSRF-Token`; comparison is timing-safe; the token rotates
+  after login/registration/password-change.
+- **Profile** — edit name + timezone (IANA-validated). Privileged fields
+  (role, status, email, password) can never be changed via the profile route.
+- **HCTI credentials** — each user stores their own HCTI User ID + API Key,
+  **encrypted with AES-256-GCM** before storage. The API never returns plaintext
+  values, ciphertext, IVs, or auth tags — only `configured` / `verified` /
+  `verifiedAt` / a masked User ID. Credentials can be saved, tested, and deleted.
+
+### Password rules
+
+At least **12** characters (max 128), containing at least one uppercase letter,
+one lowercase letter, and one number. Symbols and spaces are allowed; the
+password is never silently trimmed and a whitespace-only password is rejected.
+
+### API endpoints
+
+Auth (`/api/auth`):
+
+| Method | Path | Auth | CSRF | Notes |
+|---|---|---|---|---|
+| POST | `/register` | guest | ✅ | rate-limited (5/hr/IP) |
+| POST | `/login` | guest | ✅ | rate-limited (10/15min/IP); generic error |
+| POST | `/logout` | user | ✅ | destroys session, clears cookie |
+| GET | `/me` | user | — | fresh sanitized user from the DB |
+| PATCH | `/profile` | user | ✅ | name + timezone only |
+| POST | `/change-password` | user | ✅ | rate-limited; rotates session + CSRF |
+
+HCTI integration (`/api/integrations`):
+
+| Method | Path | Auth | CSRF | Notes |
+|---|---|---|---|---|
+| GET | `/hcti` | user | — | status only (configured/verified/masked) |
+| PUT | `/hcti` | user | ✅ | encrypt + save; resets verification |
+| POST | `/hcti/test` | user | ✅ | verifies credentials (**may consume one HCTI render**) |
+| DELETE | `/hcti` | user | ✅ | body `{ "confirm": "DELETE" }` |
+
+Plus Phase 1: `GET /health`, `GET /api/csrf-token`.
+
+> ⚠️ **Testing HCTI credentials renders a tiny image and may consume one HCTI
+> render/operation** against the user's account.
+
+### Manual smoke test (local)
+
+With a `.env` and a running MySQL (see below), start the server (`npm start`),
+then in the browser:
+
+1. Open `/` → create an account (pick a timezone; password must meet the rules).
+   You are redirected to `/dashboard`.
+2. On the dashboard, edit your **Profile** (name/timezone) and **Change
+   password** (you stay signed in; the session rotates).
+3. Under **HCTI Settings**, save your HCTI User ID + API Key, click **Test**
+   (consumes one render), then **Delete**.
+4. Click **Log out** → you return to `/` and `/dashboard` redirects you back to
+   `/` while signed out.
 
 ## Supported platforms (v1)
 
@@ -49,14 +120,19 @@ cyflow-social/
 ├── src/
 │   ├── app.js                # Express app wiring
 │   ├── server.js             # Entrypoint: validate, verify DB, listen
+│   ├── container.js          # DI wiring (repos → services → controllers)
+│   ├── shutdown.js           # graceful close helpers
 │   ├── config/               # env.js (validated config) + constants.js
+│   ├── controllers/          # authController, integrationController
 │   ├── db/                   # pool.js + transactions.js
 │   ├── middleware/           # requestId, errorHandler, rateLimits, validate, auth, csrf
-│   ├── routes/               # healthRoutes.js, csrfRoutes.js
-│   ├── services/             # encryptionService.js
+│   ├── repositories/         # userRepository, integrationRepository, logRepository
+│   ├── routes/               # health, csrf, auth, integration routes
+│   ├── services/             # encryption, auth, hcti, logging
+│   ├── validators/           # authValidators, integrationValidators
 │   ├── scheduler/            # runOnce.js (Phase 1 stub)
-│   └── utils/                # errors, redaction, validation, time, asyncHandler, apiResponse
-└── tests/                    # node:test + supertest
+│   └── utils/                # errors, redaction, validation, time, session, asyncHandler, apiResponse
+└── tests/                    # node:test + supertest (with in-memory fakes)
 ```
 
 ## Local installation

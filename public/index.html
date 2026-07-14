@@ -15,7 +15,6 @@
 </head>
 <body class="h-full bg-slate-50 text-slate-800 antialiased">
   <div class="min-h-full flex flex-col">
-    <!-- Header -->
     <header class="w-full border-b border-slate-200 bg-white/80 backdrop-blur">
       <div class="mx-auto max-w-6xl px-4 py-4 flex items-center justify-between">
         <div class="flex items-center gap-3">
@@ -26,99 +25,101 @@
       </div>
     </header>
 
-    <!-- Main -->
     <main class="flex-1">
       <div class="mx-auto max-w-6xl px-4 py-10 grid gap-10 lg:grid-cols-2 items-center">
-        <!-- Intro -->
         <section aria-labelledby="intro-heading">
           <h1 id="intro-heading" class="text-3xl sm:text-4xl font-bold tracking-tight text-slate-900">
             Create, schedule &amp; publish social content
           </h1>
           <p class="mt-4 text-slate-600 max-w-prose">
-            Cyflow Social helps you generate captions and images, then schedule and
-            auto-publish them to your connected accounts.
+            Generate captions and images, then schedule and auto-publish them to your connected accounts.
           </p>
           <ul class="mt-6 space-y-2 text-sm text-slate-700">
             <li class="flex items-center gap-2"><span aria-hidden="true">•</span> Facebook Pages</li>
             <li class="flex items-center gap-2"><span aria-hidden="true">•</span> Instagram Professional</li>
             <li class="flex items-center gap-2"><span aria-hidden="true">•</span> Threads</li>
           </ul>
-
-          <!-- Dev-only setup banner (hidden unless the server reports development) -->
           <div id="dev-banner" class="mt-8 hidden rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
             <strong class="font-semibold">Application setup in progress.</strong>
-            Authentication and publishing are not yet wired up in this development build.
+            OAuth connections, content generation, and publishing arrive in later phases.
           </div>
         </section>
 
-        <!-- Auth cards -->
         <section aria-labelledby="auth-heading" class="w-full">
           <h2 id="auth-heading" class="sr-only">Sign in or create an account</h2>
 
           <div class="rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <!-- Tabs -->
             <div class="grid grid-cols-2 text-sm font-medium">
               <button id="tab-login" type="button" class="py-3 rounded-tl-2xl bg-white text-slate-900 border-b-2 border-indigo-500" aria-selected="true">Sign in</button>
               <button id="tab-register" type="button" class="py-3 rounded-tr-2xl bg-slate-50 text-slate-500 border-b-2 border-transparent" aria-selected="false">Create account</button>
             </div>
 
-            <!-- Login form (disabled in Phase 1) -->
-            <form id="login-form" class="p-6 space-y-4" novalidate>
+            <!-- Login form -->
+            <form id="login-form" class="p-6 space-y-4" novalidate autocomplete="on">
+              <div id="login-notice" class="hidden" role="alert" aria-live="polite"></div>
               <div>
                 <label for="login-email" class="block text-sm font-medium text-slate-700">Email</label>
-                <input id="login-email" name="email" type="email" autocomplete="email" disabled
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400"
+                <input id="login-email" name="email" type="email" autocomplete="email" required
+                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500"
                   placeholder="you@example.com" />
               </div>
               <div>
                 <label for="login-password" class="block text-sm font-medium text-slate-700">Password</label>
-                <input id="login-password" name="password" type="password" autocomplete="current-password" disabled
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400"
+                <input id="login-password" name="password" type="password" autocomplete="current-password" required
+                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500"
                   placeholder="••••••••" />
               </div>
-              <button type="submit" disabled
-                class="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300 disabled:cursor-not-allowed">
+              <button id="login-submit" type="submit"
+                class="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:bg-slate-300 disabled:cursor-not-allowed">
                 Sign in
               </button>
-              <p class="text-xs text-slate-400 text-center">Available in a later release.</p>
             </form>
 
-            <!-- Register form (hidden by default, disabled in Phase 1) -->
-            <form id="register-form" class="p-6 space-y-4 hidden" novalidate>
+            <!-- Register form -->
+            <form id="register-form" class="p-6 space-y-4 hidden" novalidate autocomplete="on">
+              <div id="register-notice" class="hidden" role="alert" aria-live="polite"></div>
               <div>
                 <label for="reg-name" class="block text-sm font-medium text-slate-700">Name</label>
-                <input id="reg-name" name="name" type="text" autocomplete="name" disabled
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400"
+                <input id="reg-name" name="name" type="text" autocomplete="name" required
+                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500"
                   placeholder="Ada Lovelace" />
               </div>
               <div>
                 <label for="reg-email" class="block text-sm font-medium text-slate-700">Email</label>
-                <input id="reg-email" name="email" type="email" autocomplete="email" disabled
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400"
+                <input id="reg-email" name="email" type="email" autocomplete="email" required
+                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500"
                   placeholder="you@example.com" />
               </div>
               <div>
-                <label for="reg-password" class="block text-sm font-medium text-slate-700">Password</label>
-                <input id="reg-password" name="password" type="password" autocomplete="new-password" disabled
-                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400"
-                  placeholder="••••••••" />
+                <label for="reg-timezone" class="block text-sm font-medium text-slate-700">Timezone</label>
+                <select id="reg-timezone" name="timezone" required
+                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white focus:border-indigo-500 focus:ring-indigo-500">
+                  <option value="">Loading timezones…</option>
+                </select>
               </div>
-              <button type="submit" disabled
-                class="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300 disabled:cursor-not-allowed">
+              <div>
+                <label for="reg-password" class="block text-sm font-medium text-slate-700">Password</label>
+                <input id="reg-password" name="password" type="password" autocomplete="new-password" required
+                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500"
+                  placeholder="At least 12 characters" />
+                <p class="mt-1 text-xs text-slate-500">
+                  At least 12 characters, including an uppercase letter, a lowercase letter, and a number.
+                </p>
+              </div>
+              <button id="register-submit" type="submit"
+                class="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:bg-slate-300 disabled:cursor-not-allowed">
                 Create account
               </button>
-              <p class="text-xs text-slate-400 text-center">Available in a later release.</p>
             </form>
           </div>
         </section>
       </div>
     </main>
 
-    <!-- Footer -->
     <footer class="border-t border-slate-200 bg-white">
       <div class="mx-auto max-w-6xl px-4 py-4 text-xs text-slate-400 flex items-center justify-between">
         <span>© <span id="year"></span> Cyflow Social</span>
-        <span>Phase 1 · Foundation</span>
+        <span>Phase 2 · Accounts</span>
       </div>
     </footer>
   </div>
