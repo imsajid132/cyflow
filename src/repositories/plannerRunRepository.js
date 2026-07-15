@@ -34,9 +34,9 @@ const ITEM_COLUMNS =
   'id, planner_run_id, user_id, post_id, position, scheduled_for, original_timezone, ' +
   'content_type, goal, platform_targets_json, template_key, aspect_ratio, background_style, ' +
   'generated_headline, generated_subheadline, generated_summary, generated_caption, ' +
-  'generated_hashtags_json, generated_alt_text, brief, media_asset_id, approval_status, ' +
-  'duplication_score, duplication_notes, regeneration_count, content_fingerprint_json, ' +
-  'edited_fields_json, created_at, updated_at';
+  'generated_hashtags_json, platform_captions_json, generated_alt_text, brief, media_asset_id, ' +
+  'approval_status, duplication_score, duplication_notes, regeneration_count, ' +
+  'content_fingerprint_json, edited_fields_json, created_at, updated_at';
 
 export function sanitizeRun(row) {
   if (!row) return null;
@@ -80,6 +80,12 @@ export function sanitizeItem(row) {
     summary: row.generated_summary ?? null,
     caption: row.generated_caption ?? null,
     hashtags: safeParseJson(row.generated_hashtags_json, []),
+    /*
+     * Per-platform copy. NULL on items written before this column existed, and
+     * on any item whose plan targets a single platform — both fall back to
+     * `caption`, so a reader never has to know which era an item came from.
+     */
+    platformCaptions: safeParseJson(row.platform_captions_json, null),
     altText: row.generated_alt_text ?? null,
     brief: row.brief ?? null,
     mediaAssetId: row.media_asset_id == null ? null : String(row.media_asset_id),
@@ -184,10 +190,10 @@ export async function createItem(input, connection) {
        (planner_run_id, user_id, position, scheduled_for, original_timezone, content_type,
         goal, platform_targets_json, template_key, aspect_ratio, background_style,
         generated_headline, generated_subheadline, generated_summary, generated_caption,
-        generated_hashtags_json, generated_alt_text, brief, media_asset_id, approval_status,
-        duplication_score, duplication_notes, regeneration_count, content_fingerprint_json,
-        edited_fields_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        generated_hashtags_json, platform_captions_json, generated_alt_text, brief,
+        media_asset_id, approval_status, duplication_score, duplication_notes,
+        regeneration_count, content_fingerprint_json, edited_fields_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.plannerRunId,
       input.userId,
@@ -205,6 +211,7 @@ export async function createItem(input, connection) {
       input.summary ?? null,
       input.caption ?? null,
       JSON.stringify(input.hashtags ?? []),
+      input.platformCaptions == null ? null : JSON.stringify(input.platformCaptions),
       input.altText ?? null,
       input.brief ?? null,
       input.mediaAssetId ?? null,
@@ -264,6 +271,7 @@ const ITEM_FIELD_COLUMNS = {
 const ITEM_JSON_COLUMNS = {
   platformTargets: 'platform_targets_json',
   hashtags: 'generated_hashtags_json',
+  platformCaptions: 'platform_captions_json',
   fingerprint: 'content_fingerprint_json',
   editedFields: 'edited_fields_json',
 };

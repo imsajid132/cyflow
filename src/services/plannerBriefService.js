@@ -202,7 +202,65 @@ export function dealContentTypes(mix, count) {
    */
   const pool = [];
   for (const { type, n } of allocation) for (let k = 0; k < n; k += 1) pool.push(type);
-  return spread(pool, primaryTemplateOf).slice(0, count);
+  return spread(diversifyLayouts(pool, weights), primaryTemplateOf).slice(0, count);
+}
+
+/**
+ * Trade duplicate layouts for unused ones until the plan shows enough designs.
+ *
+ * Weighting alone cannot deliver this. With the default mix, largest-remainder
+ * hands a 7-day plan seven different FORMATS that collapse onto four LAYOUTS,
+ * because several formats legitimately share one design: a comparison and a
+ * myth/fact post are both two columns. The result is a week where the same four
+ * pictures cycle, which is what makes generated output look generated.
+ *
+ * So layout coverage is stated as a constraint and solved for, rather than being
+ * hoped for from weights that were tuned for something else.
+ *
+ * Two rules keep this honest:
+ *   - it only ever swaps in a format the user weighted ABOVE ZERO, so it cannot
+ *     smuggle a post type they turned off into their plan;
+ *   - the target is capped by what their mix can actually reach, so a mix of two
+ *     formats yields two layouts and no error.
+ *
+ * The format given up is the lowest-weighted one in an over-used layout, so the
+ * user's emphasis survives the trade.
+ */
+export function diversifyLayouts(pool, weights) {
+  const reachable = new Set(Object.keys(weights).map(primaryTemplateOf));
+  const target = Math.min(PLANNER_LIMITS.MIN_DISTINCT_LAYOUTS, reachable.size, pool.length);
+
+  const distinctIn = (items) => new Set(items.map(primaryTemplateOf)).size;
+  const out = [...pool];
+
+  // Bounded by the pool: each pass either adds a layout or stops.
+  for (let guard = 0; guard < out.length && distinctIn(out) < target; guard += 1) {
+    const used = new Set(out.map(primaryTemplateOf));
+    const missing = [...reachable].filter((layout) => !used.has(layout));
+    if (missing.length === 0) break;
+
+    // Prefer the format the user weighted highest among those that would
+    // introduce a layout the plan does not yet have.
+    const incoming = Object.keys(weights)
+      .filter((format) => missing.includes(primaryTemplateOf(format)))
+      .sort((a, b) => weights[b] - weights[a])[0];
+    if (!incoming) break;
+
+    // Give up a duplicate, never a format that is the only one of its layout.
+    const layoutCounts = new Map();
+    for (const format of out) {
+      const layout = primaryTemplateOf(format);
+      layoutCounts.set(layout, (layoutCounts.get(layout) || 0) + 1);
+    }
+    const donorIndex = out
+      .map((format, index) => ({ format, index }))
+      .filter(({ format }) => layoutCounts.get(primaryTemplateOf(format)) > 1)
+      .sort((a, b) => (weights[a.format] ?? 0) - (weights[b.format] ?? 0))[0]?.index;
+    if (donorIndex === undefined) break;
+
+    out[donorIndex] = incoming;
+  }
+  return out;
 }
 
 /**

@@ -1051,6 +1051,9 @@ export function createFakePlannerRunRepository() {
         summary: input.summary ?? null,
         caption: input.caption ?? null,
         hashtags: input.hashtags ?? [],
+        // Mirrors platform_captions_json: NULL means "no per-platform variants",
+        // which the reader resolves by falling back to `caption`.
+        platformCaptions: input.platformCaptions ?? null,
         altText: input.altText ?? null,
         brief: input.brief ?? null,
         mediaAssetId: input.mediaAssetId ?? null,

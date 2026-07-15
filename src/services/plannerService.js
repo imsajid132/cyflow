@@ -503,6 +503,8 @@ export function createPlannerService({
             callToAction: brief.callToAction,
             avoidPhrases,
             avoidOpenings,
+            // Tell the next attempt what was actually wrong with the last one.
+            styleIssues: styleRejections,
           },
           { userId },
         );
@@ -559,6 +561,17 @@ export function createPlannerService({
       }
     }
 
+    /*
+     * The other platforms get their OWN post, written for them.
+     *
+     * This runs after the primary copy has settled, so every variant is written
+     * against the copy that actually ships rather than against an attempt that
+     * was later discarded.
+     */
+    const { platformCaptions, platformNotes } = await generatePlatformCopy({
+      userId, brief, profile, primaryPlatform, primary: content,
+    });
+
     const fingerprint = uniqueness.fingerprint({
       caption: content.caption,
       headline: content.headline,
@@ -568,19 +581,23 @@ export function createPlannerService({
       goal: brief.goal,
       serviceEmphasis: brief.serviceEmphasis,
       templateKey: brief.templateKey,
+      format: brief.format,
     });
 
     /*
-     * A post is held for a human when it repeats something, OR when the style
-     * guard could not save it. Both go in the same note, because from the
-     * reviewer's side they are the same question: "is this good enough?"
+     * A post is held for a human when it repeats something, when the style guard
+     * could not save it, OR when two platforms ended up with the same post. All
+     * go in the same note, because from the reviewer's side they are the same
+     * question: "is this good enough?"
      */
     const duplicateFlagged = evaluation && evaluation.verdict !== 'unique';
     const styleFlagged = styleRejections.length > 0;
-    const flagged = duplicateFlagged || styleFlagged;
+    const platformFlagged = platformNotes.length > 0;
+    const flagged = duplicateFlagged || styleFlagged || platformFlagged;
     const notes = [];
     if (duplicateFlagged) notes.push(uniqueness.describe(evaluation));
     if (styleFlagged) notes.push(`Needs rewrite: ${styleRejections.join('; ')}.`);
+    for (const note of platformNotes) notes.push(note);
     const duplicationNotes = notes.length ? notes.join(' ').slice(0, 500) : null;
 
     let mediaAssetId = null;
@@ -608,6 +625,7 @@ export function createPlannerService({
       summary: content.summary,
       caption: content.caption,
       hashtags: content.hashtags,
+      platformCaptions,
       altText: content.imageAltText,
       brief: brief.brief,
       mediaAssetId,
@@ -624,6 +642,113 @@ export function createPlannerService({
     });
 
     return { item, fingerprint, flagged };
+  }
+
+  /**
+   * Write this post again, properly, for each of the OTHER target platforms.
+   *
+   * The old behaviour fanned the primary platform's string out to all three
+   * targets, so a Threads post was a Facebook post pasted into a shorter box.
+   * Each platform now gets its own generation, its own length band and its own
+   * opening, with the primary copy supplied as context so the FACTS stay shared
+   * while the writing does not.
+   *
+   * Every failure here is soft. A variant that will not generate, or generates
+   * badly, falls back to the primary copy and says so in a note: a plan with one
+   * reused post is a worse plan, but a plan that failed to save is not a plan.
+   *
+   * @returns {{ platformCaptions: object|null, platformNotes: string[] }}
+   */
+  async function generatePlatformCopy({ userId, brief, profile, primaryPlatform, primary }) {
+    const platformCaptions = {
+      [primaryPlatform]: { caption: primary.caption, hashtags: primary.hashtags },
+    };
+    const notes = [];
+    const others = brief.platforms.filter((p) => p !== primaryPlatform);
+    // A single-platform plan has nothing to differentiate; leave the column NULL
+    // and let the reader fall back to `caption`.
+    if (others.length === 0) return { platformCaptions: null, platformNotes: notes };
+
+    for (const platform of others) {
+      let variant = null;
+      for (let attempt = 0; attempt <= PLANNER_LIMITS.MAX_REGENERATION_ATTEMPTS; attempt += 1) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const candidate = await openaiContentService.generatePlannerPost(
+            {
+              platform,
+              format: brief.format,
+              contentType: brief.contentType,
+              goal: brief.goal,
+              tone: brief.tone,
+              brief: brief.brief,
+              brandName: profile?.businessName ?? null,
+              businessCategory: profile?.businessCategory ?? null,
+              businessDescription: profile?.businessDescription ?? null,
+              serviceEmphasis: brief.serviceEmphasis,
+              audienceProblem: brief.audienceProblem,
+              location: brief.location,
+              website: displayWebsite(profile?.websiteUrl),
+              language: profile?.defaultLanguage ?? null,
+              callToAction: brief.callToAction,
+              siblingCopy: primary.caption,
+              styleIssues: variant?._style?.rejections ?? [],
+            },
+            { userId },
+          );
+          variant = candidate;
+          const tooSimilar = uniqueness.platformCopyTooSimilar(primary.caption, candidate.caption);
+          if ((candidate._style?.rejections ?? []).length === 0 && !tooSimilar) break;
+        } catch {
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+      }
+
+      if (!variant?.caption) {
+        platformCaptions[platform] = { caption: primary.caption, hashtags: primary.hashtags };
+        notes.push(`The ${platform} post could not be written separately and reuses the ${primaryPlatform} copy.`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+
+      platformCaptions[platform] = { caption: variant.caption, hashtags: variant.hashtags };
+      const rejections = variant._style?.rejections ?? [];
+      if (rejections.length) {
+        notes.push(`The ${platform} post needs a rewrite: ${rejections.join('; ')}.`);
+      }
+      if (uniqueness.platformCopyTooSimilar(primary.caption, variant.caption)) {
+        notes.push(`The ${platform} post is too close to the ${primaryPlatform} post.`);
+      }
+    }
+
+    return { platformCaptions, platformNotes: notes.slice(0, 4) };
+  }
+
+  /**
+   * The copy each target platform actually publishes.
+   *
+   * Prefers the post written FOR that platform. Falls back to the item's
+   * canonical caption when there is no variant — an item from before this column
+   * existed, a single-platform plan, or a variant that failed to generate. The
+   * fallback is the old behaviour, so an old item queues exactly as it always
+   * did rather than failing.
+   *
+   * A user edit to `caption` is respected: the review board edits the canonical
+   * field, so an edited caption must win over a stale generated variant for the
+   * primary platform.
+   */
+  function platformCaptionsFor(item) {
+    const variants = item.platformCaptions;
+    const out = {};
+    for (const platform of item.platformTargets) {
+      const variant = variants?.[platform];
+      const usable = variant && typeof variant.caption === 'string' && variant.caption.trim();
+      out[platform] = usable
+        ? { caption: variant.caption, hashtags: Array.isArray(variant.hashtags) ? variant.hashtags : [] }
+        : { caption: item.caption, hashtags: item.hashtags };
+    }
+    return out;
   }
 
   /** The structured extras a content-type template renders, if present. */
@@ -1200,15 +1325,11 @@ export function createPlannerService({
           conn,
         );
 
-        const platformCaptions = {};
-        for (const platform of item.platformTargets) {
-          platformCaptions[platform] = { caption: item.caption, hashtags: item.hashtags };
-        }
         await posts.updateGeneratedContent(
           draft.id,
           userId,
           {
-            platformCaptions,
+            platformCaptions: platformCaptionsFor(item),
             baseCaption: item.caption,
             headline: item.headline,
             subheadline: item.subheadline,
@@ -1295,12 +1416,8 @@ export function createPlannerService({
       aspectRatio: item.aspectRatio,
       backgroundStyle: item.backgroundStyle,
     });
-    const platformCaptions = {};
-    for (const platform of item.platformTargets) {
-      platformCaptions[platform] = { caption: item.caption, hashtags: item.hashtags };
-    }
     await posts.updateGeneratedContent(draft.id, userId, {
-      platformCaptions,
+      platformCaptions: platformCaptionsFor(item),
       baseCaption: item.caption,
       headline: item.headline,
       subheadline: item.subheadline,

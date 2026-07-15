@@ -7,7 +7,7 @@
  * marks on a light field rather than as the field itself.
  */
 
-import { logo, cta, subheadline, footerLockup } from '../parts.js';
+import { logo, cta, subheadline, footerLockup, eyebrowRule } from '../parts.js';
 
 export const id = 'light-editorial';
 export const label = 'Light Editorial';
@@ -20,6 +20,7 @@ export function render(ctx) {
       <div class="layer">
         <div class="rail"></div>
       </div>
+      <div class="grid-field"></div>
       <div class="content">
         <header class="head">
           ${logo(logoUrl)}
@@ -27,8 +28,8 @@ export function render(ctx) {
           ${text.badge ? `<span class="badge-pill">${text.badge}</span>` : ''}
         </header>
         <div class="body">
+          ${eyebrowRule()}
           <h1 class="headline">${text.headline}</h1>
-          <div class="divider"></div>
           ${subheadline(text.sub)}
           ${cta(text.cta)}
         </div>
@@ -59,8 +60,8 @@ export function render(ctx) {
     /* A wider measure lets a 5-7 word headline settle on two lines rather than
        three with one word stranded. */
     .tpl-${id} .headline { color: ${c.ink}; max-width: 20ch; font-weight: 700; }
-    .tpl-${id} .headline .em { color: ${c.accentOnWash}; }
-    .tpl-${id} .divider { width: 96px; height: 5px; border-radius: 5px; background: ${c.accent}; }
+    /* The grid stops short of the brand rail so the rail stays a clean edge. */
+    .tpl-${id} .grid-field { left: 22px; }
     .tpl-${id} .subheadline { color: ${c.muted}; max-width: 32ch; font-size: 29px; }
     .tpl-${id} .cta { background: ${c.accent}; color: ${c.onAccent}; font-size: 24px; padding: 16px 32px; margin-top: 6px; }
     .tpl-${id} .foot { display: flex; flex-direction: column; gap: 20px; }

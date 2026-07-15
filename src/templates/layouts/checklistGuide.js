@@ -19,7 +19,11 @@ export function render(ctx) {
   const items = Array.isArray(text.bullets) ? text.bullets.slice(0, 5) : [];
 
   const rows = items
-    .map((item) => `<li class="row"><span class="tick"></span><span class="row-text">${item}</span></li>`)
+    .map(
+      (item) =>
+        `<li class="row"><span class="tick-chip"><span class="tick"></span></span>` +
+        `<span class="row-text">${item}</span></li>`,
+    )
     .join('');
 
   const body = rows ? `<ul class="list">${rows}</ul>` : subheadline(text.sub);
@@ -32,6 +36,7 @@ export function render(ctx) {
    */
   const html = `
     <div class="canvas tpl-${id}">
+      <div class="grid-field"></div>
       <div class="content">
         <div class="cap">
           <header class="head">
@@ -77,18 +82,45 @@ export function render(ctx) {
       color: ${c.onBrand}; font-size: ${Math.round(ctx.type.headline.size * 0.58)}px;
       max-width: 24ch; font-weight: 700;
     }
-    .tpl-${id} .body { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 40px 76px; }
-    .tpl-${id} .list { list-style: none; display: flex; flex-direction: column; gap: 14px; }
+    /* The grid starts below the brand cap; it is a treatment for the light
+       field, and the cap is already a filled area. */
+    .tpl-${id} .grid-field { z-index: 0; }
+    .tpl-${id} .cap, .tpl-${id} .body, .tpl-${id} .foot { position: relative; z-index: 3; }
+    .tpl-${id} .body { flex: 1; display: flex; flex-direction: column; padding: 34px 76px 24px; }
+    /*
+     * The rows FILL the field rather than floating in the middle of it.
+     *
+     * They used to be centred at their natural height, which left roughly 150px
+     * of flat empty canvas above and below them: five rows occupying the middle
+     * 40% of the card and nothing anchoring the rest. Growing them to share the
+     * body height keeps three rows and five rows equally deliberate, and the cap
+     * is bounded so a short list becomes generous rather than absurd.
+     */
+    .tpl-${id} .list { list-style: none; flex: 1; display: flex; flex-direction: column; gap: 14px; }
     .tpl-${id} .row {
-      display: flex; align-items: center; gap: 20px;
+      flex: 1 1 0; max-height: 124px;
+      display: flex; align-items: center; gap: 22px;
       padding: ${rowPad}px 28px; border-radius: 16px;
       background: ${c.surface}; border: 1px solid ${c.hairline};
     }
+    /*
+     * A filled chip carrying the tick, rather than a bare tick on the row.
+     *
+     * The tick used to be drawn in accentOnWash: the accent darkened until it
+     * could be seen on a near-white row, which for a yellow brand is an olive
+     * nobody chose. On a brand-coloured chip the accent can be itself. It has
+     * huge contrast on a dark field, it reads as the brand, and it keeps the
+     * accent to the small area it is supposed to occupy.
+     */
+    .tpl-${id} .tick-chip {
+      flex: 0 0 42px; width: 42px; height: 42px; border-radius: 11px;
+      background: ${c.brand}; display: flex; align-items: center; justify-content: center;
+    }
     /* A CSS tick: two borders on a rotated box. No icon asset is fetched. */
     .tpl-${id} .tick {
-      flex: 0 0 26px; width: 26px; height: 14px;
-      border-left: 5px solid ${c.accentOnWash}; border-bottom: 5px solid ${c.accentOnWash};
-      transform: rotate(-45deg); margin-top: -6px;
+      width: 20px; height: 11px;
+      border-left: 4px solid ${c.accent}; border-bottom: 4px solid ${c.accent};
+      transform: rotate(-45deg); margin-top: -5px;
     }
     .tpl-${id} .row-text { font-size: ${rowFont}px; line-height: 1.3; color: ${c.ink}; font-weight: 500; }
     .tpl-${id} .subheadline { color: ${c.muted}; font-size: 30px; }

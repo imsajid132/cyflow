@@ -27,7 +27,12 @@
  * if the rest of the post is fresh.
  */
 
-import { DUPLICATION_THRESHOLDS, PLANNER_LIMITS } from '../config/constants.js';
+import {
+  DUPLICATION_THRESHOLDS,
+  PLANNER_LIMITS,
+  PLATFORM_COPY_MAX_SIMILARITY,
+  PLATFORM_OPENING_MAX_SIMILARITY,
+} from '../config/constants.js';
 
 /** Words too common to carry meaning when comparing marketing copy. */
 const STOP_WORDS = new Set([
@@ -83,6 +88,64 @@ export function jaccard(a, b) {
   return union === 0 ? 0 : intersection / union;
 }
 
+/**
+ * The first PARAGRAPH, which is the unit a post is actually built from.
+ *
+ * The opening sentence catches a formulaic first line; this catches a whole
+ * opening move reused with its first sentence swapped, which is what a model
+ * does when it is told "do not start the same way" and nothing else.
+ */
+export function firstParagraph(caption) {
+  if (typeof caption !== 'string') return '';
+  const [first] = caption.split(/\n+/).map((p) => p.trim()).filter(Boolean);
+  return (first || '').slice(0, 400);
+}
+
+/** The last paragraph: the close and CTA, the other end of the formula. */
+export function lastParagraph(caption) {
+  if (typeof caption !== 'string') return '';
+  const paragraphs = caption.split(/\n+/).map((p) => p.trim()).filter(Boolean);
+  return (paragraphs[paragraphs.length - 1] || '').slice(0, 400);
+}
+
+/**
+ * Are two platforms' posts the same post?
+ *
+ * Deliberately permissive. Two posts about one subject legitimately share their
+ * facts, their service name and their vocabulary, so this is tuned to catch
+ * "identical, or trimmed and reworded", not "same topic". A false positive here
+ * costs a regeneration; a false negative ships the thing this phase exists to
+ * stop.
+ */
+export function platformCopyTooSimilar(a, b, threshold = PLATFORM_COPY_MAX_SIMILARITY) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  if (!a.trim() || !b.trim()) return false;
+  const normA = normalizeText(a);
+  const normB = normalizeText(b);
+  if (!normA || !normB) return false;
+  if (normA === normB) return true;
+  // A trimmed copy is a substring of its source once normalized, and trigram
+  // overlap alone reads that as merely "similar".
+  if (normA.includes(normB) || normB.includes(normA)) return true;
+
+  /*
+   * The OPENING is checked separately and harder than the body.
+   *
+   * A whole-post score is an average over the post, so two versions that share
+   * an opening sentence verbatim and then diverge score as merely "similar" and
+   * pass. But the opening is the part a reader actually sees in a feed, and it
+   * is the part that makes two platforms look like one copy-paste. A shared
+   * first paragraph is the failure whatever the rest of the post does.
+   */
+  const openA = firstParagraph(a);
+  const openB = firstParagraph(b);
+  if (openA && openB && jaccard(trigrams(openA), trigrams(openB)) >= PLATFORM_OPENING_MAX_SIMILARITY) {
+    return true;
+  }
+
+  return jaccard(trigrams(a), trigrams(b)) >= threshold;
+}
+
 /** The first sentence, which is what a reader actually sees in a feed. */
 export function firstSentence(caption) {
   if (typeof caption !== 'string') return '';
@@ -121,6 +184,14 @@ export function fingerprint(post = {}) {
     headlineNormalized: normalizeText(post.headline),
     openingTrigrams: [...trigrams(opening)],
     /*
+     * The opening PARAGRAPH and the closing paragraph. A week of posts that
+     * repeat a shape ("observation, then explanation, then book a quote") reads
+     * as formulaic even when every sentence differs, and the first-sentence axis
+     * alone cannot see it.
+     */
+    openingParagraphTrigrams: [...trigrams(firstParagraph(caption))],
+    conclusionTrigrams: [...trigrams(lastParagraph(caption))],
+    /*
      * The normalized opening is kept as text (not just trigrams) so the planner
      * can tell the next generation which openings are taken. It is derived and
      * short — the caption itself is still never stored here.
@@ -132,6 +203,10 @@ export function fingerprint(post = {}) {
     goal: typeof post.goal === 'string' ? post.goal : null,
     serviceEmphasis: normalizeText(post.serviceEmphasis) || null,
     templateKey: typeof post.templateKey === 'string' ? post.templateKey : null,
+    // The strategic writing format. Distinct from contentType, which is the
+    // older, coarser label; a week can repeat a contentType legitimately while
+    // repeating a format is what makes seven posts feel like one.
+    format: typeof post.format === 'string' ? post.format : null,
   };
 }
 
@@ -144,8 +219,11 @@ export function compareFingerprints(a, b) {
     caption: jaccard(a.captionTrigrams, b.captionTrigrams),
     headline: 0,
     opening: jaccard(a.openingTrigrams, b.openingTrigrams),
+    openingParagraph: jaccard(a.openingParagraphTrigrams, b.openingParagraphTrigrams),
+    conclusion: jaccard(a.conclusionTrigrams, b.conclusionTrigrams),
     cta: 0,
     topic: 0,
+    structure: 0,
     hashtags: jaccard(a.hashtags, b.hashtags),
   };
   const reasons = [];
@@ -180,6 +258,20 @@ export function compareFingerprints(a, b) {
   axes.topic = Math.min(1, topic);
 
   /*
+   * Structure: the writing format and the layout that carries it.
+   *
+   * Soft on purpose. A 7-day plan has more days than formats, so reusing a
+   * format is expected and reusing a layout is unavoidable — FORMAT_TEMPLATES
+   * maps several formats onto one layout by design. This axis exists to break
+   * ties: a post that repeats an angle AND its format AND its layout is the same
+   * post, while any one of the three alone is just a plan with a shape.
+   */
+  let structure = 0;
+  if (a.format && a.format === b.format) structure += 0.6;
+  if (a.templateKey && a.templateKey === b.templateKey) structure += 0.4;
+  axes.structure = Math.min(1, structure);
+
+  /*
    * Scoring splits the axes into two groups, because they mean different things:
    *
    * STRONG axes are the actual words on the page. Any one of them alone is
@@ -192,16 +284,45 @@ export function compareFingerprints(a, b) {
    * itself — they only add up, and only several of them together reach the
    * warning threshold.
    */
-  const SOFT_WEIGHTS = { topic: 0.5, hashtags: 0.25, cta: 0.15 };
-  const strong = Math.max(axes.caption * 1, axes.headline * 0.95, axes.opening * 0.85);
+  /*
+   * Adding an axis rebalances the stack rather than just extending it, because
+   * the soft group has to keep two properties at once:
+   *
+   *   what a brand SHOULD repeat must not warn on its own — identical hashtags
+   *   plus an identical CTA is 0.37, under WARN (0.45), because ending every
+   *   post with "Book a free quote" is consistency, not repetition;
+   *
+   *   a repeated ANGLE must still warn even when little else matches — the same
+   *   content type and service with a shared CTA is 0.50, over WARN.
+   *
+   * `structure` is weighted low deliberately. A 7-day plan has more days than
+   * layouts and FORMAT_TEMPLATES maps several formats onto one layout by design,
+   * so a shared layout is expected: at 0.10, sharing only the layout adds 0.04
+   * and cannot push brand-consistent reuse over the line, while sharing the
+   * format AND the layout adds the full 0.10 and can.
+   */
+  const SOFT_WEIGHTS = {
+    topic: 0.5, hashtags: 0.22, cta: 0.15, structure: 0.1, conclusion: 0.1,
+  };
+  const strong = Math.max(
+    axes.caption * 1,
+    axes.headline * 0.95,
+    axes.opening * 0.85,
+    axes.openingParagraph * 0.8,
+  );
   const soft = Math.min(
     0.9,
-    axes.topic * SOFT_WEIGHTS.topic + axes.hashtags * SOFT_WEIGHTS.hashtags + axes.cta * SOFT_WEIGHTS.cta,
+    axes.topic * SOFT_WEIGHTS.topic
+      + axes.hashtags * SOFT_WEIGHTS.hashtags
+      + axes.cta * SOFT_WEIGHTS.cta
+      + axes.structure * SOFT_WEIGHTS.structure
+      + axes.conclusion * SOFT_WEIGHTS.conclusion,
   );
   const score = Math.max(strong, soft);
 
-  if (axes.caption >= 0.6) reasons.push('very similar caption wording');
+  if (axes.caption >= 0.6) reasons.push('very similar post copy');
   if (axes.opening >= 0.7) reasons.push('near-identical opening line');
+  if (axes.openingParagraph >= 0.7 && axes.opening < 0.7) reasons.push('the same opening paragraph');
   if (axes.headline >= 0.6 && !reasons.includes('identical headline')) reasons.push('similar headline');
 
   /*
@@ -215,6 +336,11 @@ export function compareFingerprints(a, b) {
     const contributions = [
       [axes.topic * SOFT_WEIGHTS.topic, axes.topic >= 0.9 ? 'the same angle and service' : 'a similar angle'],
       [axes.hashtags * SOFT_WEIGHTS.hashtags, 'the same hashtags'],
+      [
+        axes.structure * SOFT_WEIGHTS.structure,
+        axes.structure >= 0.9 ? 'the same writing format and layout' : 'the same writing format',
+      ],
+      [axes.conclusion * SOFT_WEIGHTS.conclusion, 'the same closing paragraph'],
       [axes.cta * SOFT_WEIGHTS.cta, 'the same call to action'],
     ]
       .filter(([contribution]) => contribution > 0.01)
@@ -305,7 +431,14 @@ export function createContentUniquenessService({ thresholds = DUPLICATION_THRESH
     return best;
   }
 
-  return { evaluate, describe, pickBest, fingerprint, compareFingerprints };
+  return {
+    evaluate,
+    describe,
+    pickBest,
+    fingerprint,
+    compareFingerprints,
+    platformCopyTooSimilar,
+  };
 }
 
 export const contentUniquenessService = createContentUniquenessService();

@@ -21,6 +21,19 @@ export function eyebrow(text, className = '') {
   return text ? `<span class="${cls('eyebrow', className)}">${text}</span>` : '';
 }
 
+/**
+ * The eyebrow lockup that sits above a headline: a short accent rule, then an
+ * optional letterspaced label.
+ *
+ * The rule renders even with no label. That is not a fallback, it is the
+ * reference pattern: four of the ten references carry a bare rule and no label
+ * at all, and it still reads as a deliberate opening mark.
+ */
+export function eyebrowRule(label = '', className = '') {
+  const text = label ? `<span class="eyebrow-label">${label}</span>` : '';
+  return `<div class="${cls('eyebrow-lockup', className)}"><span class="eyebrow-rule"></span>${text}</div>`;
+}
+
 export function cta(text, variant = '') {
   return text ? `<span class="${cls('cta', variant)}">${text}</span>` : '';
 }
@@ -56,4 +69,4 @@ export function contactLockup({ website, phone }, className = '') {
   return `<div class="${cls('footer', className)}">${bits.join('<span class="footer-dot"></span>')}</div>`;
 }
 
-export default { logo, eyebrow, cta, tag, subheadline, footerLockup, contactLockup };
+export default { logo, eyebrow, eyebrowRule, cta, tag, subheadline, footerLockup, contactLockup };

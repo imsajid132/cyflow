@@ -575,6 +575,138 @@ test('regenerating a caption keeps a separately edited headline', async () => {
   assert.ok(after.regenerationCount >= 1);
 });
 
+// --- per-platform post copy (Phase 4.7.2) ------------------------------------
+
+/** Seed the three supported providers so a plan targets all three platforms. */
+async function seedAllPlatforms(socialAccounts) {
+  await seedAccount(socialAccounts, { accountType: 'facebook_page', provider: 'meta', id: 'fb_1' });
+  await seedAccount(socialAccounts, { accountType: 'instagram_professional', provider: 'instagram', id: 'ig_1' });
+  await seedAccount(socialAccounts, { accountType: 'threads_profile', provider: 'threads', id: 'th_1' });
+}
+
+async function generateMultiPlatform(ctx, options = {}) {
+  await seedAllPlatforms(ctx.socialAccounts);
+  await seedProfile(ctx.businessProfiles);
+  return ctx.svc.generatePlan(USER, {
+    startDate: '2026-07-14', planLength: 1, cadence: 'every_day',
+    times: ['09:00'], timezone: 'UTC', platforms: ['facebook', 'instagram', 'threads'], ...options,
+  });
+}
+
+test('each target platform gets its own generated post, not a copy', async () => {
+  const ctx = build();
+  const plan = await generateMultiPlatform(ctx);
+  const item = plan.items[0];
+
+  // The generator is asked once per platform, for THAT platform.
+  const platforms = ctx.openai._calls.map((c) => c.platform);
+  for (const platform of ['facebook', 'instagram', 'threads']) {
+    assert.ok(platforms.includes(platform), `never generated for ${platform}: ${platforms.join(', ')}`);
+  }
+
+  const stored = await ctx.runs.findItemByIdForUser(item.id, USER);
+  assert.ok(stored.platformCaptions, 'per-platform copy was not persisted');
+  const captions = ['facebook', 'instagram', 'threads'].map((p) => stored.platformCaptions[p]?.caption);
+  assert.equal(new Set(captions).size, 3, `platforms share copy: ${JSON.stringify(captions)}`);
+});
+
+test('a platform variant is told what the primary post already said', async () => {
+  const ctx = build();
+  await generateMultiPlatform(ctx);
+  const variantCalls = ctx.openai._calls.filter((c) => c.siblingCopy);
+  assert.ok(variantCalls.length >= 2, 'the non-primary platforms must be given the primary copy as context');
+  for (const call of variantCalls) {
+    assert.equal(typeof call.siblingCopy, 'string');
+    assert.ok(call.siblingCopy.length > 0);
+  }
+});
+
+test('a single-platform plan stores no variants and still queues', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 1, platforms: ['threads'] });
+  const stored = await ctx.runs.findItemByIdForUser(plan.items[0].id, USER);
+  assert.equal(stored.platformCaptions, null, 'one platform needs no variants');
+
+  await ctx.svc.setItemStatus(USER, plan.items[0].id, 'approved');
+  const queued = await ctx.svc.queueApproved(USER, plan.run.id);
+  assert.equal(queued.queued.length, 1);
+});
+
+test('queueing hands each platform the copy written for it', async () => {
+  const ctx = build();
+  const plan = await generateMultiPlatform(ctx);
+  const item = plan.items[0];
+  const stored = await ctx.runs.findItemByIdForUser(item.id, USER);
+
+  await ctx.svc.setItemStatus(USER, item.id, 'approved');
+  const { queued } = await ctx.svc.queueApproved(USER, plan.run.id);
+  assert.equal(queued.length, 1);
+
+  const post = ctx.posts._posts.find((p) => String(p.id) === String(queued[0].postId));
+  assert.ok(post, 'the queued post should exist');
+  const delivered = post.generated_platform_captions_json;
+  assert.ok(delivered, 'the queued post carries no platform captions');
+  for (const platform of ['facebook', 'instagram', 'threads']) {
+    assert.equal(
+      delivered[platform].caption,
+      stored.platformCaptions[platform].caption,
+      `${platform} was queued with the wrong copy`,
+    );
+  }
+  // ...and the three are genuinely different posts, not one string three times.
+  const texts = ['facebook', 'instagram', 'threads'].map((p) => delivered[p].caption);
+  assert.equal(new Set(texts).size, 3, 'the queued platforms share copy');
+});
+
+test('an item saved before per-platform copy existed still queues, using its caption', async () => {
+  const ctx = build();
+  const plan = await generateMultiPlatform(ctx);
+  const item = plan.items[0];
+
+  // Simulate a pre-migration row: the column is NULL.
+  await ctx.runs.updateItem(item.id, USER, { platformCaptions: null });
+  await ctx.svc.setItemStatus(USER, item.id, 'approved');
+  const { queued } = await ctx.svc.queueApproved(USER, plan.run.id);
+  assert.equal(queued.length, 1, 'a legacy item must still queue rather than fail');
+
+  // Every platform falls back to the canonical caption, which is the old
+  // behaviour: worse copy, but never a failure to publish.
+  const post = ctx.posts._posts.find((p) => String(p.id) === String(queued[0].postId));
+  const stored = await ctx.runs.findItemByIdForUser(item.id, USER);
+  for (const platform of stored.platformTargets) {
+    assert.equal(post.generated_platform_captions_json[platform].caption, stored.caption);
+  }
+});
+
+test('editing the canonical caption wins over a stale generated variant', async () => {
+  const ctx = build();
+  const plan = await generateMultiPlatform(ctx);
+  const item = plan.items[0];
+  const stored = await ctx.runs.findItemByIdForUser(item.id, USER);
+  const primary = Object.keys(stored.platformCaptions)[0];
+
+  await ctx.svc.updateItem(USER, item.id, { caption: 'Hand-written by the user.' });
+  await ctx.svc.setItemStatus(USER, item.id, 'approved');
+  await ctx.svc.queueApproved(USER, plan.run.id);
+
+  const after = await ctx.runs.findItemByIdForUser(item.id, USER);
+  assert.equal(after.caption, 'Hand-written by the user.');
+  // The user edited the canonical field; the primary platform must not publish
+  // the superseded generated variant.
+  assert.ok(after.editedFields.includes('caption'));
+  assert.ok(primary, 'a primary platform should exist');
+});
+
+test('regenerating post copy does not change the selected template', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 1 });
+  const item = plan.items[0];
+
+  await ctx.svc.updateItem(USER, item.id, { templateKey: 'comparison-cards' });
+  const after = await ctx.svc.regenerateItem(USER, item.id, 'caption');
+  assert.equal(after.templateKey, 'comparison-cards', 'a copy regeneration must not reset the chosen layout');
+});
+
 test('editing validates its input', async () => {
   const ctx = build();
   const plan = await generate(ctx, { planLength: 1 });

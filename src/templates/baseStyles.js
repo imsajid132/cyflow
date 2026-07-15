@@ -71,6 +71,50 @@ export function baseCss({ width, height, palette: c, fonts, type, scope }) {
     ${s} .cta-outline { background: transparent; color: ${c.ink}; border: 2px solid ${c.ink}; padding: 20px 40px; }
     ${s} .cta-brand { background: ${c.brand}; color: ${c.onBrand}; }
 
+    /* --- field treatment -------------------------------------------------- */
+    /*
+     * A faint square grid, drawn with gradients so no asset is ever fetched.
+     *
+     * This is what stops empty canvas reading as unfinished. The references
+     * carry a lot of empty space and none of it looks broken, because a grid or
+     * a gradient always occupies it. On a flat fill the same emptiness looks
+     * like a layout that failed to load.
+     *
+     * currentColor lets a layout set the line colour with its own color
+     * property: a dark hairline over a light wash, a white trace over a brand
+     * field, without this rule needing to know which it is sitting on.
+     */
+    ${s} .grid-field {
+      position: absolute; inset: 0; z-index: 2; pointer-events: none;
+      color: ${c.hairline}; opacity: .7;
+      background-image:
+        repeating-linear-gradient(to right, currentColor 0 1px, transparent 1px 90px),
+        repeating-linear-gradient(to bottom, currentColor 0 1px, transparent 1px 90px);
+    }
+    /* Over a brand field the trace has to be light, and much fainter. */
+    ${s} .grid-field-on-brand { color: ${c.onBrand}; opacity: .06; }
+
+    /* --- eyebrow lockup --------------------------------------------------- */
+    /*
+     * A short accent rule, optionally followed by a letterspaced label, sitting
+     * ABOVE the headline. Present on all ten references and, until now, on none
+     * of the layouts.
+     *
+     * The label takes the muted ink rather than the accent. A brand accent is
+     * chosen for being chromatic, and a chromatic colour bright enough to be an
+     * accent (a yellow, say) cannot carry legible small text on a near-white
+     * wash — the readable version of it is a muddy olive. So the accent does the
+     * job it is good at (the rule, a small filled area) and the ink does the job
+     * it is good at (the words).
+     */
+    ${s} .eyebrow-lockup { display: flex; align-items: center; gap: 18px; }
+    ${s} .eyebrow-rule { flex: 0 0 56px; width: 56px; height: 5px; border-radius: 5px; background: ${c.accent}; }
+    ${s} .eyebrow-label {
+      font-family: ${fonts.utility}; font-size: 20px; font-weight: 700;
+      letter-spacing: .18em; text-transform: uppercase; color: ${c.muted};
+    }
+    ${s} .eyebrow-lockup-on-brand .eyebrow-label { color: ${c.onBrand}; opacity: .72; }
+
     /* --- structure ------------------------------------------------------- */
     ${s} .rule { height: 4px; width: 88px; border-radius: 4px; background: ${c.accent}; }
     ${s} .hairline { height: 1px; width: 100%; background: ${c.hairline}; }

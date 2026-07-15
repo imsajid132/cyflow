@@ -549,6 +549,60 @@ export const HEADLINE_RULES = Object.freeze({
 });
 
 /**
+ * Post copy shape, per platform.
+ *
+ * This is the rule that separates a POST from a caption. A caption is one line
+ * under a picture; a post is something a person reads. The earlier generator
+ * asked only for "2-3 short paragraphs" in prose and enforced nothing, so it
+ * produced one-sentence adverts that passed every check.
+ *
+ * Facebook and Instagram carry the full argument. Threads is deliberately
+ * shorter and is written FOR Threads — a trimmed Instagram post is the failure
+ * these bounds exist to catch, so its band does not overlap theirs.
+ *
+ * Enforced after generation by contentStyleGuard, because a model asked for
+ * "100 to 180 words" will still return forty.
+ */
+export const POST_COPY_RULES = Object.freeze({
+  facebook: Object.freeze({
+    MIN_WORDS: 100, MAX_WORDS: 180, MIN_PARAGRAPHS: 2, MAX_PARAGRAPHS: 4,
+  }),
+  instagram: Object.freeze({
+    MIN_WORDS: 100, MAX_WORDS: 180, MIN_PARAGRAPHS: 2, MAX_PARAGRAPHS: 4,
+  }),
+  threads: Object.freeze({
+    MIN_WORDS: 40, MAX_WORDS: 100, MIN_PARAGRAPHS: 1, MAX_PARAGRAPHS: 3,
+  }),
+});
+
+/**
+ * A paragraph longer than this is a wall of text regardless of the total word
+ * count: four short paragraphs and one 160-word block both satisfy the word
+ * band, and only one of them is readable.
+ */
+export const PARAGRAPH_MAX_WORDS = 75;
+
+/**
+ * How similar two platforms' copy may be before it counts as a copy-paste.
+ *
+ * Trigram Jaccard over the caption. The same post rewritten for another
+ * platform shares its facts and its vocabulary, so this is deliberately
+ * permissive: it catches "identical, or trimmed", not "same subject".
+ */
+export const PLATFORM_COPY_MAX_SIMILARITY = 0.72;
+
+/**
+ * How similar two platforms' OPENING paragraphs may be.
+ *
+ * Tighter than the whole-post bound, and checked separately, because a
+ * whole-post average hides a shared opening: two posts can reuse their first
+ * sentence verbatim, diverge afterwards, and still score as merely "similar".
+ * The opening is the part a reader sees in the feed, so a shared one is the most
+ * visible way two platforms look like one copy-paste.
+ */
+export const PLATFORM_OPENING_MAX_SIMILARITY = 0.6;
+
+/**
  * Dash characters that must never appear in generated copy.
  *
  * Em and en dashes are the single most reliable tell of machine-written
@@ -665,6 +719,16 @@ export const PLANNER_LIMITS = Object.freeze({
   MAX_POSTS_PER_DAY: 5,
   DEFAULT_POSTS_PER_DAY: 1,
   MAX_REGENERATION_ATTEMPTS: 2,
+  /*
+   * How many different layouts a full plan should reach for.
+   *
+   * A week that renders four designs reads as a template with the words swapped.
+   * This is a TARGET, not a floor: it is capped by how many layouts the user's
+   * own content mix can actually reach, so a mix of nothing but checklists still
+   * produces checklists. It only ever reorganises formats the user already
+   * weighted above zero.
+   */
+  MIN_DISTINCT_LAYOUTS: 5,
   // How many recent items the uniqueness check compares a new post against.
   DUPLICATE_LOOKBACK_ITEMS: 60,
   DUPLICATE_LOOKBACK_DAYS: 60,

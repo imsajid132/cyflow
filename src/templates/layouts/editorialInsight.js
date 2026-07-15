@@ -11,7 +11,7 @@
  * gradient and a hairline rule, both of which do compositional work.
  */
 
-import { logo, cta, subheadline, footerLockup } from '../parts.js';
+import { logo, cta, subheadline, footerLockup, eyebrowRule } from '../parts.js';
 
 export const id = 'editorial-insight';
 export const label = 'Editorial Insight';
@@ -25,6 +25,7 @@ export function render(ctx) {
         <div class="field"></div>
         <div class="accent-edge"></div>
       </div>
+      <div class="grid-field${c.canvasIsDark ? ' grid-field-on-brand' : ''}"></div>
       <div class="content">
         <header class="head">
           ${logo(logoUrl)}
@@ -32,6 +33,7 @@ export function render(ctx) {
           ${text.badge ? `<span class="badge-pill">${text.badge}</span>` : ''}
         </header>
         <div class="body">
+          ${eyebrowRule('', c.canvasIsDark ? 'eyebrow-lockup-on-brand' : '')}
           <h1 class="headline">${text.headline}</h1>
           ${subheadline(text.sub)}
         </div>

@@ -6,7 +6,7 @@
  * field on the right. The CTA appears only when one was supplied.
  */
 
-import { logo, cta, subheadline, footerLockup } from '../parts.js';
+import { logo, cta, subheadline, footerLockup, eyebrowRule } from '../parts.js';
 
 export const id = 'service-authority';
 export const label = 'Service Authority';
@@ -18,6 +18,7 @@ export function render(ctx) {
     <div class="canvas tpl-${id}">
       <div class="content split">
         <aside class="panel">
+          <div class="grid-field grid-field-on-brand"></div>
           ${logo(logoUrl, { className: 'panel-logo' })}
           <div class="panel-foot">
             ${text.badge ? `<span class="panel-label">${text.badge}</span>` : ''}
@@ -25,9 +26,10 @@ export function render(ctx) {
           </div>
         </aside>
         <section class="main">
+          <div class="grid-field"></div>
           <div class="body">
+            ${eyebrowRule()}
             <h1 class="headline">${text.headline}</h1>
-            <div class="divider"></div>
             ${subheadline(text.sub)}
             ${cta(text.cta)}
           </div>
@@ -51,8 +53,16 @@ export function render(ctx) {
       display: flex; flex-direction: column; gap: 40px;
       padding: 64px 44px; border-right: 10px solid ${c.accent};
     }
-    .tpl-${id} .panel-logo { height: 54px; max-width: 170px; flex: 0 0 auto; }
-    .tpl-${id} .panel-foot { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 16px; }
+    .tpl-${id} .panel-logo { height: 54px; max-width: 170px; flex: 0 0 auto; position: relative; z-index: 3; }
+    .tpl-${id} .panel-foot {
+      flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 16px;
+      position: relative; z-index: 3;
+    }
+    /* The panel is 38% of the canvas carrying three small elements. The gradient
+       alone left it reading as a dark void; the grid gives the space something
+       to be. */
+    .tpl-${id} .main { position: relative; }
+    .tpl-${id} .main > .body, .tpl-${id} .main > .foot { position: relative; z-index: 3; }
     .tpl-${id} .panel-label {
       font-family: ${ctx.fonts.utility}; font-size: 18px; font-weight: 700;
       letter-spacing: .16em; text-transform: uppercase; color: ${c.accent};
@@ -71,8 +81,6 @@ export function render(ctx) {
       color: ${c.ink}; font-size: ${Math.round(ctx.type.headline.size * 0.72)}px;
       max-width: 14ch; font-weight: 700;
     }
-    .tpl-${id} .headline .em { color: ${c.accentOnWash}; }
-    .tpl-${id} .divider { width: 84px; height: 5px; border-radius: 5px; background: ${c.accent}; }
     .tpl-${id} .subheadline { color: ${c.muted}; max-width: 24ch; font-size: 27px; }
     .tpl-${id} .cta { background: ${c.accent}; color: ${c.onAccent}; font-size: 23px; padding: 15px 30px; }
     .tpl-${id} .foot { display: flex; flex-direction: column; gap: 16px; }

@@ -461,6 +461,9 @@ CREATE TABLE IF NOT EXISTS `planner_run_items` (
   `generated_summary`        VARCHAR(500)    NULL DEFAULT NULL,
   `generated_caption`        TEXT            NULL DEFAULT NULL,
   `generated_hashtags_json`  JSON            NULL DEFAULT NULL,
+  -- Per-platform post copy: { "facebook": { "caption", "hashtags" }, ... }.
+  -- NULL falls back to `generated_caption` for every target platform.
+  `platform_captions_json`   JSON            NULL DEFAULT NULL,
   `generated_alt_text`       VARCHAR(500)    NULL DEFAULT NULL,
   `brief`                    VARCHAR(2000)   NULL DEFAULT NULL,
   `media_asset_id`           BIGINT UNSIGNED NULL DEFAULT NULL,

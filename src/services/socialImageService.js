@@ -105,7 +105,8 @@ export function createSocialImageService({
    * @param {{ userId, headline, subheadline, brandName, template, aspectRatio,
    *           backgroundStyle, logoUrl?, primaryColor?, secondaryColor?,
    *           accentColor?, headingFont?, bodyFont?, cta?, website?, phone?,
-   *           businessCategory?, serviceTag? }} input
+   *           businessCategory?, serviceTag?, bullets?, stat?, comparison?,
+   *           badge?, locationLabel? }} input
    * @param {{ postId? }} [ctx]
    */
   async function generateSocialImage(input, ctx = {}) {
@@ -144,6 +145,19 @@ export function createSocialImageService({
       // Optional design modules — omitted from the layout when absent.
       businessCategory: input.businessCategory,
       serviceTag: input.serviceTag,
+      /*
+       * The structured content block. Without these a checklist layout renders
+       * its no-bullets fallback, a comparison layout renders no columns and a
+       * stat layout renders its no-figure branch — which is precisely the
+       * "unfinished, basic" output this phase exists to fix. buildTemplate
+       * escapes, clamps and count-limits each one, so they are forwarded as
+       * given rather than pre-processed here.
+       */
+      bullets: input.bullets,
+      stat: input.stat,
+      comparison: input.comparison,
+      badge: input.badge,
+      locationLabel: input.locationLabel,
     });
     const safeHtml = sanitizeGeneratedHtml(built.html);
 

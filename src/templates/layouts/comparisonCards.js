@@ -7,7 +7,7 @@
  * IS the argument.
  */
 
-import { logo, cta, subheadline, footerLockup } from '../parts.js';
+import { logo, cta, subheadline, footerLockup, eyebrowRule } from '../parts.js';
 
 export const id = 'comparison-cards';
 export const label = 'Comparison Cards';
@@ -36,12 +36,14 @@ export function render(ctx) {
 
   const html = `
     <div class="canvas tpl-${id}">
+      <div class="grid-field"></div>
       <div class="content">
         <header class="head">
           ${logo(logoUrl)}
           <span class="spacer"></span>
           ${text.badge ? `<span class="badge-pill">${text.badge}</span>` : ''}
         </header>
+        ${eyebrowRule()}
         <h1 class="headline">${text.headline}</h1>
         <div class="body">${body}</div>
         <footer class="foot">
