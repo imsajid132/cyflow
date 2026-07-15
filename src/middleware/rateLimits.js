@@ -203,6 +203,22 @@ export const mediaProxyLimiter = limiter({
   message: 'Too many requests',
 });
 
+/** Website analysis (outbound crawl): strict — 10 / hour / user+IP. */
+export const websiteAnalysisLimiter = limiter({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  keyGenerator: userOrIpKey,
+  message: 'Too many website analyses, please try again later',
+});
+
+/** Business profile writes: moderate — 60 / 15 min / user+IP. */
+export const businessProfileLimiter = limiter({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  keyGenerator: userOrIpKey,
+  message: 'Too many requests, please slow down',
+});
+
 export default {
   createRateLimiter,
   generalApiLimiter,
@@ -223,4 +239,6 @@ export default {
   imageGenerationLimiter,
   scheduleLimiter,
   mediaProxyLimiter,
+  websiteAnalysisLimiter,
+  businessProfileLimiter,
 };

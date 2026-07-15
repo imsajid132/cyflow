@@ -180,6 +180,12 @@ export const EVENT_TYPES = Object.freeze({
   POST_DELETED: 'post.deleted',
   MEDIA_ASSET_CREATED: 'media.asset_created',
   MEDIA_ASSET_FAILED: 'media.asset_failed',
+  // Phase 4.5: business onboarding + website brand extraction
+  BUSINESS_PROFILE_UPDATED: 'business.profile_updated',
+  BUSINESS_PROFILE_DELETED: 'business.profile_deleted',
+  BUSINESS_WEBSITE_ANALYZED: 'business.website_analyzed',
+  BUSINESS_WEBSITE_ANALYSIS_FAILED: 'business.website_analysis_failed',
+  BUSINESS_ONBOARDING_COMPLETED: 'business.onboarding_completed',
 });
 
 // Least-privilege OAuth scopes requested per provider. Do NOT add unrelated
@@ -281,3 +287,63 @@ export const IMAGE_TEXT_LIMITS = Object.freeze({
   HEADLINE_MAX: 80,
   SUBHEADLINE_MAX: 140,
 });
+
+// --- Phase 4.5: business onboarding + website brand extraction -------------
+
+/** Onboarding state machine. */
+export const ONBOARDING_STATUS = Object.freeze({
+  NOT_STARTED: 'not_started',
+  BUSINESS_SOURCE: 'business_source',
+  ANALYZING: 'analyzing',
+  BRAND_REVIEW: 'brand_review',
+  CONNECTIONS: 'connections',
+  COMPLETED: 'completed',
+});
+export const ONBOARDING_STATUS_VALUES = Object.freeze(Object.values(ONBOARDING_STATUS));
+
+/** How a business profile was populated. */
+export const BUSINESS_SOURCE_TYPES = Object.freeze(['website', 'manual', 'mixed']);
+
+/** Hard bounds for the website analyzer (no env vars — fixed policy). */
+export const WEBSITE_ANALYSIS = Object.freeze({
+  MAX_PAGES: 4, // homepage + about + services + contact
+  MAX_REDIRECTS: 3,
+  TIMEOUT_MS: 10_000,
+  MAX_PAGE_BYTES: 2 * 1024 * 1024,
+  MAX_LOGO_BYTES: 2 * 1024 * 1024,
+  MAX_SERVICES: 12,
+  MAX_LOCATIONS: 10,
+  MAX_SOCIAL_LINKS: 10,
+  MAX_COLORS: 6,
+});
+
+/** Field length bounds for business profile data. */
+export const BUSINESS_LIMITS = Object.freeze({
+  NAME_MAX: 160,
+  CATEGORY_MAX: 80,
+  DESCRIPTION_MAX: 1000,
+  PHONE_MAX: 40,
+  EMAIL_MAX: 254,
+  ADDRESS_MAX: 255,
+  CITY_MAX: 120,
+  REGION_MAX: 120,
+  POSTAL_MAX: 32,
+  COUNTRY_MAX: 80,
+  FONT_MAX: 80,
+  SERVICE_MAX: 80,
+  LOCATION_MAX: 120,
+  URL_MAX: 2000,
+  CTA_MAX: 200,
+  LANGUAGE_MAX: 40,
+});
+
+/** Image MIME types accepted for a fetched logo. */
+export const LOGO_MIME_TYPES = Object.freeze([
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif',
+  'image/svg+xml',
+  'image/x-icon',
+  'image/vnd.microsoft.icon',
+]);

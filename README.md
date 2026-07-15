@@ -3,6 +3,11 @@
 A web-based platform to **generate**, **schedule**, and **automatically publish**
 social media content — captions and images — to your connected accounts.
 
+> **Status: Phase 4.5a — business onboarding backend.** Adds the business
+> profile model, an SSRF-hardened website analyzer, brand extraction, and the
+> onboarding API. **The multi-page UX redesign is Phase 4.5b (not yet built)** —
+> the app still serves the existing single dashboard page until then.
+>
 > **Status: Phase 4 — content generation & scheduling.** Completed so far: the
 > Phase 1 foundation, Phase 2 auth + HCTI, Phase 3 OAuth connections, **plus**
 > centralized **OpenAI** caption generation, per-user **HCTI** image generation
@@ -15,6 +20,109 @@ social media content — captions and images — to your connected accounts.
 > and post analytics. **Scheduling saves a validated post for a future
 > publishing phase — nothing is published, and `scheduler:once` never publishes.**
 > **App Review approval is NOT claimed.**
+
+## Phase 4.5a — business onboarding & website brand extraction
+
+Each user gets **one business profile** (`business_profiles`, UNIQUE `user_id`)
+holding their reviewed business identity, brand, contacts, and onboarding state.
+
+### Onboarding flow
+
+`not_started → business_source → analyzing → brand_review → connections → completed`
+
+New users are prompted to set up their business (analyze a website, or enter
+details manually), review/edit the extracted brand, then connect social
+accounts. **Existing users are never locked out** — a user with no profile row
+reads as `not_started` with `canUseApp: true`, keeps full access to every
+existing feature, and simply sees a "complete business setup" prompt.
+
+### Website analysis
+
+Explicit, user-triggered only (never on page load/refresh). It fetches **at most
+4 pages** — homepage plus one likely About / Services / Contact page — restricted
+to the **same registrable domain**, skipping private/state-changing paths
+(`/login`, `/admin`, `/account`, `/checkout`, `/cart`, `/logout`, …). It returns
+**editable suggestions**; nothing is saved until the user reviews them.
+
+### SSRF protections
+
+The analyzer fetches attacker-influenceable URLs, so every hop is validated:
+
+- **http/https only**; **HTTPS required in production** (plain HTTP is allowed
+  only outside production and reported as an `insecure_http` warning).
+- Embedded credentials rejected; query strings and fragments stripped.
+- **DNS resolved before each request**; the host is rejected if **any** resolved
+  address is loopback/private/link-local/CGNAT/multicast/metadata — IPv4 **and**
+  IPv6 (including IPv4-mapped `::ffff:10.0.0.1` and `169.254.169.254`).
+- Internal hostnames blocked (`localhost`, `*.local`, `*.internal`, bare names).
+- **Redirects followed manually and re-validated on every hop** (max 3) — a
+  redirect to a private IP or internal host is refused and never fetched.
+- Request timeout, **response byte cap**, and **HTML-only** content types
+  (PDFs/images/downloads rejected).
+- **No auth headers, no cookies, no JavaScript execution, no headless browser,
+  no form submission.** Raw page HTML is never returned, stored, or logged, and
+  internal fetch/DNS errors are never surfaced.
+
+> **Known limitation (documented, not hidden):** addresses are validated before
+> connecting, so a hostile authoritative DNS server could theoretically flip a
+> record between our check and the socket connect (DNS-rebinding TOCTOU).
+> Closing it fully requires pinning the connection to the validated IP with a
+> custom agent — a candidate hardening step, not something implied as done.
+
+### Brand extraction (best-effort suggestions)
+
+- **Logo priority:** JSON-LD `logo` → header image → `logo`-ish class/id/alt →
+  OG image *only when it looks like a logo* → favicon fallback. Not every large
+  image is treated as a logo. A logo is **only fetched from the analyzed site's
+  own domain**; off-site/CDN logos are offered as an editable suggestion but
+  never fetched. SVGs containing scripts, handlers, `<use>`, `<foreignObject>`,
+  or external references are **rejected outright** (never "sanitized and hoped").
+- **Colors:** frequency-ranked CSS colors with CSS custom properties weighted
+  highest; white/near-white, black, and low-saturation utility greys are filtered
+  out; results validated as hex and fully editable.
+- **Fonts:** detected from CSS variables and body/heading rules; only plain font
+  **names** are returned (no font files are downloaded or redistributed).
+- **Contacts/identity:** JSON-LD (`LocalBusiness`/`Organization`), Open Graph,
+  `tel:`/`mailto:` links, then bounded text fallbacks.
+- **Services:** concise, deduplicated names with count/length caps — never a
+  full-page text dump.
+
+Extraction is heuristic; every field is a suggestion the user reviews.
+
+### OpenAI normalization (optional)
+
+If configured, OpenAI may normalize **already-extracted plain text** into a
+concise description/services/category/tone. It receives **no page HTML, no
+emails, no phone numbers, no secrets**. Analysis works fully without OpenAI, and
+an OpenAI failure never blocks manual editing.
+
+### Manual edits win
+
+Every field a user edits by hand is recorded. Later automatic suggestions
+**never silently overwrite** it — `apply-extracted` returns `preservedFields`
+listing what it declined to change.
+
+### Business profile API (auth; state-changing = CSRF)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/business-profile` | sanitized profile (no internal diagnostics) |
+| GET | `/api/business-profile/onboarding-state` | drives the onboarding redirect |
+| PUT | `/api/business-profile` | whitelisted fields; unknown fields **rejected** |
+| POST | `/api/business-profile/analyze-website` | strict rate limit (10/hr) |
+| POST | `/api/business-profile/apply-extracted` | preserves manual edits |
+| POST | `/api/business-profile/complete-onboarding` | marks onboarding complete |
+| DELETE | `/api/business-profile` | removes the profile only |
+
+There is **no arbitrary asset-fetch endpoint** — website analysis is the only
+outbound action, and it is always user-triggered.
+
+### Migration 006
+
+Apply [`006_business_onboarding.sql`](database/migrations/006_business_onboarding.sql)
+to an existing database (additive only — creates `business_profiles`, touches no
+existing data). Fresh installs get it from `schema.sql`. **No new environment
+variables**; analyzer limits are fixed constants.
 
 ## Phase 4 — content generation & scheduling
 

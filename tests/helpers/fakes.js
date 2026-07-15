@@ -739,6 +739,142 @@ export function createFakePostRepository({ socialAccounts } = {}) {
   };
 }
 
+/** Fake `businessProfileRepository` — one profile per user, in-memory. */
+export function createFakeBusinessProfileRepository() {
+  const rows = new Map(); // userId -> profile (sanitized shape + diagnostics)
+  let nextId = 1;
+
+  function base(userId) {
+    return {
+      id: String(nextId++),
+      userId: String(userId),
+      businessName: null,
+      websiteUrl: null,
+      businessCategory: null,
+      businessDescription: null,
+      phone: null,
+      email: null,
+      address: null,
+      city: null,
+      region: null,
+      postalCode: null,
+      country: null,
+      primaryColor: null,
+      secondaryColor: null,
+      accentColor: null,
+      headingFont: null,
+      bodyFont: null,
+      logoUrl: null,
+      logoMediaAssetId: null,
+      faviconUrl: null,
+      defaultLanguage: null,
+      defaultTone: null,
+      defaultCallToAction: null,
+      services: [],
+      locations: [],
+      socialLinks: [],
+      sourceType: 'manual',
+      onboardingStatus: 'not_started',
+      onboardingCompletedAt: null,
+      manualFields: [],
+      extractedMetadata: {},
+      createdAt: '2026-01-01 00:00:00',
+      updatedAt: '2026-01-01 00:00:00',
+    };
+  }
+
+  const api = {
+    _rows: rows,
+    async findByUserId(userId, options = {}) {
+      const row = rows.get(String(userId));
+      if (!row) return null;
+      const copy = { ...row };
+      if (!options.includeDiagnostics) {
+        delete copy.extractedMetadata;
+        delete copy.manualFields;
+      }
+      return copy;
+    },
+    async findRawByUserId(userId) {
+      return rows.get(String(userId)) ?? null;
+    },
+    async createOrUpdateProfile(userId, data) {
+      const key = String(userId);
+      const next = { ...(rows.get(key) || base(userId)) };
+      for (const [k, v] of Object.entries(data)) next[k] = v;
+      rows.set(key, next);
+      return api.findByUserId(userId);
+    },
+    async updateBrandDetails(userId, data) {
+      return api.createOrUpdateProfile(userId, data);
+    },
+    async updateContactDetails(userId, data) {
+      return api.createOrUpdateProfile(userId, data);
+    },
+    async updateServices(userId, services) {
+      return api.createOrUpdateProfile(userId, { services });
+    },
+    async updateOnboardingStatus(userId, status) {
+      return api.createOrUpdateProfile(userId, { onboardingStatus: status });
+    },
+    async markOnboardingComplete(userId, completedAt) {
+      return api.createOrUpdateProfile(userId, {
+        onboardingStatus: 'completed',
+        onboardingCompletedAt: completedAt,
+      });
+    },
+    async deleteBusinessProfile(userId) {
+      return rows.delete(String(userId));
+    },
+  };
+  return api;
+}
+
+/** Fake website analysis service (never touches the network). */
+export function createFakeWebsiteAnalysisService(opts = {}) {
+  const calls = [];
+  return {
+    _calls: calls,
+    async analyzeWebsite(input) {
+      calls.push(input);
+      if (opts.error) throw opts.error;
+      return (
+        opts.result || {
+          sourceUrl: 'https://example.com/',
+          warnings: [],
+          pagesAnalyzed: [{ kind: 'home', url: 'https://example.com/' }],
+          suggestions: {
+            businessName: 'Acme Ltd',
+            businessCategory: '',
+            businessDescription: 'We do things.',
+            phone: '+1 555 0100',
+            email: 'hi@example.com',
+            address: '1 Main St',
+            city: 'Springfield',
+            region: '',
+            postalCode: '',
+            country: '',
+            websiteUrl: 'https://example.com',
+            primaryColor: '#1a73e8',
+            secondaryColor: '#e8710a',
+            accentColor: '',
+            colorCandidates: ['#1a73e8', '#e8710a'],
+            headingFont: 'Inter',
+            bodyFont: 'Inter',
+            logoUrl: 'https://example.com/logo.png',
+            logoValidated: true,
+            faviconUrl: 'https://example.com/favicon.ico',
+            services: ['Roof Repair', 'Gutter Cleaning'],
+            locations: ['Springfield'],
+            socialLinks: [{ platform: 'facebook.com', url: 'https://facebook.com/acme' }],
+            defaultTone: '',
+          },
+        }
+      );
+    },
+  };
+}
+
 /** Fake transaction runner: invokes the callback with a marker connection. */
 export async function fakeWithTransaction(callback) {
   return callback({ _fakeConnection: true });
@@ -775,6 +911,8 @@ export function createFakeOverrides(extra = {}) {
     mediaAssetService,
     openaiContentService,
     socialImageService,
+    businessProfileRepository: extra.businessProfileRepository ?? createFakeBusinessProfileRepository(),
+    websiteAnalysisService: extra.websiteAnalysisService ?? createFakeWebsiteAnalysisService(),
   };
 }
 

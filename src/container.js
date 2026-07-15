@@ -16,6 +16,10 @@ import * as dataDeletionRepositoryModule from './repositories/dataDeletionReposi
 import * as postRepositoryModule from './repositories/postRepository.js';
 import * as mediaAssetRepositoryModule from './repositories/mediaAssetRepository.js';
 import * as apiUsageRepositoryModule from './repositories/apiUsageRepository.js';
+import * as businessProfileRepositoryModule from './repositories/businessProfileRepository.js';
+import { createBusinessProfileService } from './services/businessProfileService.js';
+import { websiteAnalysisService as realWebsiteAnalysisService } from './services/websiteAnalysisService.js';
+import { createBusinessProfileController } from './controllers/businessProfileController.js';
 import { createLoggingService } from './services/loggingService.js';
 import { createAuthService } from './services/authService.js';
 import { hctiService as realHctiService } from './services/hctiService.js';
@@ -102,8 +106,20 @@ export function buildContainer(overrides = {}) {
   const oauthController = createOAuthController({ oauthService });
   const socialAccountController = createSocialAccountController({ oauthService, socialAccounts });
   const threadsCallbackController = createThreadsCallbackController({ threadsCallbackService });
+  // Phase 4.5: business onboarding + website brand extraction.
+  const businessProfiles = overrides.businessProfileRepository ?? businessProfileRepositoryModule;
+  const websiteAnalysisService = overrides.websiteAnalysisService ?? realWebsiteAnalysisService;
+  const businessProfileService =
+    overrides.businessProfileService ??
+    createBusinessProfileService({
+      profiles: businessProfiles,
+      analyzer: websiteAnalysisService,
+      logging,
+    });
+
   const postController = createPostController({ postService });
   const mediaController = createMediaController({ mediaAssetService });
+  const businessProfileController = createBusinessProfileController({ businessProfileService });
 
   const { requireAuth, guestOnly, attachUser } = createAuthMiddleware({ users });
 
@@ -125,6 +141,9 @@ export function buildContainer(overrides = {}) {
     apiUsageRepository: apiUsage,
     mediaAssetService,
     postService,
+    businessProfileRepository: businessProfiles,
+    websiteAnalysisService,
+    businessProfileService,
     authController,
     integrationController,
     oauthController,
@@ -132,6 +151,7 @@ export function buildContainer(overrides = {}) {
     threadsCallbackController,
     postController,
     mediaController,
+    businessProfileController,
     requireAuth,
     guestOnly,
     attachUser,

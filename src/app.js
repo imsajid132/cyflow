@@ -30,6 +30,7 @@ import { createOAuthRoutes } from './routes/oauthRoutes.js';
 import { createSocialAccountRoutes } from './routes/socialAccountRoutes.js';
 import { createPostRoutes } from './routes/postRoutes.js';
 import { createMediaRoutes } from './routes/mediaRoutes.js';
+import { createBusinessProfileRoutes } from './routes/businessProfileRoutes.js';
 import { buildContainer } from './container.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -191,6 +192,13 @@ export function createApp(overrides = {}) {
     '/api/posts',
     createPostRoutes({
       postController: container.postController,
+      requireAuth: container.requireAuth,
+    }),
+  );
+  app.use(
+    '/api/business-profile',
+    createBusinessProfileRoutes({
+      businessProfileController: container.businessProfileController,
       requireAuth: container.requireAuth,
     }),
   );
