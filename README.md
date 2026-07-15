@@ -32,6 +32,28 @@ Content flow: save a draft → select active target accounts → **Generate cont
 (one caption + separate hashtags per selected platform, plus a short image
 headline/subheadline/alt text) → edit any caption → **Generate image**.
 
+**Request format (GPT-5 compatible).** Generation uses the **Responses API**
+(`responses.create`) with **strict JSON Schema Structured Outputs** — the schema
+dynamically requires only the selected platform keys plus `visual`, with
+`additionalProperties: false` throughout. GPT-5-series models are reasoning
+models, so the request sends `max_output_tokens` and `reasoning: { effort:
+'minimal' }` and sends **no `temperature` and no `max_tokens`** (both are
+rejected with a 400). Because effort support is model-dependent, a 400 naming
+the reasoning parameter transparently retries once without it.
+
+> **Token budgeting:** reasoning tokens are billed against `max_output_tokens`.
+> If generation returns `incomplete_output` ("content was cut short"), raise
+> **`OPENAI_MAX_OUTPUT_TOKENS`** — the default of `1200` can be tight when
+> generating for all three platforms at once.
+
+Failures are classified distinctly — `invalid_request` (a 400: we sent something
+the model rejected), `incomplete_output` (truncated), `content_refused`,
+`authentication_failed`, `rate_limited`, `quota_exceeded`, `timeout`,
+`provider_unavailable`, `invalid_provider_response` — and runtime diagnostics log
+**only** the upstream HTTP status, a safe OpenAI error code, and the internal
+classification (never prompts, captions, request bodies, upstream messages, or
+keys).
+
 ### HCTI image generation
 
 `POST /api/posts/:id/generate-image` renders the image with the **user's own
