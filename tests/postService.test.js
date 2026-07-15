@@ -14,6 +14,7 @@ import {
   createFakeIntegrationRepository,
   createFakeOpenAIContentService,
   createFakeSocialImageService,
+  createFakeBusinessProfileRepository,
   fakeWithTransaction,
 } from './helpers/fakes.js';
 
@@ -27,6 +28,7 @@ function build(extra = {}) {
   const integration = createFakeIntegrationRepository();
   const openai = extra.openai ?? createFakeOpenAIContentService();
   const image = extra.image ?? createFakeSocialImageService();
+  const businessProfiles = extra.businessProfiles ?? createFakeBusinessProfileRepository();
   const mediaAssetService = createMediaAssetService({ mediaRepository: media });
   const svc = createPostService({
     posts,
@@ -34,13 +36,14 @@ function build(extra = {}) {
     mediaRepository: media,
     apiUsage,
     integrationRepository: integration,
+    businessProfiles,
     openaiContentService: openai,
     socialImageService: image,
     mediaAssetService,
     logging: noopLogging,
     withTransaction: fakeWithTransaction,
   });
-  return { svc, socialAccounts, posts, media, apiUsage, openai, image };
+  return { svc, socialAccounts, posts, media, apiUsage, openai, image, businessProfiles };
 }
 
 async function seedAccount(socialAccounts, { userId = '5', provider = 'threads', accountType = 'threads_profile', status = 'active', id = 'acc_1' } = {}) {
@@ -123,6 +126,77 @@ test('generateImage requires a headline, then attaches a media asset', async () 
   assert.ok(withImage.mediaAssetId);
   assert.ok(withImage.media.publicToken);
   assert.equal(withImage.media.status, 'ready');
+});
+
+test('generateImage brands the image from the business profile and honours the overlay toggles', async () => {
+  const { svc, socialAccounts, businessProfiles, image } = build();
+  await businessProfiles.createOrUpdateProfile('5', {
+    businessName: 'Acme Roofing',
+    websiteUrl: 'https://www.acme-roofing.com/services?utm=x',
+    phone: '+1 555 0100',
+    logoUrl: 'https://cdn.example.com/logo.png',
+    primaryColor: '#123456',
+    secondaryColor: '#abcdef',
+    accentColor: '#ff0088',
+    headingFont: 'Playfair Display',
+    bodyFont: 'Inter',
+    defaultCallToAction: 'Book a free quote',
+  });
+  const acc = await seedAccount(socialAccounts);
+  const post = await svc.createDraft('5', { brief: 'x', template: 'editorial' });
+  await svc.setTargets('5', post.id, [{ socialAccountId: acc.id }]);
+  await svc.generateContent('5', post.id);
+  await svc.generateImage('5', post.id);
+
+  const { input } = image._calls[0];
+  assert.equal(input.brandName, 'Acme Roofing');
+  assert.equal(input.logoUrl, 'https://cdn.example.com/logo.png');
+  assert.equal(input.primaryColor, '#123456');
+  assert.equal(input.secondaryColor, '#abcdef');
+  assert.equal(input.accentColor, '#ff0088');
+  assert.equal(input.headingFont, 'Playfair Display');
+  assert.equal(input.bodyFont, 'Inter');
+  assert.equal(input.cta, 'Book a free quote');
+  // The website is shown as a bare host — never the full URL with query noise.
+  assert.equal(input.website, 'acme-roofing.com');
+  // Phone is off by default and must not leak onto the image.
+  assert.equal(input.phone, null);
+});
+
+test('generateImage overlay toggles suppress the logo, website, and phone', async () => {
+  const { svc, socialAccounts, businessProfiles, image } = build();
+  await businessProfiles.createOrUpdateProfile('5', {
+    businessName: 'Acme Roofing',
+    websiteUrl: 'https://acme-roofing.com',
+    phone: '+1 555 0100',
+    logoUrl: 'https://cdn.example.com/logo.png',
+  });
+  const acc = await seedAccount(socialAccounts);
+  const post = await svc.createDraft('5', {
+    brief: 'x', includeLogo: false, includeWebsite: false, includePhone: true,
+  });
+  await svc.setTargets('5', post.id, [{ socialAccountId: acc.id }]);
+  await svc.generateContent('5', post.id);
+  await svc.generateImage('5', post.id);
+
+  const { input } = image._calls[0];
+  assert.equal(input.logoUrl, null);
+  assert.equal(input.website, null);
+  assert.equal(input.phone, '+1 555 0100');
+});
+
+test('generateImage works with no business profile at all', async () => {
+  const { svc, socialAccounts, image } = build();
+  const acc = await seedAccount(socialAccounts);
+  const post = await svc.createDraft('5', { brief: 'x', brandName: 'Just A Name' });
+  await svc.setTargets('5', post.id, [{ socialAccountId: acc.id }]);
+  await svc.generateContent('5', post.id);
+  const withImage = await svc.generateImage('5', post.id);
+
+  assert.ok(withImage.mediaAssetId);
+  const { input } = image._calls[0];
+  assert.equal(input.brandName, 'Just A Name');
+  assert.equal(input.logoUrl, undefined);
 });
 
 test('schedulePost converts Asia/Karachi local time to correct UTC and queues', async () => {

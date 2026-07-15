@@ -3,10 +3,14 @@
 A web-based platform to **generate**, **schedule**, and **automatically publish**
 social media content — captions and images — to your connected accounts.
 
+> **Status: Phase 4.5b — multi-page UX + branded images.** Replaces the single
+> dashboard page with a multi-page app (15 directly-loadable routes), a shared
+> design system, a three-step onboarding wizard, and four branded image
+> templates driven by the business profile.
+>
 > **Status: Phase 4.5a — business onboarding backend.** Adds the business
 > profile model, an SSRF-hardened website analyzer, brand extraction, and the
-> onboarding API. **The multi-page UX redesign is Phase 4.5b (not yet built)** —
-> the app still serves the existing single dashboard page until then.
+> onboarding API.
 >
 > **Status: Phase 4 — content generation & scheduling.** Completed so far: the
 > Phase 1 foundation, Phase 2 auth + HCTI, Phase 3 OAuth connections, **plus**
@@ -20,6 +24,86 @@ social media content — captions and images — to your connected accounts.
 > and post analytics. **Scheduling saves a validated post for a future
 > publishing phase — nothing is published, and `scheduler:once` never publishes.**
 > **App Review approval is NOT claimed.**
+
+## Phase 4.5b — multi-page UX & branded image templates
+
+### Routes
+
+The Express app serves one shell (`public/app.html`) for every application
+route, so each URL below is directly loadable, bookmarkable, and refresh-safe.
+Unknown page paths still return the HTML 404; unknown `/api/*` paths still
+return the JSON 404 envelope.
+
+| Route | Purpose |
+| --- | --- |
+| `/` | Entry point — redirects to the dashboard or login |
+| `/login`, `/register` | Authentication |
+| `/onboarding`, `/onboarding/business`, `/onboarding/brand`, `/onboarding/connections` | Three-step business setup wizard |
+| `/dashboard` | Overview: setup state, counts, next scheduled posts, recent activity |
+| `/brand` | Full business-profile editing with a live preview |
+| `/connections` | Facebook Pages / Instagram Professional / Threads OAuth |
+| `/create` | Brief → captions → branded image → schedule |
+| `/queue` | Drafts, queued, cancelled, and failed posts |
+| `/calendar` | Month view of scheduled posts in local time |
+| `/integrations` | HCTI credentials + caption-generation availability |
+| `/profile` | Name, timezone, password |
+| `/settings` | Content defaults, setup state, usage today |
+
+### Frontend architecture
+
+Vanilla ES modules under `public/assets/js/`: a hash-free history router with
+per-page dynamic imports, a `ui.js` DOM kit, `api.js` (fetch + CSRF), `nav.js`
+(responsive sidebar/drawer), and one module per page under `pages/`. Styling is
+a single design-token stylesheet (`assets/css/design-system.css`). Nothing is
+loaded from a third-party origin — no CDN scripts, styles, or fonts.
+
+### Frontend security invariants
+
+Enforced by `tests/appShell.test.js`, which scans every frontend module:
+
+- The **CSRF token lives in memory only**. No `localStorage`, `sessionStorage`,
+  cookies, or `indexedDB` are used anywhere — for tokens, credentials, captions,
+  website extracts, or OAuth state.
+- **No untrusted value reaches `innerHTML`.** All text is set via `textContent`;
+  the only `innerHTML` sinks are locally authored, constant SVG icons.
+- **OAuth navigation is host-pinned.** The authorization URL's host must match
+  the expected provider host (`www.facebook.com`, `www.instagram.com`,
+  `threads.net`) before any navigation happens.
+- Raw crawler, provider, OpenAI, and HCTI errors are never displayed — pages
+  show safe, already-classified messages only.
+- Nothing from an analyzed website is loaded as script, SVG, HTML, or a font.
+
+### Branded image templates
+
+Four server-owned layouts (`src/templates/socialImageTemplates.js`) replace the
+plain text designs. Each uses the business profile's logo, primary/secondary/
+accent colours, heading/body font names, brand name, generated headline and
+subheadline, plus an optional CTA, website, and phone:
+
+| Template | Layout |
+| --- | --- |
+| `editorial` | Clean Editorial — centred headline, rule, quiet accent blob |
+| `bold-service` | Bold Service — oversized uppercase headline, strong CTA |
+| `professional-local` | Professional Local Business — accent bar, contact footer |
+| `photo-overlay` | Photo Overlay Ready — a real background-image slot + scrim |
+
+The legacy names `minimal`, `bold`, and `professional` are still accepted and
+map onto `editorial`, `bold-service`, and `professional-local`.
+
+**No photos are invented.** Visual interest comes from geometric/abstract
+elements built in CSS. `photo-overlay` keeps a dedicated `.photo-slot` element
+for a future image provider; until then it renders a brand-tinted gradient.
+
+Values are validated before they reach the template:
+
+- Colours must match `#rrggbb`, or the preset palette is used.
+- Font names must match `/^[A-Za-z0-9 _-]{1,80}$/`, or a system stack is used.
+- The logo must be an absolute **https** URL, or no `<img>` is rendered at all.
+- All user text is HTML-escaped, then the generated HTML is re-sanitized with a
+  strict allow-list (`img` permitted with `src`/`alt` over https only).
+
+Which details appear is per-post: `includeLogo` (default on), `includeWebsite`
+(default on, rendered as a bare host), and `includePhone` (default off).
 
 ## Phase 4.5a — business onboarding & website brand extraction
 
@@ -459,10 +543,13 @@ cyflow-social/
 ├── database/
 │   └── schema.sql            # Importable MySQL schema (InnoDB, utf8mb4, UTC)
 ├── public/                   # Static frontend (served by Express)
-│   ├── index.html            # Landing / auth shell
-│   ├── dashboard.html        # Dashboard shell
+│   ├── app.html              # Single shell for every application route
 │   ├── 404.html
-│   └── assets/               # app.js, page scripts, favicon
+│   └── assets/
+│       ├── css/              # design-system.css (tokens + components)
+│       └── js/               # main, router, nav, api, ui, icons
+│           ├── components/   # brandForm, providerCards
+│           └── pages/        # one module per route
 ├── src/
 │   ├── app.js                # Express app wiring
 │   ├── server.js             # Entrypoint: validate, verify DB, listen

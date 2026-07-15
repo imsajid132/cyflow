@@ -25,6 +25,7 @@ import * as defaultSocialAccounts from '../repositories/socialAccountRepository.
 import * as defaultMediaRepo from '../repositories/mediaAssetRepository.js';
 import * as defaultApiUsage from '../repositories/apiUsageRepository.js';
 import * as defaultIntegrationRepo from '../repositories/integrationRepository.js';
+import * as defaultBusinessProfiles from '../repositories/businessProfileRepository.js';
 import { openaiContentService as defaultOpenAI } from './openaiContentService.js';
 import { socialImageService as defaultImage } from './socialImageService.js';
 import { mediaAssetService as defaultMedia } from './mediaAssetService.js';
@@ -38,6 +39,7 @@ export function createPostService({
   mediaRepository = defaultMediaRepo,
   apiUsage = defaultApiUsage,
   integrationRepository = defaultIntegrationRepo,
+  businessProfiles = defaultBusinessProfiles,
   openaiContentService = defaultOpenAI,
   socialImageService = defaultImage,
   mediaAssetService = defaultMedia,
@@ -56,6 +58,12 @@ export function createPostService({
       throw new RateLimitError('Daily generation limit reached. Please try again tomorrow.');
     }
     return used;
+  }
+
+  /** The business profile is optional branding — a missing one is not an error. */
+  async function loadBusinessProfile(userId) {
+    if (!businessProfiles || typeof businessProfiles.findByUserId !== 'function') return null;
+    return (await businessProfiles.findByUserId(userId)) ?? null;
   }
 
   async function requireOwnedPost(userId, postId) {
@@ -226,6 +234,12 @@ export function createPostService({
     }
     await assertUnderDailyLimit(userId);
 
+    // The business profile supplies branding. It is optional: without one the
+    // image still renders using the preset palette and the draft's brand name.
+    const profile = await loadBusinessProfile(userId);
+    const params = post.generationParams || {};
+    const brand = brandingFor(profile, params);
+
     let rendered;
     try {
       rendered = await socialImageService.generateSocialImage(
@@ -233,10 +247,11 @@ export function createPostService({
           userId,
           headline,
           subheadline: post.imageSubheadline,
-          brandName: post.generationParams?.brandName,
-          template: post.template || 'minimal',
+          brandName: params.brandName || profile?.businessName || null,
+          template: post.template || 'editorial',
           aspectRatio: post.aspectRatio || 'square',
           backgroundStyle: post.backgroundStyle || 'light',
+          ...brand,
         },
         { postId },
       );
@@ -405,9 +420,10 @@ export function createPostService({
 // --- helpers ---------------------------------------------------------------
 
 function hasGenParams(fields) {
-  return ['brandName', 'tone', 'callToAction', 'language', 'hashtagPreference', 'additionalInstructions'].some(
-    (k) => fields[k] !== undefined,
-  );
+  return [
+    'brandName', 'tone', 'callToAction', 'language', 'hashtagPreference',
+    'additionalInstructions', 'includeLogo', 'includeWebsite', 'includePhone',
+  ].some((k) => fields[k] !== undefined);
 }
 
 function buildGenerationParams(fields) {
@@ -418,7 +434,46 @@ function buildGenerationParams(fields) {
     language: fields.language ?? null,
     hashtagPreference: fields.hashtagPreference ?? null,
     additionalInstructions: fields.additionalInstructions ?? null,
+    // Which business details the user wants overlaid on the image.
+    includeLogo: toBool(fields.includeLogo, true),
+    includeWebsite: toBool(fields.includeWebsite, true),
+    includePhone: toBool(fields.includePhone, false),
   };
+}
+
+function toBool(value, fallback) {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === 'boolean') return value;
+  return value === 'true' || value === true;
+}
+
+/**
+ * Map the stored business profile onto image-template inputs, honouring the
+ * draft's overlay toggles. Every value is re-validated by the template builder.
+ */
+function brandingFor(profile, params = {}) {
+  if (!profile) return {};
+  return {
+    logoUrl: toBool(params.includeLogo, true) ? profile.logoUrl || null : null,
+    primaryColor: profile.primaryColor || null,
+    secondaryColor: profile.secondaryColor || null,
+    accentColor: profile.accentColor || null,
+    headingFont: profile.headingFont || null,
+    bodyFont: profile.bodyFont || null,
+    cta: params.callToAction || profile.defaultCallToAction || null,
+    website: toBool(params.includeWebsite, true) ? displayWebsite(profile.websiteUrl) : null,
+    phone: toBool(params.includePhone, false) ? profile.phone || null : null,
+  };
+}
+
+/** Show a website as a bare host — never the full URL with query/path noise. */
+function displayWebsite(websiteUrl) {
+  if (!websiteUrl) return null;
+  try {
+    return new URL(websiteUrl).host.replace(/^www\./i, '');
+  } catch {
+    return null;
+  }
 }
 
 function parseWallTime(dateStr, timeStr) {

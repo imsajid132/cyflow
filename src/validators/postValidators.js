@@ -10,7 +10,7 @@
 import { body, param, query } from 'express-validator';
 import {
   GENERATION_LIMITS,
-  IMAGE_TEMPLATES,
+  IMAGE_TEMPLATE_VALUES,
   ASPECT_RATIO_VALUES,
   BACKGROUND_STYLES,
   CONTENT_TONES,
@@ -29,9 +29,13 @@ const postFields = [
   optionalString('additionalInstructions', GENERATION_LIMITS.INSTRUCTIONS_MAX),
   body('tone').optional({ nullable: true }).isIn(CONTENT_TONES).withMessage('Invalid tone'),
   body('hashtagPreference').optional({ nullable: true }).isIn(HASHTAG_PREFERENCES).withMessage('Invalid hashtag preference'),
-  body('template').optional({ nullable: true }).isIn(IMAGE_TEMPLATES).withMessage('Invalid template'),
+  body('template').optional({ nullable: true }).isIn(IMAGE_TEMPLATE_VALUES).withMessage('Invalid template'),
   body('aspectRatio').optional({ nullable: true }).isIn(ASPECT_RATIO_VALUES).withMessage('Invalid aspect ratio'),
   body('backgroundStyle').optional({ nullable: true }).isIn(BACKGROUND_STYLES).withMessage('Invalid background style'),
+  // Brand overlay toggles — which business-profile details appear on the image.
+  body('includeLogo').optional({ nullable: true }).isBoolean().withMessage('Invalid includeLogo'),
+  body('includeWebsite').optional({ nullable: true }).isBoolean().withMessage('Invalid includeWebsite'),
+  body('includePhone').optional({ nullable: true }).isBoolean().withMessage('Invalid includePhone'),
 ];
 
 export const createPostValidator = [...postFields];

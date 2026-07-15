@@ -15,13 +15,14 @@ import {
   ASPECT_RATIOS,
   ASPECT_RATIO_VALUES,
   IMAGE_TEMPLATES,
+  LEGACY_IMAGE_TEMPLATE_ALIASES,
   BACKGROUND_STYLES,
   USAGE_SERVICES,
   USAGE_OPERATIONS,
   ERROR_CODES,
 } from '../config/constants.js';
 import { AppError } from '../utils/errors.js';
-import { buildTemplate } from '../templates/socialImageTemplates.js';
+import { buildTemplate, safeImageUrl } from '../templates/socialImageTemplates.js';
 
 import * as defaultIntegrationRepo from '../repositories/integrationRepository.js';
 import { hctiService as defaultHctiService } from './hctiService.js';
@@ -50,15 +51,29 @@ export class SocialImageError extends AppError {
   }
 }
 
-/** Strict allow-list sanitization of our own generated HTML (defence in depth). */
+/**
+ * Strict allow-list sanitization of our own generated HTML (defence in depth).
+ * `img` is permitted so a business logo can be composited, but only with
+ * src/alt and only over https — every other scheme is stripped.
+ */
 function sanitizeGeneratedHtml(html) {
   return sanitizeHtmlLib(html, {
-    allowedTags: ['div', 'span', 'h1', 'h2', 'p', 'br', 'strong', 'em', 'small'],
-    allowedAttributes: { '*': ['class'] },
+    allowedTags: ['div', 'span', 'h1', 'h2', 'p', 'br', 'strong', 'em', 'small', 'img'],
+    allowedAttributes: { '*': ['class'], img: ['class', 'src', 'alt'] },
     // No styles/scripts/iframes/forms/objects/embeds/event handlers.
-    allowedSchemes: [],
+    allowedSchemes: ['https'],
+    allowedSchemesByTag: { img: ['https'] },
+    allowedSchemesAppliedToAttributes: ['src', 'href', 'cite'],
+    allowProtocolRelative: false,
     disallowedTagsMode: 'discard',
   });
+}
+
+/** Map a legacy template name onto its branded replacement. */
+export function resolveTemplate(name) {
+  if (IMAGE_TEMPLATES.includes(name)) return name;
+  if (LEGACY_IMAGE_TEMPLATE_ALIASES[name]) return LEGACY_IMAGE_TEMPLATE_ALIASES[name];
+  return 'editorial';
 }
 
 export function createSocialImageService({
@@ -69,11 +84,13 @@ export function createSocialImageService({
   decryptSecret = defaultDecrypt,
 } = {}) {
   /**
-   * @param {{ userId, headline, subheadline, brandName, template, aspectRatio, backgroundStyle }} input
+   * @param {{ userId, headline, subheadline, brandName, template, aspectRatio,
+   *           backgroundStyle, logoUrl?, primaryColor?, secondaryColor?,
+   *           accentColor?, headingFont?, bodyFont?, cta?, website?, phone? }} input
    * @param {{ postId? }} [ctx]
    */
   async function generateSocialImage(input, ctx = {}) {
-    const template = IMAGE_TEMPLATES.includes(input.template) ? input.template : 'minimal';
+    const template = resolveTemplate(input.template);
     const aspectRatio = ASPECT_RATIO_VALUES.includes(input.aspectRatio) ? input.aspectRatio : 'square';
     const backgroundStyle = BACKGROUND_STYLES.includes(input.backgroundStyle)
       ? input.backgroundStyle
@@ -95,6 +112,16 @@ export function createSocialImageService({
       brandName: input.brandName,
       headline: input.headline,
       subheadline: input.subheadline,
+      // Brand inputs — each is re-validated inside the template builder.
+      logoUrl: safeImageUrl(input.logoUrl),
+      primaryColor: input.primaryColor,
+      secondaryColor: input.secondaryColor,
+      accentColor: input.accentColor,
+      headingFont: input.headingFont,
+      bodyFont: input.bodyFont,
+      cta: input.cta,
+      website: input.website,
+      phone: input.phone,
     });
     const safeHtml = sanitizeGeneratedHtml(built.html);
 

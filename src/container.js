@@ -88,6 +88,9 @@ export function buildContainer(overrides = {}) {
   const mediaRepo = overrides.mediaAssetRepository ?? mediaAssetRepositoryModule;
   const apiUsage = overrides.apiUsageRepository ?? apiUsageRepositoryModule;
   const mediaAssetService = overrides.mediaAssetService ?? realMediaAssetService;
+  // Phase 4.5: business onboarding + website brand extraction. Resolved before
+  // postService, which reads the profile to brand generated images.
+  const businessProfiles = overrides.businessProfileRepository ?? businessProfileRepositoryModule;
   const postService =
     overrides.postService ??
     createPostService({
@@ -96,6 +99,7 @@ export function buildContainer(overrides = {}) {
       mediaRepository: mediaRepo,
       apiUsage,
       integrationRepository: integrations,
+      businessProfiles,
       openaiContentService: overrides.openaiContentService,
       socialImageService: overrides.socialImageService,
       mediaAssetService,
@@ -106,8 +110,6 @@ export function buildContainer(overrides = {}) {
   const oauthController = createOAuthController({ oauthService });
   const socialAccountController = createSocialAccountController({ oauthService, socialAccounts });
   const threadsCallbackController = createThreadsCallbackController({ threadsCallbackService });
-  // Phase 4.5: business onboarding + website brand extraction.
-  const businessProfiles = overrides.businessProfileRepository ?? businessProfileRepositoryModule;
   const websiteAnalysisService = overrides.websiteAnalysisService ?? realWebsiteAnalysisService;
   const businessProfileService =
     overrides.businessProfileService ??

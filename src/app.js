@@ -36,6 +36,29 @@ import { buildContainer } from './container.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, '..', 'public');
 
+/**
+ * Front-end routes served by the single application shell. Listing them
+ * explicitly (rather than a catch-all) keeps unknown paths on the real 404 page.
+ */
+export const APP_ROUTES = Object.freeze([
+  '/',
+  '/login',
+  '/register',
+  '/onboarding',
+  '/onboarding/business',
+  '/onboarding/brand',
+  '/onboarding/connections',
+  '/dashboard',
+  '/brand',
+  '/connections',
+  '/create',
+  '/queue',
+  '/calendar',
+  '/integrations',
+  '/profile',
+  '/settings',
+]);
+
 /** Build the MySQL-backed session store (table is created via schema.sql). */
 function buildSessionStore() {
   const MySQLStore = expressMySQLSession(session);
@@ -205,11 +228,10 @@ export function createApp(overrides = {}) {
   // Public media proxy (no session/CSRF; opaque token + SSRF-safe upstream).
   app.use('/media', createMediaRoutes({ mediaController: container.mediaController }));
 
-  // Explicit frontend pages.
-  app.get('/', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'index.html')));
-  app.get('/dashboard', (req, res) =>
-    res.sendFile(path.join(PUBLIC_DIR, 'dashboard.html')),
-  );
+  // --- Frontend application shell -------------------------------------------
+  // Every app route serves the same shell so direct navigation and refresh work
+  // (the client router then renders the matching page module).
+  app.get(APP_ROUTES, (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'app.html')));
 
   // --- 404 handling ---------------------------------------------------------
   // JSON 404 for API routes.

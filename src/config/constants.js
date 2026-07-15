@@ -231,8 +231,27 @@ export const ACCOUNT_TYPE_TO_PLATFORM = Object.freeze({
   threads_profile: PLATFORMS.THREADS,
 });
 
-// Server-owned image templates (trusted HTML/CSS only).
-export const IMAGE_TEMPLATES = Object.freeze(['minimal', 'bold', 'professional']);
+// Server-owned image templates (trusted HTML/CSS only). These four branded
+// layouts are what the UI offers.
+export const IMAGE_TEMPLATES = Object.freeze([
+  'editorial', // Clean Editorial
+  'bold-service', // Bold Service
+  'professional-local', // Professional Local Business
+  'photo-overlay', // Photo Overlay Ready (background-image slot, no invented photo)
+]);
+
+/** Pre-4.5b template names, still accepted and aliased to the new layouts. */
+export const LEGACY_IMAGE_TEMPLATE_ALIASES = Object.freeze({
+  minimal: 'editorial',
+  bold: 'bold-service',
+  professional: 'professional-local',
+});
+
+/** Everything the API accepts (new + legacy aliases). */
+export const IMAGE_TEMPLATE_VALUES = Object.freeze([
+  ...IMAGE_TEMPLATES,
+  ...Object.keys(LEGACY_IMAGE_TEMPLATE_ALIASES),
+]);
 
 // Supported aspect ratios (pixels).
 export const ASPECT_RATIOS = Object.freeze({
