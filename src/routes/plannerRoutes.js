@@ -33,6 +33,7 @@ import {
   preferencesValidator,
   generatePlanValidator,
   runIdParamValidator,
+  deletePlanValidator,
   itemIdParamValidator,
   updateItemValidator,
   regenerateItemValidator,
@@ -40,10 +41,14 @@ import {
   bulkStatusValidator,
   queueValidator,
   listPlansValidator,
+  timezoneQueryValidator,
 } from '../validators/plannerValidators.js';
 
 export function createPlannerRoutes({ plannerController, requireAuth }) {
   const router = Router();
+
+  // The full IANA catalogue. A plain read, so no CSRF.
+  router.get('/timezones', requireAuth, validate(timezoneQueryValidator), plannerController.listTimezones);
 
   // --- preferences ---------------------------------------------------------
   router.get('/preferences', requireAuth, plannerController.getPreferences);
@@ -58,6 +63,19 @@ export function createPlannerRoutes({ plannerController, requireAuth }) {
 
   // --- plans ---------------------------------------------------------------
   router.get('/plans', requireAuth, validate(listPlansValidator), plannerController.listPlans);
+  /*
+   * The summary is a read, but it takes the whole draft configuration, so it is
+   * a POST. It generates nothing and costs nothing, so it uses the ordinary
+   * write limiter rather than the strict generation one.
+   */
+  router.post(
+    '/plans/summary',
+    requireAuth,
+    plannerWriteLimiter,
+    csrfProtection,
+    validate(generatePlanValidator),
+    plannerController.summarizePlan,
+  );
   router.post(
     '/plans',
     requireAuth,
@@ -67,12 +85,18 @@ export function createPlannerRoutes({ plannerController, requireAuth }) {
     plannerController.generatePlan,
   );
   router.get('/plans/:id', requireAuth, validate(runIdParamValidator), plannerController.getPlan);
+  router.get(
+    '/plans/:id/deletion-impact',
+    requireAuth,
+    validate(runIdParamValidator),
+    plannerController.describeDeletion,
+  );
   router.delete(
     '/plans/:id',
     requireAuth,
     plannerWriteLimiter,
     csrfProtection,
-    validate(runIdParamValidator),
+    validate(deletePlanValidator),
     plannerController.deletePlan,
   );
 

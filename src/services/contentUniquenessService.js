@@ -120,6 +120,12 @@ export function fingerprint(post = {}) {
     headlineTokens: [...new Set(tokenize(post.headline))],
     headlineNormalized: normalizeText(post.headline),
     openingTrigrams: [...trigrams(opening)],
+    /*
+     * The normalized opening is kept as text (not just trigrams) so the planner
+     * can tell the next generation which openings are taken. It is derived and
+     * short — the caption itself is still never stored here.
+     */
+    openingText: normalizeText(opening).slice(0, 60),
     ctaNormalized: normalizeText(post.cta),
     hashtags: [...normalizeHashtagSet(post.hashtags)],
     contentType: typeof post.contentType === 'string' ? post.contentType : null,

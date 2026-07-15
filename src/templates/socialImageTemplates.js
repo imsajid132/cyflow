@@ -166,6 +166,9 @@ export function buildTemplate(input = {}) {
     statValue,
     statLabel,
     comparison,
+    // Design-family extras: the category badge and the place label.
+    badge: escapeHtml(clampText(input.badge, V.BADGE_MAX)),
+    locationLabel: escapeHtml(clampText(input.locationLabel, V.LOCATION_MAX)),
   };
 
   const logoUrl = escapeHtml(safeImageUrl(input.logoUrl));

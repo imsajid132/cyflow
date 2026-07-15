@@ -17,6 +17,7 @@ import { PROVIDER_LABELS } from '../icons.js';
 import {
   plannerCard, statusChip, dayKeyOf, dayLabelOf, formatSlot, TEMPLATE_LABELS,
 } from '../components/plannerCard.js';
+import { deletePlanButton } from '../components/deletePlan.js';
 
 const TEMPLATE_OPTIONS = Object.entries(TEMPLATE_LABELS).map(([value, label]) => ({ value, label }));
 const BACKGROUNDS = ['light', 'dark', 'gradient-blue', 'gradient-warm', 'neutral'];
@@ -91,8 +92,16 @@ export async function render(root, ctx) {
       el('div', { className: 'card-head' }, [
         el('span', { className: 'card-title', text: plan.run.name || 'Plan' }),
         badge(plan.run.status.replace(/_/g, ' '), plan.run.status === 'queued' ? 'ok' : 'warn'),
+        el('span', { className: 'spacer' }),
+        deletePlanButton(plan.run.id, {
+          name: plan.run.name || 'this plan',
+          onDone: () => ctx.navigate('/planner/history'),
+        }),
       ]),
-      el('p', { className: 'card-sub', text: `${plan.run.startDate} to ${plan.run.endDate} · ${plan.run.timezone || 'UTC'} · ${plan.items.length} posts` }),
+      el('p', {
+        className: 'card-sub',
+        text: `${plan.run.startDate} to ${plan.run.endDate} · ${plan.run.timezone || 'UTC'} · ${plan.run.postsPerDay || 1} post${(plan.run.postsPerDay || 1) === 1 ? '' : 's'} per day · ${plan.items.length} total`,
+      }),
       el('div', { className: 'row', attrs: { style: 'gap:.5rem;flex-wrap:wrap;margin-top:.5rem' } },
         Object.entries(counts).filter(([, n]) => n > 0).map(([status, n]) =>
           el('span', { className: 'row', attrs: { style: 'gap:.3rem' } }, [statusChip(status), el('span', { className: 'card-sub', text: String(n) })]))),

@@ -19,6 +19,7 @@ import {
   IMAGE_TEMPLATES,
   IMAGE_TEMPLATE_VALUES,
   LEGACY_IMAGE_TEMPLATE_ALIASES,
+  PLANNER_DESIGN_FAMILIES,
 } from '../src/config/constants.js';
 
 const BRAND = {
@@ -56,22 +57,25 @@ function assertBalancedHtml(html, label) {
   assert.deepEqual(stack, [], `${label}: unclosed tags`);
 }
 
-test('the template set is the premium layouts plus the content-type layouts', () => {
+test('the template set leads with the planner design families', () => {
   assert.deepEqual([...IMAGE_TEMPLATES], [
+    // Phase 4.7.1 design families — what the planner selects from.
+    'editorial-insight', 'light-editorial', 'checklist-guide', 'comparison-cards',
+    'stat-highlight', 'service-authority', 'local-insight',
+    // Earlier layouts, kept so existing drafts still render.
     'editorial-premium', 'bold-service-promo', 'local-authority',
     'modern-split', 'minimal-luxury', 'geometric-conversion',
-    // Phase 4.7 content-type layouts.
     'checklist-tips', 'stat-proof', 'split-comparison',
     'photo-overlay',
   ]);
-  assert.deepEqual(listTemplates().map((t) => t.label), [
-    'Clean Editorial Premium', 'Bold Service Promo', 'Local Business Authority',
-    'Modern Split Layout', 'Minimal Luxury Card', 'Geometric Conversion Post',
-    'Checklist Tips', 'Stat Proof', 'Split Comparison',
-    'Photo Overlay Ready',
-  ]);
+  // Every design family really has a layout behind it.
+  for (const id of PLANNER_DESIGN_FAMILIES) {
+    assert.ok(IMAGE_TEMPLATES.includes(id), `${id} must be offerable`);
+    assert.ok(LAYOUT_LABELS[id], `${id} needs a layout module`);
+  }
   // Every advertised template really has a layout behind it.
   for (const id of IMAGE_TEMPLATES) assert.ok(LAYOUT_LABELS[id], `${id} needs a layout module`);
+  assert.equal(listTemplates().length, IMAGE_TEMPLATES.length);
 });
 
 test('every template renders valid, balanced HTML with the full brand kit', () => {
@@ -454,13 +458,15 @@ test('content-type layouts fall back cleanly when structured data is missing', (
 test('structured visual data is escaped, clamped and count-limited', () => {
   const built = buildTemplate({
     ...BRAND,
-    template: 'checklist-tips',
-    bullets: ['<script>alert(1)</script>', 'x'.repeat(200), 'ok', 'four', 'five', 'six'],
+    template: 'checklist-guide',
+    // A checklist renders at most 5 items, so the 6th and 7th must be dropped.
+    bullets: ['<script>alert(1)</script>', 'x'.repeat(200), 'three', 'four', 'five', 'six', 'seven'],
   });
   assert.equal(built.html.includes('<script'), false);
   assert.match(built.html, /&lt;script&gt;/);
   assert.equal(/x{65}/.test(built.html), false, 'a bullet must be clamped');
-  assert.equal(built.html.includes('>five<'), false, 'bullets must be count-limited');
+  assert.equal(built.html.includes('>six<'), false, 'bullets must be count-limited');
+  assert.equal(built.html.includes('>seven<'), false, 'bullets must be count-limited');
   assertBalancedHtml(built.html, 'hostile bullets');
 
   const stat = buildTemplate({

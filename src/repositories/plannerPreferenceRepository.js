@@ -29,8 +29,8 @@ function safeParseJson(value, fallback) {
 
 const COLUMNS =
   'id, user_id, cadence, weekdays_json, times_json, platforms_json, goals_json, ' +
-  'content_mix_json, tone, cta_mode, approval_mode, default_plan_length, timezone, ' +
-  'autopilot_enabled, next_plan_generation_at, created_at, updated_at';
+  'content_mix_json, tone, cta_mode, approval_mode, default_plan_length, posts_per_day, ' +
+  'timezone, autopilot_enabled, next_plan_generation_at, created_at, updated_at';
 
 /** Map a raw row to the sanitized API shape. */
 export function sanitizePreferences(row) {
@@ -48,6 +48,7 @@ export function sanitizePreferences(row) {
     ctaMode: row.cta_mode,
     approvalMode: row.approval_mode,
     defaultPlanLength: Number(row.default_plan_length),
+    postsPerDay: Number(row.posts_per_day ?? 1),
     timezone: row.timezone ?? null,
     autopilotEnabled: Boolean(row.autopilot_enabled),
     nextPlanGenerationAt: row.next_plan_generation_at ?? null,
@@ -63,6 +64,7 @@ const FIELD_COLUMNS = {
   ctaMode: 'cta_mode',
   approvalMode: 'approval_mode',
   defaultPlanLength: 'default_plan_length',
+  postsPerDay: 'posts_per_day',
   timezone: 'timezone',
   autopilotEnabled: 'autopilot_enabled',
   nextPlanGenerationAt: 'next_plan_generation_at',

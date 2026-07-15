@@ -9,6 +9,7 @@ import * as api from '../api.js';
 import { el, card, pageHead, badge, notice, emptyState, formatDate } from '../ui.js';
 import { PROVIDER_LABELS } from '../icons.js';
 import { statusChip } from '../components/plannerCard.js';
+import { deletePlanButton } from '../components/deletePlan.js';
 
 const CADENCE_LABELS = {
   every_day: 'Every day',
@@ -87,6 +88,12 @@ export async function render(root, ctx) {
           className: 'btn btn-primary btn-sm',
           text: 'Review this plan',
           attrs: { href: `/planner/week?run=${encodeURIComponent(latest.id)}`, 'data-link': '' },
+        }),
+        el('span', { className: 'spacer' }),
+        deletePlanButton(latest.id, {
+          name: latest.name || 'this plan',
+          // The dashboard reloads so the card reflects the new state.
+          onDone: () => ctx.navigate('/planner'),
         }),
       ]),
     ]));

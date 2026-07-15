@@ -32,12 +32,23 @@ import {
   PLATFORM_VALUES,
   ACCOUNT_TYPE_TO_PLATFORM,
   SOCIAL_ACCOUNT_STATUS,
+  POST_STATUS,
   EVENT_TYPES,
   USAGE_OPERATIONS,
   IMAGE_TEMPLATE_VALUES,
 } from '../config/constants.js';
+
+/** Post states that represent work already sent out — never destroy these. */
+const PUBLISHED_STATUSES = Object.freeze([POST_STATUS.PUBLISHED, POST_STATUS.PARTIAL]);
+/** Post states that are scheduled but not yet out, so they can be cancelled. */
+const CANCELLABLE_STATUSES = Object.freeze([
+  POST_STATUS.QUEUED,
+  POST_STATUS.PROCESSING,
+  POST_STATUS.RETRYING,
+]);
 import { ValidationError, NotFoundError, ConflictError, RateLimitError } from '../utils/errors.js';
-import { toMysqlUtc, addSecondsUtc, isValidTimezone } from '../utils/time.js';
+import { toMysqlUtc, addSecondsUtc } from '../utils/time.js';
+import { isSupportedTimezone } from './timezoneService.js';
 import { normalizeTemplate } from '../templates/socialImageTemplates.js';
 
 import * as defaultPlannerPrefs from '../repositories/plannerPreferenceRepository.js';
@@ -52,7 +63,7 @@ import { socialImageService as defaultImage } from './socialImageService.js';
 import { mediaAssetService as defaultMedia } from './mediaAssetService.js';
 import { contentUniquenessService as defaultUniqueness } from './contentUniquenessService.js';
 import { loggingService as defaultLogging } from './loggingService.js';
-import { buildSchedule, nextWeeklyRunAt } from './plannerScheduleService.js';
+import { buildSchedule, summarizeSchedule, nextWeeklyRunAt } from './plannerScheduleService.js';
 import { buildBriefSet, DEFAULT_CONTENT_MIX, DEFAULT_GOALS } from './plannerBriefService.js';
 import { withTransaction as defaultWithTransaction } from '../db/transactions.js';
 
@@ -68,6 +79,9 @@ export const DEFAULT_PREFERENCES = Object.freeze({
   ctaMode: 'some',
   approvalMode: 'require_approval',
   defaultPlanLength: 7,
+  // Explicit, and 1 unless the user says otherwise. Existing users who never
+  // chose keep the behaviour they already had.
+  postsPerDay: 1,
   timezone: null,
   autopilotEnabled: false,
   nextPlanGenerationAt: null,
@@ -194,9 +208,23 @@ export function createPlannerService({
         errors.push({ field: 'defaultPlanLength', message: `Plan length must be between ${PLANNER_LIMITS.MIN_PLAN_LENGTH} and ${PLANNER_LIMITS.MAX_PLAN_LENGTH} days` });
       } else out.defaultPlanLength = n;
     }
+    if (patch.postsPerDay !== undefined) {
+      const n = Number(patch.postsPerDay);
+      if (!Number.isInteger(n) || n < 1 || n > PLANNER_LIMITS.MAX_POSTS_PER_DAY) {
+        errors.push({
+          field: 'postsPerDay',
+          message: `Posts per day must be between 1 and ${PLANNER_LIMITS.MAX_POSTS_PER_DAY}`,
+        });
+      } else out.postsPerDay = n;
+    }
     if (patch.timezone !== undefined) {
-      if (patch.timezone !== null && !isValidTimezone(patch.timezone)) {
-        errors.push({ field: 'timezone', message: 'A valid IANA timezone is required' });
+      /*
+       * isSupportedTimezone, not isValidTimezone: Intl accepts a bare offset
+       * like "+05:00" as a timeZone, and storing an offset would be wrong the
+       * moment DST moved. Only a named IANA zone may be persisted.
+       */
+      if (patch.timezone !== null && !isSupportedTimezone(patch.timezone)) {
+        errors.push({ field: 'timezone', message: 'Choose a valid IANA timezone, for example Asia/Karachi' });
       } else out.timezone = patch.timezone;
     }
     if (patch.autopilotEnabled !== undefined) {
@@ -210,6 +238,49 @@ export function createPlannerService({
 
     if (errors.length) throw new ValidationError('Invalid planner preferences', errors);
     return out;
+  }
+
+  // --- plan preview --------------------------------------------------------
+
+  /**
+   * Describe what a plan WOULD create, before anything is generated.
+   *
+   * The wizard renders this and generatePlan validates against the same
+   * function, so the sentence a user reads ("7 active days x 2 posts per day =
+   * 14 posts") is a promise the server keeps rather than a client-side guess.
+   */
+  async function summarizePlan(userId, options = {}) {
+    const prefs = await getPreferences(userId);
+    const platforms = await resolvePlatforms(userId, options.platforms ?? prefs.platforms);
+
+    const summary = summarizeSchedule({
+      startDate: options.startDate,
+      planLength: options.planLength ?? prefs.defaultPlanLength,
+      cadence: options.cadence ?? prefs.cadence,
+      weekdays: options.weekdays ?? prefs.weekdays,
+      times: options.times ?? prefs.times,
+      postsPerDay: options.postsPerDay ?? prefs.postsPerDay,
+      timezone: options.timezone || prefs.timezone || 'UTC',
+      now: now(),
+    });
+
+    const errors = [...summary.errors];
+    if (platforms.length === 0) {
+      errors.push({
+        field: 'platforms',
+        message: 'Connect at least one Facebook Page, Instagram Professional account, or Threads profile',
+      });
+    }
+
+    return {
+      ...summary,
+      valid: errors.length === 0,
+      errors,
+      platforms,
+      contentMix: options.contentMix ?? prefs.contentMix,
+      approvalMode: options.approvalMode ?? prefs.approvalMode,
+      tone: prefs.tone,
+    };
   }
 
   // --- plan generation -----------------------------------------------------
@@ -251,7 +322,14 @@ export function createPlannerService({
 
     const prefs = await getPreferences(userId);
     const profile = await businessProfiles.findByUserId(userId);
-    const timezone = options.timezone || prefs.timezone || 'UTC';
+
+    const requestedTz = options.timezone || prefs.timezone || 'UTC';
+    if (!isSupportedTimezone(requestedTz)) {
+      throw new ValidationError('This plan cannot be generated as configured', [
+        { field: 'timezone', message: 'Choose a valid IANA timezone, for example Asia/Karachi' },
+      ]);
+    }
+    const timezone = requestedTz;
 
     const platforms = await resolvePlatforms(userId, options.platforms ?? prefs.platforms);
     if (platforms.length === 0) {
@@ -260,16 +338,26 @@ export function createPlannerService({
       );
     }
 
-    const schedule = buildSchedule({
+    const scheduleInput = {
       startDate: options.startDate,
       planLength: options.planLength ?? prefs.defaultPlanLength,
       cadence: options.cadence ?? prefs.cadence,
       weekdays: options.weekdays ?? prefs.weekdays,
       times: options.times ?? prefs.times,
+      postsPerDay: options.postsPerDay ?? prefs.postsPerDay,
       timezone,
       now: now(),
-    });
+    };
 
+    /*
+     * The same summary the wizard displays is the gate here, so the count the
+     * user was shown is the count they get. Generation cannot start until it
+     * validates.
+     */
+    const summary = summarizeSchedule(scheduleInput);
+    if (!summary.valid) throw new ValidationError('This plan cannot be generated as configured', summary.errors);
+
+    const schedule = buildSchedule(scheduleInput);
     if (schedule.slots.length === 0) {
       throw new ValidationError(
         'That combination of days and times produces no upcoming slots. Try a later start date or different days.',
@@ -290,10 +378,13 @@ export function createPlannerService({
       endDate: schedule.endDate,
       timezone: schedule.timezone,
       planLength: options.planLength ?? prefs.defaultPlanLength,
+      postsPerDay: schedule.postsPerDay,
       settings: {
         cadence: schedule.cadence,
-        times: schedule.times,
+        times: schedule.timesUsed,
         weekdays: schedule.weekdays,
+        postsPerDay: schedule.postsPerDay,
+        activeDays: schedule.activeDays,
         platforms,
         goals: prefs.goals,
         contentMix: prefs.contentMix,
@@ -382,10 +473,12 @@ export function createPlannerService({
   async function generateOneItem({ userId, run, brief, profile, batch, recent, autoQueue, wantImages }) {
     const primaryPlatform = brief.platforms[0];
     const avoidPhrases = batch.map((fp) => fp.headlineNormalized).filter(Boolean);
+    const avoidOpenings = batch.map((fp) => fp.openingText).filter(Boolean);
 
     const attempts = [];
     let evaluation = null;
     let content = null;
+    let styleRejections = [];
 
     for (let attempt = 0; attempt <= PLANNER_LIMITS.MAX_REGENERATION_ATTEMPTS; attempt += 1) {
       let candidate;
@@ -394,15 +487,22 @@ export function createPlannerService({
         candidate = await openaiContentService.generatePlannerPost(
           {
             platform: primaryPlatform,
+            format: brief.format,
             contentType: brief.contentType,
             goal: brief.goal,
             tone: brief.tone,
             brief: brief.brief,
             brandName: profile?.businessName ?? null,
+            businessCategory: profile?.businessCategory ?? null,
+            businessDescription: profile?.businessDescription ?? null,
+            serviceEmphasis: brief.serviceEmphasis,
+            audienceProblem: brief.audienceProblem,
+            location: brief.location,
+            website: displayWebsite(profile?.websiteUrl),
             language: profile?.defaultLanguage ?? null,
             callToAction: brief.callToAction,
-            hashtagPreference: 'moderate',
             avoidPhrases,
+            avoidOpenings,
           },
           { userId },
         );
@@ -414,6 +514,7 @@ export function createPlannerService({
       }
 
       attempts.push(candidate);
+      styleRejections = candidate._style?.rejections ?? [];
       evaluation = uniqueness.evaluate(
         {
           caption: candidate.caption,
@@ -428,7 +529,12 @@ export function createPlannerService({
         { batch, recent },
       );
       content = candidate;
-      if (!evaluation.shouldRegenerate) break;
+      /*
+       * Two independent reasons to try again: the copy is repetitive, or it is
+       * generic filler the style guard could not repair. Either is worth another
+       * attempt — shipping "In today's digital world" is not a saving.
+       */
+      if (!evaluation.shouldRegenerate && styleRejections.length === 0) break;
     }
 
     if (!content) return null;
@@ -464,8 +570,18 @@ export function createPlannerService({
       templateKey: brief.templateKey,
     });
 
-    const flagged = evaluation && evaluation.verdict !== 'unique';
-    const duplicationNotes = flagged ? uniqueness.describe(evaluation) : null;
+    /*
+     * A post is held for a human when it repeats something, OR when the style
+     * guard could not save it. Both go in the same note, because from the
+     * reviewer's side they are the same question: "is this good enough?"
+     */
+    const duplicateFlagged = evaluation && evaluation.verdict !== 'unique';
+    const styleFlagged = styleRejections.length > 0;
+    const flagged = duplicateFlagged || styleFlagged;
+    const notes = [];
+    if (duplicateFlagged) notes.push(uniqueness.describe(evaluation));
+    if (styleFlagged) notes.push(`Needs rewrite: ${styleRejections.join('; ')}.`);
+    const duplicationNotes = notes.length ? notes.join(' ').slice(0, 500) : null;
 
     let mediaAssetId = null;
     if (wantImages && content.headline) {
@@ -503,7 +619,7 @@ export function createPlannerService({
       duplicationScore: evaluation?.score ?? 0,
       duplicationNotes,
       regenerationCount: Math.max(0, attempts.length - 1),
-      fingerprint: { ...fingerprint, visualExtras: extrasFor(content) },
+      fingerprint: { ...fingerprint, visualExtras: extrasFor(content, brief) },
       editedFields: [],
     });
 
@@ -511,11 +627,14 @@ export function createPlannerService({
   }
 
   /** The structured extras a content-type template renders, if present. */
-  function extrasFor(content) {
+  function extrasFor(content, brief) {
     const extras = {};
     if (Array.isArray(content.bullets) && content.bullets.length) extras.bullets = content.bullets;
     if (content.stat?.value) extras.stat = content.stat;
     if (content.comparison?.leftTitle) extras.comparison = content.comparison;
+    if (content.badge) extras.badge = content.badge;
+    else if (brief?.formatLabel) extras.badge = brief.formatLabel;
+    if (brief?.location) extras.locationLabel = brief.location;
     return Object.keys(extras).length ? extras : null;
   }
 
@@ -542,6 +661,9 @@ export function createPlannerService({
       bullets: content.bullets ?? null,
       stat: content.stat ?? null,
       comparison: content.comparison ?? null,
+      // The design families' category badge and place label.
+      badge: overrides.badge ?? content.badge ?? brief.formatLabel ?? null,
+      locationLabel: overrides.locationLabel ?? brief.location ?? null,
     });
 
     const asset = await mediaAssetService.createReadyImageAsset({
@@ -792,6 +914,8 @@ export function createPlannerService({
           templateKey: item.templateKey,
           callToAction: profile?.defaultCallToAction ?? null,
           serviceEmphasis: null,
+          formatLabel: extras.badge ?? null,
+          location: extras.locationLabel ?? null,
         },
         content: {
           headline: item.headline,
@@ -799,11 +923,14 @@ export function createPlannerService({
           bullets: extras.bullets ?? null,
           stat: extras.stat ?? null,
           comparison: extras.comparison ?? null,
+          badge: extras.badge ?? null,
         },
         overrides: {
           templateKey: item.templateKey,
           aspectRatio: item.aspectRatio,
           backgroundStyle: item.backgroundStyle,
+          badge: extras.badge ?? null,
+          locationLabel: extras.locationLabel ?? null,
         },
       });
 
@@ -895,15 +1022,113 @@ export function createPlannerService({
     return { removed: rejected.length, plan: await getPlan(userId, runId) };
   }
 
-  async function deletePlan(userId, runId, { req } = {}) {
+  /**
+   * What deleting this plan would actually do.
+   *
+   * Shown in the confirmation so "Delete plan" is never a guess. Also the
+   * source of truth for whether deletion is allowed at all.
+   */
+  async function describeDeletion(userId, runId) {
     const run = await runsRepo.findRunByIdForUser(runId, userId);
     if (!run) throw new NotFoundError('Plan not found');
-    // Items cascade. Queued posts they produced survive: the post FK is SET NULL.
-    await runsRepo.deleteRun(runId, userId);
-    await logging.record(EVENT_TYPES.PLANNER_RUN_DELETED, {
-      req, userId, message: 'Plan deleted', context: { runId },
+
+    const items = await runsRepo.listItemsForRun(runId, userId);
+    const linked = [];
+    for (const item of items) {
+      if (!item.postId) continue;
+      // eslint-disable-next-line no-await-in-loop
+      const post = await posts.findPostByIdForUser(item.postId, userId);
+      if (post) linked.push(post);
+    }
+
+    const published = linked.filter((p) => PUBLISHED_STATUSES.includes(p.status));
+    const queued = linked.filter((p) => CANCELLABLE_STATUSES.includes(p.status));
+    const drafts = linked.filter((p) => p.status === POST_STATUS.DRAFT);
+    const plannerOnly = items.filter((i) => !i.postId);
+
+    return {
+      run,
+      counts: {
+        plannerItems: items.length,
+        plannerOnlyItems: plannerOnly.length,
+        draftPosts: drafts.length,
+        queuedPosts: queued.length,
+        publishedPosts: published.length,
+      },
+      // A plan that produced published history is archived, never destroyed.
+      mustArchive: published.length > 0,
+      // Queued posts block a plain delete: they are scheduled work the user has
+      // already approved, and removing them silently would be a surprise.
+      blockedByQueued: published.length === 0 && queued.length > 0,
+      queuedPostIds: queued.map((p) => p.id),
+    };
+  }
+
+  /**
+   * Delete or archive a plan.
+   *
+   * Rules, in order:
+   *   published history  → ARCHIVE. Never destroy a record of what went out.
+   *   queued posts       → REFUSE, unless the caller explicitly opts into
+   *                        `cancelQueued`, which cancels them first.
+   *   drafts / planner-only items → delete with the plan.
+   *
+   * The whole thing runs in one transaction: a half-deleted plan whose posts
+   * were cancelled would be worse than either outcome.
+   */
+  async function deletePlan(userId, runId, { cancelQueued = false, req } = {}) {
+    const plan = await describeDeletion(userId, runId);
+
+    if (plan.mustArchive) {
+      const archived = await runsRepo.updateRun(runId, userId, {
+        status: PLANNER_RUN_STATUS.ARCHIVED,
+        archivedAt: toMysqlUtc(now()),
+      });
+      await logging.record(EVENT_TYPES.PLANNER_RUN_ARCHIVED, {
+        req, userId, message: 'Plan archived (it has published history)',
+        context: { runId, publishedPosts: plan.counts.publishedPosts },
+      });
+      return {
+        deleted: false,
+        archived: true,
+        run: archived,
+        notice: `This plan has ${plan.counts.publishedPosts} published post${plan.counts.publishedPosts === 1 ? '' : 's'}, so it was archived instead of deleted. Published history is never removed.`,
+      };
+    }
+
+    if (plan.blockedByQueued && !cancelQueued) {
+      throw new ConflictError(
+        `This plan has ${plan.counts.queuedPosts} queued post${plan.counts.queuedPosts === 1 ? '' : 's'}. Cancel them first, or choose "Cancel queued posts and delete plan".`,
+      );
+    }
+
+    await withTransaction(async (conn) => {
+      if (cancelQueued) {
+        for (const postId of plan.queuedPostIds) {
+          // eslint-disable-next-line no-await-in-loop
+          await posts.cancelScheduledPost(postId, userId, conn);
+        }
+      }
+      // Planner items cascade with the run. Any post the plan created survives
+      // as an independent record (the FK is ON DELETE SET NULL) — cancelled if
+      // we just cancelled it, still a draft otherwise.
+      await runsRepo.deleteRun(runId, userId, conn);
     });
-    return { deleted: true };
+
+    await logging.record(EVENT_TYPES.PLANNER_RUN_DELETED, {
+      req, userId, message: 'Plan deleted',
+      context: {
+        runId,
+        plannerItems: plan.counts.plannerItems,
+        cancelledPosts: cancelQueued ? plan.counts.queuedPosts : 0,
+      },
+    });
+
+    return {
+      deleted: true,
+      archived: false,
+      cancelledPosts: cancelQueued ? plan.counts.queuedPosts : 0,
+    };
   }
 
   // --- queue integration ---------------------------------------------------
@@ -1104,6 +1329,8 @@ export function createPlannerService({
   return {
     getPreferences,
     savePreferences,
+    summarizePlan,
+    describeDeletion,
     generatePlan,
     getPlan,
     listPlans,

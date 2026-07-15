@@ -8,10 +8,23 @@
 
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { sendSuccess } from '../utils/apiResponse.js';
-import { PLANNER_ITEM_STATUS } from '../config/constants.js';
+import { timezoneCatalogue } from '../services/timezoneService.js';
 import { plannerService as defaultService } from '../services/plannerService.js';
 
 export function createPlannerController({ plannerService = defaultService } = {}) {
+  /**
+   * The full IANA catalogue, with offsets computed for the planning date so a
+   * DST zone is labelled correctly for the week being planned.
+   */
+  const listTimezones = asyncHandler(async (req, res) => {
+    const entries = timezoneCatalogue({
+      forDate: req.query.forDate ? new Date(String(req.query.forDate)) : new Date(),
+      search: req.query.search ? String(req.query.search) : '',
+      limit: req.query.limit ? Number(req.query.limit) : 0,
+    });
+    return sendSuccess(res, { timezones: entries, total: entries.length });
+  });
+
   // --- preferences ---------------------------------------------------------
 
   const getPreferences = asyncHandler(async (req, res) => {
@@ -34,9 +47,23 @@ export function createPlannerController({ plannerService = defaultService } = {}
     return sendSuccess(res, { plans });
   });
 
+  /** What a plan WOULD create. The wizard shows this before generating. */
+  const summarizePlan = asyncHandler(async (req, res) => {
+    const summary = await plannerService.summarizePlan(req.user.id, req.body);
+    return sendSuccess(res, { summary });
+  });
+
   const generatePlan = asyncHandler(async (req, res) => {
     const plan = await plannerService.generatePlan(req.user.id, req.body, { req });
     return sendSuccess(res, plan, 201);
+  });
+
+  /** What deleting this plan would do, for the confirmation dialog. */
+  const describeDeletion = asyncHandler(async (req, res) => {
+    const plan = await plannerService.describeDeletion(req.user.id, req.params.id);
+    // The run object is already available via GET; only the impact is needed.
+    const { run, ...impact } = plan;
+    return sendSuccess(res, impact);
   });
 
   const getPlan = asyncHandler(async (req, res) => {
@@ -45,7 +72,11 @@ export function createPlannerController({ plannerService = defaultService } = {}
   });
 
   const deletePlan = asyncHandler(async (req, res) => {
-    const result = await plannerService.deletePlan(req.user.id, req.params.id, { req });
+    const result = await plannerService.deletePlan(req.user.id, req.params.id, {
+      // Opt-in only: cancelling queued posts is never implied by "delete".
+      cancelQueued: req.body?.cancelQueued === true,
+      req,
+    });
     return sendSuccess(res, result);
   });
 
@@ -99,11 +130,14 @@ export function createPlannerController({ plannerService = defaultService } = {}
   });
 
   return {
+    listTimezones,
     getPreferences,
     savePreferences,
     listPlans,
+    summarizePlan,
     generatePlan,
     getPlan,
+    describeDeletion,
     deletePlan,
     updateItem,
     regenerateItem,

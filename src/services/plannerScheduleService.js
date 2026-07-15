@@ -126,18 +126,32 @@ export function buildSchedule(input = {}) {
     Math.min(PLANNER_LIMITS.MAX_PLAN_LENGTH, Number(input.planLength) || 7),
   );
 
+  /*
+   * Posts per ACTIVE day is explicit and defaults to 1. It is never inferred
+   * from how many times were selected: choosing three times and getting three
+   * posts a day without asking for them is the bug this replaces. Extra times
+   * are simply available slots; only the first `postsPerDay` of them are used.
+   */
+  const postsPerDay = Math.max(
+    1,
+    Math.min(PLANNER_LIMITS.MAX_POSTS_PER_DAY, Number(input.postsPerDay) || 1),
+  );
+  const timesForDay = times.slice(0, postsPerDay);
+
   const nowInstant = input.now instanceof Date ? input.now : new Date();
   const start = parseDateOnly(input.startDate) || todayInZone(nowInstant, timezone);
 
   const slots = [];
   let skippedPast = 0;
+  let activeDays = 0;
 
   for (let dayOffset = 0; dayOffset < planLength; dayOffset += 1) {
     const day = addDaysUtc(start, dayOffset);
     const weekday = isoWeekday(day);
     if (!activeWeekdays.includes(weekday)) continue;
+    activeDays += 1;
 
-    for (const time of times) {
+    for (const time of timesForDay) {
       const { hour, minute } = parseTime(time);
       const scheduledForUtc = zonedWallTimeToUtc(
         {
@@ -182,8 +196,73 @@ export function buildSchedule(input = {}) {
     timezone,
     cadence,
     times,
+    // The times actually used, which is what the summary must show.
+    timesUsed: timesForDay,
     weekdays: activeWeekdays,
+    postsPerDay,
+    activeDays,
     skippedPast,
+  };
+}
+
+/**
+ * Describe a plan BEFORE it is generated, so the count is never a surprise.
+ *
+ * Pure and side-effect free: the wizard renders this and the service validates
+ * against the same function, so what the user is shown is what they get.
+ *
+ * @returns {{ valid, errors, activeDays, postsPerDay, totalPosts, times, timesUsed,
+ *             startDate, endDate, timezone, skippedPast }}
+ */
+export function summarizeSchedule(input = {}) {
+  const schedule = buildSchedule(input);
+  const errors = [];
+
+  const requested = Math.max(1, Number(input.postsPerDay) || 1);
+  if (requested > PLANNER_LIMITS.MAX_POSTS_PER_DAY) {
+    errors.push({
+      field: 'postsPerDay',
+      message: `Choose at most ${PLANNER_LIMITS.MAX_POSTS_PER_DAY} posts per day`,
+    });
+  }
+  /*
+   * Not enough times is an ERROR, not something to paper over. Inventing a
+   * posting time the user did not choose would put their content out at an hour
+   * they never approved.
+   */
+  if (schedule.times.length < requested) {
+    errors.push({
+      field: 'times',
+      message: `Select at least ${requested} posting time${requested === 1 ? '' : 's'} for ${requested} posts per day. You have selected ${schedule.times.length}.`,
+    });
+  }
+  if (schedule.activeDays === 0) {
+    errors.push({ field: 'weekdays', message: 'That combination of days produces no active days' });
+  }
+  if (schedule.slots.length === 0 && errors.length === 0) {
+    errors.push({
+      field: 'startDate',
+      message: 'Every slot in that window has already passed. Choose a later start date.',
+    });
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    activeDays: schedule.activeDays,
+    postsPerDay: schedule.postsPerDay,
+    // The count that will actually be created, after past slots are dropped.
+    totalPosts: schedule.slots.length,
+    // What the maths says, for the "N days x M per day = T posts" sentence.
+    plannedPosts: schedule.activeDays * schedule.postsPerDay,
+    times: schedule.times,
+    timesUsed: schedule.timesUsed,
+    startDate: schedule.startDate,
+    endDate: schedule.endDate,
+    timezone: schedule.timezone,
+    cadence: schedule.cadence,
+    weekdays: schedule.weekdays,
+    skippedPast: schedule.skippedPast,
   };
 }
 
@@ -208,6 +287,7 @@ export function nextWeeklyRunAt(fromInstant = new Date()) {
 
 export default {
   buildSchedule,
+  summarizeSchedule,
   normalizeTimes,
   normalizeWeekdays,
   weekdaysForCadence,

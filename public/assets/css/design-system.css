@@ -514,6 +514,31 @@ legend { padding: 0; }
 }
 .planner-card-actions { display: flex; gap: .35rem; flex-wrap: wrap; }
 
+/* --- timezone combobox ---------------------------------------------------- */
+.tz-field { position: relative; }
+.tz-list {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 30;
+  margin-top: 4px; max-height: 280px; overflow-y: auto;
+  list-style: none; padding: .25rem;
+  background: #fff; border: 1px solid var(--ink-200); border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+}
+.tz-option {
+  display: flex; align-items: center; gap: .5rem;
+  padding: .45rem .55rem; border-radius: var(--radius-sm); cursor: pointer;
+  font-size: .82rem;
+}
+.tz-option:hover, .tz-option:focus { background: var(--brand-50); outline: none; }
+.tz-option.is-selected { background: var(--brand-50); font-weight: 600; }
+.tz-id { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-900); }
+.tz-offset { flex: 0 0 auto; font-variant-numeric: tabular-nums; color: var(--ink-500); font-size: .78rem; }
+.tz-empty { padding: .6rem; font-size: .82rem; color: var(--ink-500); }
+
+/* --- plan summary --------------------------------------------------------- */
+.plan-summary { display: flex; flex-direction: column; gap: .5rem; }
+.plan-summary-main strong { display: block; font-size: 1rem; color: var(--ink-900); letter-spacing: -.01em; }
+.plan-summary-main p { margin-top: .25rem; font-size: .85rem; color: var(--ink-500); }
+
 /* --- edit drawer ---------------------------------------------------------- */
 .drawer {
   position: fixed; top: 0; right: 0; bottom: 0; z-index: 60;

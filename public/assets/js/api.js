@@ -127,7 +127,31 @@ export async function plannerPlan(runId) {
   return res;
 }
 
+/** The full IANA catalogue, with offsets computed for the planning date. */
+export async function plannerTimezones({ search = '', forDate = '', limit = 0 } = {}) {
+  const params = new URLSearchParams();
+  if (search) params.set('search', search);
+  if (forDate) params.set('forDate', forDate);
+  if (limit) params.set('limit', String(limit));
+  const query = params.toString();
+  const res = await apiRequest(`/api/planner/timezones${query ? `?${query}` : ''}`);
+  return payload(res)?.timezones ?? [];
+}
+
+/** What a plan WOULD create. Never generates anything. */
+export async function plannerSummary(body) {
+  const res = await apiRequest('/api/planner/plans/summary', { method: 'POST', body });
+  return res;
+}
+
+/** What deleting a plan would do, for the confirmation. */
+export async function plannerDeletionImpact(runId) {
+  const res = await apiRequest(`/api/planner/plans/${encodeURIComponent(runId)}/deletion-impact`);
+  return res;
+}
+
 export default {
   apiRequest, getCsrfToken, clearCachedCsrfToken, me, payload, errorMessage, fieldErrors,
-  plannerPreferences, plannerPlans, plannerPlan,
+  plannerPreferences, plannerPlans, plannerPlan, plannerTimezones, plannerSummary,
+  plannerDeletionImpact,
 };

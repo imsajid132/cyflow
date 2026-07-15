@@ -78,6 +78,17 @@ async function seedAccount(socialAccounts, { accountType = 'threads_profile', pr
   });
 }
 
+/**
+ * Stand in for a future publishing phase having sent a post out. Nothing in the
+ * app publishes yet, so this is the only way to exercise the archival rule.
+ */
+function markPublished(ctx, postId) {
+  const row = ctx.posts._posts.find((p) => String(p.id) === String(postId));
+  assert.ok(row, `post ${postId} should exist in the fake repository`);
+  row.status = 'published';
+  return row;
+}
+
 async function seedProfile(businessProfiles) {
   return businessProfiles.createOrUpdateProfile(USER, {
     businessName: 'Acme Roofing',
@@ -147,7 +158,11 @@ test('invalid preferences are rejected field by field', async () => {
     [{ cadence: 'hourly' }, 'cadence'],
     [{ weekdays: [0, 9] }, 'weekdays'],
     [{ times: ['9am'] }, 'times'],
-    [{ times: ['01:00', '02:00', '03:00', '04:00', '05:00'] }, 'times'],
+    [{ times: ['01:00', '02:00', '03:00', '04:00', '05:00', '06:00'] }, 'times'],
+    [{ postsPerDay: 0 }, 'postsPerDay'],
+    [{ postsPerDay: 9 }, 'postsPerDay'],
+    // Intl accepts a bare offset as a timeZone; storing one would break at DST.
+    [{ timezone: '+05:00' }, 'timezone'],
     [{ platforms: ['tiktok'] }, 'platforms'],
     [{ goals: ['world_domination'] }, 'goals'],
     [{ contentMix: { nonsense: 1 } }, 'contentMix'],
@@ -221,23 +236,30 @@ test('no post in a batch has a duplicate caption or headline', async () => {
   assert.equal(new Set(headlines).size, headlines.length, 'headlines must be unique');
 });
 
-test('a plan varies content type and template across the week', async () => {
+test('a plan varies strategic format and template across the week', async () => {
   const ctx = build();
   const plan = await generate(ctx);
-  assert.ok(new Set(plan.items.map((i) => i.contentType)).size >= 4, 'content types must vary');
-  assert.ok(new Set(plan.items.map((i) => i.templateKey)).size >= 3, 'templates must vary');
-  // The spec's mapping holds for whichever types were dealt.
+  assert.ok(new Set(plan.items.map((i) => i.contentType)).size >= 4, 'formats must vary');
+  assert.ok(new Set(plan.items.map((i) => i.templateKey)).size >= 4, 'templates must vary');
+  // The layout follows the content, per the spec mapping.
   for (const item of plan.items) {
-    if (item.contentType === 'tips') assert.match(item.templateKey, /checklist-tips|modern-split/);
-    if (item.contentType === 'proof') assert.match(item.templateKey, /stat-proof|minimal-luxury/);
-    if (item.contentType === 'comparison') assert.match(item.templateKey, /split-comparison|modern-split/);
+    if (item.contentType === 'checklist') assert.equal(item.templateKey, 'checklist-guide');
+    if (item.contentType === 'process') assert.equal(item.templateKey, 'checklist-guide');
+    if (item.contentType === 'comparison') assert.equal(item.templateKey, 'comparison-cards');
+    if (item.contentType === 'service_benefit') assert.equal(item.templateKey, 'service-authority');
+    if (item.contentType === 'local_relevance') assert.equal(item.templateKey, 'local-insight');
+  }
+  // No two consecutive posts share a layout.
+  for (let i = 1; i < plan.items.length; i += 1) {
+    assert.notEqual(plan.items[i].templateKey, plan.items[i - 1].templateKey);
   }
 });
 
-test('selected weekdays and multiple times are honoured', async () => {
+test('selected weekdays and multiple posts per day are honoured', async () => {
   const ctx = build();
   const plan = await generate(ctx, {
-    planLength: 7, cadence: 'selected_weekdays', weekdays: [2, 4], times: ['09:00', '17:00'],
+    planLength: 7, cadence: 'selected_weekdays', weekdays: [2, 4],
+    times: ['09:00', '17:00'], postsPerDay: 2,
   });
   // Tue + Thu across the window, two posts each day.
   assert.equal(plan.items.length, 4);
@@ -245,6 +267,64 @@ test('selected weekdays and multiple times are honoured', async () => {
   assert.deepEqual(days, ['2026-07-14', '2026-07-16']);
   const times = plan.items.map((i) => i.scheduledFor.slice(11, 16));
   assert.deepEqual(times, ['09:00', '17:00', '09:00', '17:00']);
+  assert.equal(plan.run.postsPerDay, 2, 'the run records what it was generated with');
+});
+
+test('postsPerDay defaults to 1, so extra times do not multiply the plan', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 3, times: ['09:00', '17:00'] });
+  assert.equal(plan.items.length, 3, 'two times must not silently mean six posts');
+  assert.equal(plan.run.postsPerDay, 1);
+});
+
+test('generation is refused when there are fewer times than posts per day', async () => {
+  const ctx = build();
+  await seedAccount(ctx.socialAccounts);
+  await seedProfile(ctx.businessProfiles);
+  await assert.rejects(
+    () => ctx.svc.generatePlan(USER, {
+      startDate: '2026-07-14', planLength: 3, times: ['09:00'], postsPerDay: 3, timezone: 'UTC',
+    }),
+    (err) => {
+      assert.equal(err.statusCode, 400);
+      assert.ok(err.details.some((d) => d.field === 'times'));
+      return true;
+    },
+  );
+  // Nothing was generated: the gate runs before any spend.
+  assert.equal(ctx.openai._calls.length, 0);
+});
+
+test('the plan summary matches what generation actually creates', async () => {
+  const ctx = build();
+  await seedAccount(ctx.socialAccounts);
+  await seedProfile(ctx.businessProfiles);
+
+  const options = {
+    startDate: '2026-07-14', planLength: 5, cadence: 'every_day',
+    times: ['09:00', '17:00'], postsPerDay: 2, timezone: 'UTC',
+  };
+  const summary = await ctx.svc.summarizePlan(USER, options);
+  assert.equal(summary.valid, true, JSON.stringify(summary.errors));
+  assert.equal(summary.activeDays, 5);
+  assert.equal(summary.postsPerDay, 2);
+  assert.equal(summary.plannedPosts, 10);
+  assert.deepEqual(summary.platforms, ['threads']);
+
+  // The promise the summary made is kept.
+  const plan = await ctx.svc.generatePlan(USER, options);
+  assert.equal(plan.items.length, summary.totalPosts);
+});
+
+test('the summary reports setup problems without generating anything', async () => {
+  const ctx = build();
+  // No connected account.
+  const summary = await ctx.svc.summarizePlan(USER, {
+    startDate: '2026-07-14', planLength: 3, times: ['09:00'], timezone: 'UTC',
+  });
+  assert.equal(summary.valid, false);
+  assert.ok(summary.errors.some((e) => e.field === 'platforms'));
+  assert.equal(ctx.openai._calls.length, 0);
 });
 
 test('only connected platforms are planned for', async () => {
@@ -279,7 +359,25 @@ test('a schedule with no upcoming slots is refused rather than generating nothin
     // Entirely in the past.
     () => ctx.svc.generatePlan(USER, { startDate: '2020-01-01', planLength: 2, times: ['09:00'], timezone: 'UTC' }),
     (err) => {
-      assert.match(err.message, /no upcoming slots/);
+      assert.equal(err.statusCode, 400);
+      // The summary gate catches this before any generation is attempted.
+      assert.ok(err.details.some((d) => d.field === 'startDate'), JSON.stringify(err.details));
+      return true;
+    },
+  );
+  assert.equal(ctx.openai._calls.length, 0);
+});
+
+test('an offset masquerading as a timezone is refused at generation too', async () => {
+  const ctx = build();
+  await seedAccount(ctx.socialAccounts);
+  await assert.rejects(
+    () => ctx.svc.generatePlan(USER, {
+      startDate: '2026-07-14', planLength: 2, times: ['09:00'], timezone: '+05:00',
+    }),
+    (err) => {
+      assert.equal(err.statusCode, 400);
+      assert.ok(err.details.some((d) => d.field === 'timezone'));
       return true;
     },
   );
@@ -620,20 +718,152 @@ test('a queued card cannot be edited, regenerated, or deleted from the planner',
   await assert.rejects(() => ctx.svc.deleteItem(USER, id), /queued/);
 });
 
-test('deleting a plan leaves the posts it already queued intact', async () => {
+// --- plan deletion ----------------------------------------------------------
+
+test('an empty plan deletes cleanly', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 2 });
+  for (const item of plan.items) await ctx.svc.deleteItem(USER, item.id);
+
+  const result = await ctx.svc.deletePlan(USER, plan.run.id);
+  assert.equal(result.deleted, true);
+  assert.equal(result.archived, false);
+  await assert.rejects(() => ctx.svc.getPlan(USER, plan.run.id), /not found/i);
+});
+
+test('a plan of drafts deletes with its items', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 3 });
+  const impact = await ctx.svc.describeDeletion(USER, plan.run.id);
+  assert.equal(impact.counts.plannerItems, 3);
+  assert.equal(impact.counts.plannerOnlyItems, 3, 'none has become a post yet');
+  assert.equal(impact.counts.queuedPosts, 0);
+  assert.equal(impact.blockedByQueued, false);
+  assert.equal(impact.mustArchive, false);
+
+  assert.equal((await ctx.svc.deletePlan(USER, plan.run.id)).deleted, true);
+  await assert.rejects(() => ctx.svc.getPlan(USER, plan.run.id), /not found/i);
+});
+
+test('a plan with a DRAFT post deletes, and the draft survives as its own record', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 1 });
+  const { postId } = await ctx.svc.duplicateAsDraft(USER, plan.items[0].id);
+
+  const result = await ctx.svc.deletePlan(USER, plan.run.id);
+  assert.equal(result.deleted, true);
+  // The manual draft was the user's own copy; it is not the plan's to destroy.
+  const post = await ctx.posts.findPostByIdForUser(postId, USER);
+  assert.ok(post);
+  assert.equal(post.status, 'draft');
+});
+
+test('deleting a plan with QUEUED posts is refused rather than silently destructive', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 2 });
+  await ctx.svc.setItemStatus(USER, plan.items[0].id, 'approved');
+  await ctx.svc.queueApproved(USER, plan.run.id, []);
+
+  const impact = await ctx.svc.describeDeletion(USER, plan.run.id);
+  assert.equal(impact.counts.queuedPosts, 1);
+  assert.equal(impact.blockedByQueued, true);
+
+  await assert.rejects(
+    () => ctx.svc.deletePlan(USER, plan.run.id),
+    (err) => {
+      assert.equal(err.statusCode, 409);
+      assert.match(err.message, /queued post/);
+      assert.match(err.message, /Cancel/);
+      return true;
+    },
+  );
+  // Refusing means refusing: the plan is untouched.
+  assert.ok(await ctx.svc.getPlan(USER, plan.run.id));
+});
+
+test('the controlled cancel-and-delete cancels the queued posts first', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 2 });
+  await ctx.svc.bulkSetStatus(USER, plan.run.id, [], 'approved');
+  const { queued } = await ctx.svc.queueApproved(USER, plan.run.id, []);
+
+  const result = await ctx.svc.deletePlan(USER, plan.run.id, { cancelQueued: true });
+  assert.equal(result.deleted, true);
+  assert.equal(result.cancelledPosts, 2);
+  await assert.rejects(() => ctx.svc.getPlan(USER, plan.run.id), /not found/i);
+
+  // The posts still exist, cancelled — not vanished.
+  for (const { postId } of queued) {
+    const post = await ctx.posts.findPostByIdForUser(postId, USER);
+    assert.ok(post, 'the post record must survive');
+    assert.equal(post.status, 'cancelled');
+  }
+});
+
+test('a plan with PUBLISHED posts is archived, never destroyed', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 2 });
+  await ctx.svc.setItemStatus(USER, plan.items[0].id, 'approved');
+  const { queued } = await ctx.svc.queueApproved(USER, plan.run.id, []);
+  // Simulate a future publishing phase having sent this one out.
+  markPublished(ctx, queued[0].postId);
+
+  const impact = await ctx.svc.describeDeletion(USER, plan.run.id);
+  assert.equal(impact.mustArchive, true);
+  assert.equal(impact.counts.publishedPosts, 1);
+
+  const result = await ctx.svc.deletePlan(USER, plan.run.id);
+  assert.equal(result.deleted, false);
+  assert.equal(result.archived, true);
+  assert.match(result.notice, /archived instead of deleted/);
+
+  // The plan is still readable: published history never disappears.
+  const after = await ctx.svc.getPlan(USER, plan.run.id);
+  assert.equal(after.run.status, 'archived');
+  assert.ok(after.run.archivedAt);
+  assert.equal((await ctx.posts.findPostByIdForUser(queued[0].postId, USER)).status, 'published');
+});
+
+test('cancelQueued does not force-delete a plan with published history', async () => {
+  // Archival wins over the cancel-and-delete opt-in: published is published.
   const ctx = build();
   const plan = await generate(ctx, { planLength: 1 });
   await ctx.svc.setItemStatus(USER, plan.items[0].id, 'approved');
   const { queued } = await ctx.svc.queueApproved(USER, plan.run.id, []);
-  const postId = queued[0].postId;
+  markPublished(ctx, queued[0].postId);
 
-  await ctx.svc.deletePlan(USER, plan.run.id);
-  await assert.rejects(() => ctx.svc.getPlan(USER, plan.run.id), /not found/i);
+  const result = await ctx.svc.deletePlan(USER, plan.run.id, { cancelQueued: true });
+  assert.equal(result.archived, true);
+  assert.equal(result.deleted, false);
+  assert.ok(await ctx.svc.getPlan(USER, plan.run.id));
+});
 
-  // Approved work outlives its plan (the post FK is ON DELETE SET NULL).
-  const post = await ctx.posts.findPostByIdForUser(postId, USER);
-  assert.ok(post, 'the queued post must survive');
-  assert.equal(post.status, 'queued');
+test('a failed deletion rolls back and leaves the plan intact', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 2 });
+  await ctx.svc.bulkSetStatus(USER, plan.run.id, [], 'approved');
+  await ctx.svc.queueApproved(USER, plan.run.id, []);
+
+  // The run delete blows up mid-transaction, after the cancels.
+  const boom = new Error('database went away');
+  const original = ctx.runs.deleteRun;
+  ctx.runs.deleteRun = async () => { throw boom; };
+
+  await assert.rejects(() => ctx.svc.deletePlan(USER, plan.run.id, { cancelQueued: true }), /database went away/);
+
+  ctx.runs.deleteRun = original;
+  // The plan survives, because the whole thing is one transaction.
+  const after = await ctx.svc.getPlan(USER, plan.run.id);
+  assert.equal(after.items.length, 2);
+});
+
+test('another user cannot delete or inspect the deletion of a plan', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 1 });
+  await assert.rejects(() => ctx.svc.deletePlan('999', plan.run.id), /not found/i);
+  await assert.rejects(() => ctx.svc.describeDeletion('999', plan.run.id), /not found/i);
+  // Still there.
+  assert.ok(await ctx.svc.getPlan(USER, plan.run.id));
 });
 
 test('a planned post can be duplicated into a manual draft', async () => {

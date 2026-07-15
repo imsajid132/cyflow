@@ -11,6 +11,7 @@ import {
   el, card, pageHead, badge, notice, toast, field, selectField, val,
   setLoading, setFieldError, clearFieldErrors, formatDate,
 } from '../ui.js';
+import { timezonePicker } from '../components/timezonePicker.js';
 
 const TONES = ['neutral', 'friendly', 'professional', 'playful', 'bold', 'informative'];
 
@@ -111,6 +112,14 @@ export async function render(root, ctx) {
 
   const autopilotBox = checkbox('p-autopilot', 'Prepare a weekly plan automatically', prefs?.autopilotEnabled);
 
+  // The full IANA catalogue, defaulting to the user's own profile timezone.
+  const tzPicker = timezonePicker({
+    id: 'plannerTimezone',
+    label: 'Planner timezone',
+    value: prefs?.timezone || ctx.user?.timezone || 'UTC',
+    hint: 'Used for your posting times. Defaults to your profile timezone.',
+  });
+
   const savePlannerBtn = el('button', { className: 'btn btn-primary', text: 'Save planner settings', attrs: { type: 'button' } });
   savePlannerBtn.addEventListener('click', async () => {
     clearFieldErrors(root);
@@ -134,6 +143,9 @@ export async function render(root, ctx) {
         ctaMode: val('plannerCtaMode'),
         approvalMode: val('plannerApprovalMode'),
         defaultPlanLength: Number(val('plannerPlanLength')),
+        postsPerDay: Number(val('plannerPostsPerDay')),
+        // The canonical IANA id, never an offset.
+        timezone: tzPicker.getValue(),
         autopilotEnabled: document.getElementById('p-autopilot')?.checked ?? false,
       };
       if (Object.keys(contentMix).length) body.contentMix = contentMix;
@@ -164,7 +176,17 @@ export async function render(root, ctx) {
       el('div', { className: 'grid grid-3' }, [
         selectField({ id: 'plannerCadence', label: 'Cadence', options: toOptions(CADENCES), value: prefs?.cadence === 'custom' ? 'selected_weekdays' : (prefs?.cadence || 'every_day') }),
         selectField({ id: 'plannerPlanLength', label: 'Default plan length', options: [3, 5, 7, 14].map((n) => ({ value: String(n), label: `${n} days` })), value: String(prefs?.defaultPlanLength ?? 7) }),
+        selectField({
+          id: 'plannerPostsPerDay',
+          label: 'Posts per active day',
+          options: [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: `${n} post${n === 1 ? '' : 's'}` })),
+          value: String(prefs?.postsPerDay ?? 1),
+          hint: 'Select at least this many posting times.',
+        }),
+      ]),
+      el('div', { className: 'grid grid-2' }, [
         selectField({ id: 'plannerTone', label: 'Tone', options: PLANNER_TONES.map((t) => ({ value: t, label: t })), value: prefs?.tone || 'professional' }),
+        tzPicker.node,
       ]),
       el('div', { className: 'field' }, [
         el('span', { className: 'label', text: 'Days (used when cadence is "selected weekdays")' }),

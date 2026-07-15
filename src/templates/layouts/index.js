@@ -16,8 +16,26 @@ import * as photoOverlay from './photoOverlay.js';
 import * as checklistTips from './checklistTips.js';
 import * as statProof from './statProof.js';
 import * as splitComparison from './splitComparison.js';
+// Phase 4.7.1: the planner design families. These are what the planner uses;
+// the earlier layouts stay registered so existing drafts keep rendering.
+import * as editorialInsight from './editorialInsight.js';
+import * as lightEditorial from './lightEditorial.js';
+import * as checklistGuide from './checklistGuide.js';
+import * as comparisonCards from './comparisonCards.js';
+import * as statHighlight from './statHighlight.js';
+import * as serviceAuthority from './serviceAuthority.js';
+import * as localInsight from './localInsight.js';
 
 const MODULES = [
+  // --- planner design families (Phase 4.7.1) ---
+  editorialInsight,
+  lightEditorial,
+  checklistGuide,
+  comparisonCards,
+  statHighlight,
+  serviceAuthority,
+  localInsight,
+  // --- earlier layouts, still selectable and still rendering old drafts ---
   editorialPremium,
   boldServicePromo,
   localAuthority,

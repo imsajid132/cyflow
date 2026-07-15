@@ -43,6 +43,10 @@ export const preferencesValidator = [
     .optional({ nullable: true })
     .isInt({ min: PLANNER_LIMITS.MIN_PLAN_LENGTH, max: PLANNER_LIMITS.MAX_PLAN_LENGTH })
     .withMessage('Invalid plan length'),
+  body('postsPerDay')
+    .optional({ nullable: true })
+    .isInt({ min: 1, max: PLANNER_LIMITS.MAX_POSTS_PER_DAY })
+    .withMessage('Invalid posts per day'),
   body('timezone').optional({ nullable: true }).isString().isLength({ max: 64 }).withMessage('Invalid timezone'),
   body('autopilotEnabled').optional({ nullable: true }).isBoolean().withMessage('Invalid autopilot setting'),
 ];
@@ -59,6 +63,10 @@ export const generatePlanValidator = [
   body('weekdays.*').optional().isInt({ min: 1, max: 7 }).withMessage('Invalid weekday'),
   body('times').optional({ nullable: true }).isArray({ max: PLANNER_LIMITS.MAX_TIMES_PER_DAY }).withMessage('Invalid times'),
   body('times.*').optional().matches(/^([01]\d|2[0-3]):[0-5]\d$/).withMessage('Times must be HH:MM'),
+  body('postsPerDay')
+    .optional({ nullable: true })
+    .isInt({ min: 1, max: PLANNER_LIMITS.MAX_POSTS_PER_DAY })
+    .withMessage('Invalid posts per day'),
   body('platforms').optional({ nullable: true }).isArray({ max: 3 }).withMessage('Invalid platforms'),
   body('platforms.*').optional().isIn(PLATFORM_VALUES).withMessage('Unsupported platform'),
   body('timezone').optional({ nullable: true }).isString().isLength({ max: 64 }).withMessage('Invalid timezone'),
@@ -67,6 +75,12 @@ export const generatePlanValidator = [
 
 export const runIdParamValidator = [
   param('id').matches(idPattern).withMessage('Invalid plan id'),
+];
+
+export const deletePlanValidator = [
+  ...runIdParamValidator,
+  // Cancelling queued posts must be an explicit choice, never implied.
+  body('cancelQueued').optional({ nullable: true }).isBoolean().withMessage('Invalid cancelQueued flag'),
 ];
 
 export const itemIdParamValidator = [
@@ -116,6 +130,12 @@ export const queueValidator = [
 export const listPlansValidator = [
   query('limit').optional().isInt({ min: 1, max: 50 }).withMessage('Invalid limit'),
   query('offset').optional().isInt({ min: 0, max: 100000 }).withMessage('Invalid offset'),
+];
+
+export const timezoneQueryValidator = [
+  query('search').optional().isString().isLength({ max: 64 }).withMessage('Invalid search'),
+  query('forDate').optional().matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('Invalid date'),
+  query('limit').optional().isInt({ min: 1, max: 1000 }).withMessage('Invalid limit'),
 ];
 
 export default {

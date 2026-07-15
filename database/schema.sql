@@ -390,6 +390,9 @@ CREATE TABLE IF NOT EXISTS `planner_preferences` (
   `cta_mode`                VARCHAR(32)     NOT NULL DEFAULT 'some',
   `approval_mode`           VARCHAR(32)     NOT NULL DEFAULT 'require_approval',
   `default_plan_length`     INT UNSIGNED    NOT NULL DEFAULT 7,
+  -- How many posts each ACTIVE day receives. Existing rows default to 1, which
+  -- is the behaviour they were created with.
+  `posts_per_day`           TINYINT UNSIGNED NOT NULL DEFAULT 1,
   `timezone`                VARCHAR(64)     NULL DEFAULT NULL,
   `autopilot_enabled`       TINYINT(1)      NOT NULL DEFAULT 0,
   `next_plan_generation_at` DATETIME        NULL DEFAULT NULL,
@@ -416,8 +419,12 @@ CREATE TABLE IF NOT EXISTS `planner_runs` (
   `end_date`            DATE            NULL DEFAULT NULL,
   `timezone`            VARCHAR(64)     NULL DEFAULT NULL,
   `plan_length`         INT UNSIGNED    NOT NULL DEFAULT 7,
+  `posts_per_day`       TINYINT UNSIGNED NOT NULL DEFAULT 1,
   `settings_json`       JSON            NULL DEFAULT NULL,
   `generation_notes`    VARCHAR(2000)   NULL DEFAULT NULL,
+  -- Set when a plan is archived rather than destroyed: it produced published
+  -- history, which must never disappear as though it never happened.
+  `archived_at`         DATETIME        NULL DEFAULT NULL,
   `created_at`          DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`          DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),

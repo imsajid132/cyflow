@@ -992,8 +992,10 @@ export function createFakePlannerRunRepository() {
         endDate: input.endDate ?? null,
         timezone: input.timezone ?? null,
         planLength: input.planLength ?? 7,
+        postsPerDay: input.postsPerDay ?? 1,
         settings: input.settings ?? {},
         generationNotes: input.generationNotes ?? null,
+        archivedAt: null,
         createdAt: '2026-07-13 06:00:00',
         updatedAt: '2026-07-13 06:00:00',
       };

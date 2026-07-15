@@ -3,8 +3,9 @@
  */
 
 import * as api from '../api.js';
-import { el, card, pageHead, badge, notice, emptyState, toast, confirmModal, formatDate } from '../ui.js';
+import { el, card, pageHead, badge, notice, emptyState, formatDate } from '../ui.js';
 import { statusChip } from '../components/plannerCard.js';
+import { deletePlanButton } from '../components/deletePlan.js';
 
 const RUN_STATUS_TONE = {
   queued: 'ok',
@@ -23,7 +24,7 @@ export async function render(root, ctx) {
       el('a', { className: 'btn btn-primary', text: 'New plan', attrs: { href: '/planner/new', 'data-link': '' } }),
     ]),
     listHost,
-    notice('Deleting a plan does not remove posts it already queued — those stay in your queue.', 'info'),
+    notice('A plan with published posts is archived rather than deleted, so its history is kept. Queued posts are never removed without asking you first.', 'info'),
   ]));
 
   async function load() {
@@ -43,20 +44,12 @@ export async function render(root, ctx) {
       const counts = plan.counts || {};
       const total = Object.values(counts).reduce((a, b) => a + b, 0);
 
-      const deleteBtn = el('button', { className: 'btn btn-danger btn-sm', text: 'Delete', attrs: { type: 'button' } });
-      deleteBtn.addEventListener('click', async () => {
-        const ok = await confirmModal({
-          title: 'Delete this plan?',
-          message: 'The plan and its unqueued posts are removed. Posts you already queued stay in your queue.',
-          confirmText: 'Delete',
-          danger: true,
-        });
-        if (!ok) return;
-        const res = await api.apiRequest(`/api/planner/plans/${encodeURIComponent(plan.id)}`, { method: 'DELETE' });
-        if (res.unauthorized) { ctx.navigate('/login'); return; }
-        if (!res.ok) { toast(api.errorMessage(res, 'The plan could not be deleted.'), 'err'); return; }
-        toast('Plan deleted.', 'ok');
-        await load();
+      // The flow reads the real impact first: a plan with published history is
+      // archived, and queued posts require an explicit decision.
+      const deleteBtn = deletePlanButton(plan.id, {
+        name: plan.name || `Plan ${plan.id}`,
+        label: 'Delete',
+        onDone: load,
       });
 
       listHost.appendChild(card([

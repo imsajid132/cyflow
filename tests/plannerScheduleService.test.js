@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 
 import {
   buildSchedule,
+  summarizeSchedule,
   normalizeTimes,
   normalizeWeekdays,
   weekdaysForCadence,
@@ -100,17 +101,52 @@ test('selected weekdays produce only those days', () => {
   assert.equal(slots.length, 4, 'two weekdays across two weeks');
 });
 
-test('multiple daily times produce multiple ordered slots per day', () => {
+test('extra posting times do NOT silently create extra posts', () => {
+  /*
+   * The production bug: selecting two times quietly produced two posts a day.
+   * Times are available slots; postsPerDay decides how many are used.
+   */
   const { slots } = buildSchedule({
     startDate: '2026-07-14', planLength: 3, cadence: 'every_day',
     times: ['17:30', '09:00'], timezone: 'UTC', now: NOW,
   });
+  assert.equal(slots.length, 3, 'two times must still mean one post a day by default');
+  assert.deepEqual(slots.map((s) => s.localTime), ['09:00', '09:00', '09:00']);
+});
+
+test('postsPerDay: 2 uses two of the selected times, in order', () => {
+  const { slots, postsPerDay } = buildSchedule({
+    startDate: '2026-07-14', planLength: 3, cadence: 'every_day',
+    times: ['17:30', '09:00'], postsPerDay: 2, timezone: 'UTC', now: NOW,
+  });
+  assert.equal(postsPerDay, 2);
   assert.equal(slots.length, 6);
   // Sorted within each day.
   assert.deepEqual(slots.slice(0, 2).map((s) => s.localTime), ['09:00', '17:30']);
   assert.deepEqual(slots.map((s) => s.localDate), [
     '2026-07-14', '2026-07-14', '2026-07-15', '2026-07-15', '2026-07-16', '2026-07-16',
   ]);
+});
+
+test('postsPerDay: 3 produces exactly three posts on each active day', () => {
+  const { slots } = buildSchedule({
+    startDate: '2026-07-14', planLength: 2, cadence: 'every_day',
+    times: ['09:00', '13:00', '18:00', '21:00'], postsPerDay: 3, timezone: 'UTC', now: NOW,
+  });
+  assert.equal(slots.length, 6, '2 days x 3 posts');
+  // The fourth time is simply unused; nothing is invented and nothing extra runs.
+  assert.deepEqual([...new Set(slots.map((s) => s.localTime))], ['09:00', '13:00', '18:00']);
+});
+
+test('postsPerDay defaults to 1 for anything unset or nonsensical', () => {
+  for (const postsPerDay of [undefined, null, 0, -3, 'two']) {
+    const { slots, postsPerDay: resolved } = buildSchedule({
+      startDate: '2026-07-14', planLength: 3, cadence: 'every_day',
+      times: ['09:00', '17:00'], postsPerDay, timezone: 'UTC', now: NOW,
+    });
+    assert.equal(resolved, 1, `${postsPerDay} must resolve to 1`);
+    assert.equal(slots.length, 3);
+  }
 });
 
 test('slots are timezone-aware: local wall time converts to the right UTC instant', () => {
@@ -142,7 +178,7 @@ test('slots already in the past are skipped rather than generated', () => {
   // "Now" is 06:00 UTC on the 13th; the 05:00 slot that day has passed.
   const { slots, skippedPast } = buildSchedule({
     startDate: '2026-07-13', planLength: 2, cadence: 'every_day',
-    times: ['05:00', '22:00'], timezone: 'UTC', now: NOW,
+    times: ['05:00', '22:00'], postsPerDay: 2, timezone: 'UTC', now: NOW,
   });
   assert.equal(skippedPast, 1);
   assert.equal(slots.length, 3, 'day 1 keeps only 22:00; day 2 keeps both');
@@ -159,10 +195,10 @@ test('plan length is clamped and the run is capped', () => {
   });
   assert.equal(long.slots.length, PLANNER_LIMITS.MAX_PLAN_LENGTH);
 
-  // Length x times must never exceed the per-run ceiling.
+  // Length x postsPerDay must never exceed the per-run ceiling.
   const dense = buildSchedule({
     startDate: '2026-07-14', planLength: 14, cadence: 'every_day',
-    times: ['08:00', '12:00', '16:00', '20:00'], timezone: 'UTC', now: NOW,
+    times: ['08:00', '12:00', '16:00', '20:00'], postsPerDay: 4, timezone: 'UTC', now: NOW,
   });
   assert.equal(dense.slots.length, PLANNER_LIMITS.MAX_ITEMS_PER_RUN);
 
@@ -195,4 +231,83 @@ test('no start date means "today in the user timezone"', () => {
 test('nextWeeklyRunAt is one week out (autopilot preparation only)', () => {
   const next = nextWeeklyRunAt(NOW);
   assert.equal(next, '2026-07-20 06:00:00');
+});
+
+// --- plan summary -----------------------------------------------------------
+
+test('the summary states the exact count before anything is generated', () => {
+  // The spec example: 7 active days x 2 posts per day = 14 posts.
+  const summary = summarizeSchedule({
+    startDate: '2026-07-14', planLength: 7, cadence: 'every_day',
+    times: ['10:00', '18:00'], postsPerDay: 2, timezone: 'Asia/Karachi', now: NOW,
+  });
+  assert.equal(summary.valid, true, JSON.stringify(summary.errors));
+  assert.equal(summary.activeDays, 7);
+  assert.equal(summary.postsPerDay, 2);
+  assert.equal(summary.plannedPosts, 14);
+  assert.equal(summary.totalPosts, 14);
+  assert.deepEqual(summary.timesUsed, ['10:00', '18:00']);
+  assert.equal(summary.timezone, 'Asia/Karachi');
+});
+
+test('the summary counts ACTIVE days, not calendar days', () => {
+  // The other spec example: 5 active days x 2 = 10 posts.
+  const summary = summarizeSchedule({
+    startDate: '2026-07-13', planLength: 7, cadence: 'weekdays',
+    times: ['09:00', '17:00'], postsPerDay: 2, timezone: 'UTC', now: NOW,
+  });
+  assert.equal(summary.activeDays, 5, 'the weekend is not an active day');
+  assert.equal(summary.plannedPosts, 10);
+  assert.equal(summary.totalPosts, 10);
+});
+
+test('too few selected times is a validation error, not a silent fix', () => {
+  // Inventing a posting time would publish at an hour the user never approved.
+  const summary = summarizeSchedule({
+    startDate: '2026-07-14', planLength: 7, cadence: 'every_day',
+    times: ['09:00'], postsPerDay: 3, timezone: 'UTC', now: NOW,
+  });
+  assert.equal(summary.valid, false);
+  const error = summary.errors.find((e) => e.field === 'times');
+  assert.ok(error, JSON.stringify(summary.errors));
+  assert.match(error.message, /at least 3 posting times/);
+  assert.match(error.message, /You have selected 1/);
+});
+
+test('one post per day needs only one time', () => {
+  const summary = summarizeSchedule({
+    startDate: '2026-07-14', planLength: 7, cadence: 'every_day',
+    times: ['09:00'], postsPerDay: 1, timezone: 'UTC', now: NOW,
+  });
+  assert.equal(summary.valid, true);
+  assert.equal(summary.plannedPosts, 7);
+});
+
+test('the summary rejects a plan whose window has entirely passed', () => {
+  const summary = summarizeSchedule({
+    startDate: '2020-01-01', planLength: 3, cadence: 'every_day',
+    times: ['09:00'], postsPerDay: 1, timezone: 'UTC', now: NOW,
+  });
+  assert.equal(summary.valid, false);
+  assert.ok(summary.errors.some((e) => e.field === 'startDate'));
+});
+
+test('the summary reports past slots that were dropped', () => {
+  // Planned 2, but the 05:00 today has gone: the user should be told.
+  const summary = summarizeSchedule({
+    startDate: '2026-07-13', planLength: 1, cadence: 'every_day',
+    times: ['05:00', '22:00'], postsPerDay: 2, timezone: 'UTC', now: NOW,
+  });
+  assert.equal(summary.plannedPosts, 2, 'the maths says 2');
+  assert.equal(summary.totalPosts, 1, 'but only 1 can actually be created');
+  assert.equal(summary.skippedPast, 1);
+});
+
+test('the summary rejects more posts per day than the ceiling', () => {
+  const summary = summarizeSchedule({
+    startDate: '2026-07-14', planLength: 3, cadence: 'every_day',
+    times: ['08:00', '10:00', '12:00', '14:00', '16:00'], postsPerDay: 9, timezone: 'UTC', now: NOW,
+  });
+  assert.equal(summary.valid, false);
+  assert.ok(summary.errors.some((e) => e.field === 'postsPerDay'));
 });

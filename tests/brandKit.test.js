@@ -6,6 +6,9 @@ import assert from 'node:assert/strict';
 
 import {
   buildPalette,
+  resolveBrandRoles,
+  chromaOf,
+  luminance,
   fontCategory,
   fontStack,
   headlineScale,
@@ -22,9 +25,12 @@ import {
 
 const HEX = /^#[0-9a-f]{6}$/;
 
+/** Colour roles only — `source` and friends are provenance, not colours. */
+const NON_COLOUR_KEYS = new Set(['source', 'adjusted', 'providedColors', 'isDark', 'canvasIsDark']);
+
 function assertAllHex(palette) {
   for (const [key, value] of Object.entries(palette)) {
-    if (typeof value !== 'string') continue;
+    if (NON_COLOUR_KEYS.has(key) || typeof value !== 'string') continue;
     assert.match(value, HEX, `palette.${key} must be a plain hex colour, got ${value}`);
   }
 }
@@ -66,28 +72,94 @@ test('a palette is always complete, hex-only, and readable', () => {
   }
 });
 
-test('a loud brand colour is normalized into a usable band', () => {
-  const p = buildPalette({ primaryColor: '#00ff00' });
-  const brand = hexToHsl(p.brand);
-  // Hue is preserved — it is still recognisably their green.
-  assert.ok(Math.abs(brand.h - 120) < 2);
-  // ...but the raw neon is pulled into the band the templates can fill with.
-  assert.ok(brand.s <= 82, `saturation ${brand.s} should be clamped`);
-  assert.ok(brand.l >= 32 && brand.l <= 56, `lightness ${brand.l} should be clamped`);
-  assert.notEqual(p.brand, '#00ff00');
+test('saved brand colours reach the palette EXACTLY, whatever they are', () => {
+  /*
+   * The earlier design clamped every brand colour into a mid lightness band so
+   * it could carry a filled area. That turned a near-black brand primary
+   * (#111827) into an unrelated mid-blue — the bug this replaces. Values are now
+   * preserved; taste comes from role assignment, not from rewriting the hex.
+   */
+  const cases = [
+    { primaryColor: '#111827', secondaryColor: '#23a455', accentColor: '#fdc70f' }, // Cyfrow
+    { primaryColor: '#00ff00' }, // neon
+    { primaryColor: '#1f6feb', accentColor: '#e0653a' },
+    { primaryColor: '#000000', accentColor: '#ffffff' },
+  ];
+  for (const input of cases) {
+    const p = buildPalette(input);
+    const saved = Object.values(input).map((c) => c.toLowerCase());
+    const inPalette = [p.brand, p.accent, p.support].map((c) => c.toLowerCase());
+    for (const colour of saved) {
+      assert.ok(
+        inPalette.includes(colour),
+        `${colour} from ${JSON.stringify(input)} must survive exactly; got ${inPalette.join(',')}`,
+      );
+    }
+    assert.equal(p.source, 'saved_brand_palette');
+  }
+});
+
+test('a near-black brand primary stays near-black and is marked as a dark canvas', () => {
+  const p = buildPalette({ primaryColor: '#111827', secondaryColor: '#23a455', accentColor: '#fdc70f' });
+  assert.equal(p.brand, '#111827', 'the saved dark neutral must not become a blue');
+  assert.equal(p.canvasIsDark, true, 'layouts need to know this is a field, not an ink');
+  // The gold is the most chromatic colour, so it takes the accent role.
+  assert.equal(p.accent, '#fdc70f');
+  // The green supports rather than competing.
+  assert.equal(p.support, '#23a455');
+  assert.deepEqual(p.adjusted, [], 'no Cyfrow colour needs a readability adjustment');
+});
+
+test('roles are assigned by darkness and chroma, not by field name', () => {
+  // Same three colours, given in a different order, resolve to the same roles.
+  const a = resolveBrandRoles({ primaryColor: '#111827', secondaryColor: '#23a455', accentColor: '#fdc70f' });
+  const b = resolveBrandRoles({ primaryColor: '#fdc70f', secondaryColor: '#111827', accentColor: '#23a455' });
+  assert.equal(a.canvas, '#111827');
+  assert.equal(b.canvas, '#111827', 'the darkest colour is the canvas whichever field it arrived in');
+  assert.equal(a.accent, '#fdc70f');
+  assert.equal(b.accent, '#fdc70f', 'the most chromatic colour is the accent');
+  assert.equal(chromaOf('#fdc70f') > chromaOf('#111827'), true);
 });
 
 test('an achromatic brand never has a hue invented for it', () => {
-  // A white/grey brand has no hue; forcing saturation would turn it brown.
-  for (const primaryColor of ['#ffffff', '#fafafa', '#808080', '#000000']) {
+  for (const primaryColor of ['#808080', '#000000', '#1a1a1a']) {
     const p = buildPalette({ primaryColor });
-    const brand = hexToHsl(p.brand);
-    assert.ok(brand.s <= 10, `${primaryColor} -> brand saturation ${brand.s} must stay near-grey`);
+    assert.ok(hexToHsl(p.brand).s <= 12, `${primaryColor} -> brand ${p.brand} must stay neutral`);
     const wash = hexToHsl(p.wash);
     assert.equal(wash.s, 0, `${primaryColor} -> wash must be a true grey`);
-    // It still darkens into a usable charcoal rather than staying invisible.
-    assert.ok(brand.l <= 36, `${primaryColor} -> brand lightness ${brand.l}`);
   }
+});
+
+test('the only permitted change is a readability nudge, and it is reported', () => {
+  /*
+   * A mid grey genuinely cannot hold AA text in either direction, so it is the
+   * one case that must move. The contract is: move as little as possible, keep
+   * the hue, and say so — never a silent substitution.
+   */
+  const p = buildPalette({ primaryColor: '#808080' });
+  assert.notEqual(p.brand, '#808080');
+  assert.ok(p.adjusted.includes('brand'), 'an adjustment must be reported, not silent');
+  // The nudge is small and keeps the colour recognisably itself.
+  const before = hexToHsl('#808080');
+  const after = hexToHsl(p.brand);
+  assert.equal(after.h, before.h, 'the hue must not move');
+  assert.ok(Math.abs(after.l - before.l) <= 12, `lightness moved ${Math.abs(after.l - before.l)}`);
+  // ...and the result really is readable now.
+  assert.ok(contrastRatio(p.onBrand, p.brand) >= 4.5);
+
+  // A colour that needs no help is untouched and reports nothing.
+  const clean = buildPalette({ primaryColor: '#111827', accentColor: '#fdc70f' });
+  assert.deepEqual(clean.adjusted, []);
+});
+
+test('an all-white palette gets a neutral canvas, never an invented hue', () => {
+  // White on white is not a design, but the fallback must not introduce a
+  // colour the brand never had.
+  const p = buildPalette({ primaryColor: '#ffffff' });
+  assert.ok(luminance(p.brand) < 0.1, 'the canvas must be dark enough to be a field');
+  assert.ok(hexToHsl(p.brand).s <= 12, 'the fallback canvas must be neutral, not a blue');
+  // The saved white is still used — as the accent.
+  assert.equal(p.accent, '#ffffff');
 });
 
 test('neutrals are tinted with the brand hue so the set reads as one system', () => {

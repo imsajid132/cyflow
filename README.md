@@ -3,6 +3,12 @@
 A web-based platform to **generate**, **schedule**, and **automatically publish**
 social media content — captions and images — to your connected accounts.
 
+> **Status: Phase 4.7.1 — planner controls, content quality, brand fidelity.**
+> Fixes the planner's control and quality problems: explicit posts-per-day with
+> a live plan summary, the full IANA timezone catalogue, safe plan deletion,
+> human-sounding copy (no em dashes, no AI filler), and **exact brand-colour
+> fidelity**.
+>
 > **Status: Phase 4.7 — auto content planner.** Adds the primary workflow:
 > generate a week of posts, review them on a board, edit or regenerate any of
 > them, approve, and queue. Includes a duplicate-prevention engine and three
@@ -80,6 +86,109 @@ Enforced by `tests/appShell.test.js`, which scans every frontend module:
 - Raw crawler, provider, OpenAI, and HCTI errors are never displayed — pages
   show safe, already-classified messages only.
 - Nothing from an analyzed website is loaded as script, SVG, HTML, or a font.
+
+## Phase 4.7.1 — planner controls, content quality, brand fidelity
+
+### The brand-colour bug, and the fix
+
+**Root cause.** Phase 4.6's `buildPalette` clamped every brand colour into a
+lightness band of 32–56% so it could "carry a filled area". A near-black brand
+primary — `#111827`, which is what most modern brands use — was **forced up to
+L=32% and came out as an unrelated mid-blue**. That was the "unrelated purple or
+blue" in the generated images.
+
+**The fix.** Saved colours are now used **exactly**. Taste comes from ROLE
+ASSIGNMENT, not from rewriting the hex:
+
+| Role | Chosen as | Cyfrow example |
+| --- | --- | --- |
+| canvas | the darkest saved colour | `#111827` |
+| accent | the most chromatic colour (CTA, emphasis) | `#FDC70F` |
+| support | the next most chromatic | `#23A455` |
+
+The only permitted change is a **readability nudge** when no ink could sit on a
+fill (a mid-grey is the realistic case). Every nudge keeps the hue, moves the
+lightness as little as possible, and is reported in `palette.adjusted`.
+`palette.source` is `saved_brand_palette` or `fallback_palette`, so a mismatch
+between the profile and a render is never a mystery. Defaults apply only when a
+business has **no** valid saved colours; an all-white palette gets a neutral
+near-black canvas rather than an invented hue.
+
+### Posts per day
+
+Explicit, 1–5, defaulting to **1**. It is never inferred from how many times
+were selected — selecting two times and silently getting two posts a day was the
+bug. Extra times are simply available slots. Selecting **fewer times than posts
+per day is a validation error**, because inventing a posting time would publish
+at an hour nobody approved.
+
+`GET /api/planner/plans/summary` (POST) returns the count before generation, and
+`generatePlan` validates against **the same function**, so the sentence the
+wizard shows is a promise the server keeps:
+
+> 7 active days × 2 posts per day = 14 posts.
+> Posts will be created for Instagram and Threads at 10:00 and 18:00 in Asia/Karachi.
+
+### Timezones
+
+The full `Intl.supportedValuesOf('timeZone')` catalogue (400+ zones, every
+continent), not a curated shortlist. Offsets are computed **for the planning
+date** because they are not a property of a zone: Europe/London is UTC+00:00 in
+January and UTC+01:00 in July. The canonical IANA id is stored; the offset is
+display only.
+
+Two findings worth noting: `Intl.DateTimeFormat` **accepts a bare `+05:00` as a
+timeZone**, so validation checks the id's shape before trusting the runtime — an
+offset must never be persisted. And a runtime's tzdata may file a city under its
+old name (`Asia/Calcutta`), so search matches renamed cities both ways.
+
+### Plan deletion
+
+| Situation | Behaviour |
+| --- | --- |
+| drafts / planner-only items | deleted with the plan |
+| a draft post copied out | kept — it is the user's own copy |
+| **queued** posts | **refused**, unless the user explicitly chooses "Cancel queued posts and delete plan" |
+| **published** posts | the plan is **archived**, never destroyed |
+
+All in one transaction. Delete is available on the dashboard, history and weekly
+board; the confirmation states the real impact, fetched from
+`GET /api/planner/plans/:id/deletion-impact`.
+
+### Content quality
+
+`contentStyleGuard` runs on every generation, because instructions alone do not
+hold:
+
+- **Em/en dashes are repaired**, not rejected — the sentence around a dash is
+  usually fine, so the character is swapped for the punctuation a person would
+  have typed. Burning a generation over punctuation is waste.
+- **Banned AI phrases force a regeneration** — "take your business to the next
+  level" cannot be repaired by substitution, because the sentence has no content
+  to keep.
+- Headlines are held to 4–9 words and 62 characters, and the type scale steps
+  down before allowing a stranded single-word line.
+- Copy that still fails is marked **Needs rewrite** and never auto-approved.
+
+Each platform gets its own voice (Facebook conversational, Instagram hook-first,
+Threads one clear thought). Twelve strategic formats replace the old content
+types, and a seven-post plan normally carries at least four.
+
+### Content-to-design mapping
+
+The layout follows the **shape of the message**, never a rotation for novelty:
+
+| Format | Layout |
+| --- | --- |
+| checklist, process | Checklist Guide |
+| comparison, myth/fact | Comparison Cards |
+| educational insight, common mistake | Editorial Insight / Light Editorial |
+| authority (with a real figure) | Stat Highlight |
+| service benefit, soft promo | Service Authority |
+| local relevance | Local Insight |
+
+Formats are dealt out and then **spread by the layout they produce**, so two
+formats that share a design (comparison and myth/fact) never land side by side.
 
 ## Phase 4.7 — auto content planner
 

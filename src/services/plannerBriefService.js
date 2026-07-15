@@ -25,26 +25,51 @@
 
 import {
   PLANNER_CONTENT_TYPES,
+  PLANNER_FORMATS,
+  PLANNER_FORMAT_LABELS,
   PLANNER_GOALS,
   PLANNER_TONES,
   PLANNER_TONE_TO_CONTENT_TONE,
   PLANNER_CTA_MODES,
-  CONTENT_TYPE_TEMPLATES,
-  CONTENT_TYPE_TEMPLATE_ALTERNATES,
+  FORMAT_TEMPLATES,
   CONTENT_TONES,
   PLANNER_LIMITS,
 } from '../config/constants.js';
 
-/** Default weights when a user has not customised their mix. */
+/**
+ * Default weights when a user has not customised their mix.
+ *
+ * Keyed by strategic FORMAT. The spread deliberately favours teaching over
+ * selling: a plan of seven service adverts is the failure mode this replaces.
+ */
 export const DEFAULT_CONTENT_MIX = Object.freeze({
-  educational: 3,
-  tips: 2,
-  authority: 2,
-  promotional: 2,
-  cta: 2,
-  proof: 1,
-  local: 1,
+  educational_insight: 3,
+  quick_tip: 2,
+  common_mistake: 2,
+  checklist: 2,
   comparison: 1,
+  myth_fact: 1,
+  process: 1,
+  faq_answer: 1,
+  authority: 1,
+  service_benefit: 1,
+  local_relevance: 1,
+  soft_promo: 1,
+});
+
+/**
+ * The legacy Phase 4.7 content types map onto formats, so a saved content mix
+ * from before this phase still means something.
+ */
+export const LEGACY_TYPE_TO_FORMAT = Object.freeze({
+  educational: 'educational_insight',
+  tips: 'quick_tip',
+  authority: 'authority',
+  promotional: 'soft_promo',
+  cta: 'service_benefit',
+  proof: 'authority',
+  local: 'local_relevance',
+  comparison: 'comparison',
 });
 
 export const DEFAULT_GOALS = Object.freeze(['awareness', 'engagement', 'education']);
@@ -55,50 +80,100 @@ export const DEFAULT_GOALS = Object.freeze(['awareness', 'engagement', 'educatio
  * claims about the business.
  */
 const ANGLES = Object.freeze({
-  educational: [
-    'explain how something works in plain language',
-    'answer a question customers often ask',
-    'explain what a warning sign means',
+  educational_insight: [
+    'explain one thing people usually get wrong about this, and why it matters',
+    'explain what actually drives the result people are chasing',
+    'explain what a common warning sign really means',
   ],
-  tips: [
-    'a short numbered checklist the reader can act on',
-    'a seasonal maintenance list',
-    'common mistakes to avoid',
+  quick_tip: [
+    'one action the reader can take today, and what it changes',
+    'the smallest useful change with the biggest effect',
+    'a five minute check worth doing now',
   ],
-  authority: [
-    'what experience has taught the team',
-    'why the team does it a particular way',
-    'a standard the trade should meet',
+  common_mistake: [
+    'one specific mistake, why it happens, and what to do instead',
+    'the shortcut that costs more later',
   ],
-  promotional: [
-    'introduce a service and who it suits',
-    'describe what a job actually involves',
-    'explain what is included',
+  myth_fact: [
+    'a belief people hold about this, and what is actually true',
+    'why a popular rule of thumb is out of date',
   ],
-  cta: [
-    'invite the reader to take one clear next step',
-    'make it easy to get in touch',
-  ],
-  proof: [
-    'lead with one concrete figure the business supplied',
-    'describe a completed job without naming a client',
-  ],
-  local: [
-    'why the local area affects this service',
-    'what local properties commonly need',
+  checklist: [
+    'the concrete checks worth running on this',
+    'what to look at before committing to the work',
   ],
   comparison: [
-    'compare two honest options side by side',
-    'contrast the cheap route with the durable route',
+    'two honest options with real trade-offs',
+    'the fast route against the durable route',
+  ],
+  process: [
+    'the real steps, in order, and what happens at each',
+    'what actually happens once work starts',
+  ],
+  service_benefit: [
+    'what this service changes for the client, concretely',
+    'who this suits and who it does not',
+  ],
+  local_relevance: [
+    'why the local context changes the answer here',
+    'what businesses in this area keep running into',
+  ],
+  faq_answer: [
+    'answer one question clients genuinely ask, directly',
+    'the question people ask last that they should ask first',
+  ],
+  authority: [
+    'a standard worth holding, and why',
+    'something experience taught that is not obvious',
+  ],
+  soft_promo: [
+    'describe the work plainly and who it suits',
+    'what is involved, without overselling it',
   ],
 });
 
-/** Deal `count` content types from weights, avoiding immediate repeats. */
+/**
+ * The audience problem each format speaks to. Rotated per post so seven posts
+ * about one service still answer seven different worries.
+ */
+const AUDIENCE_PROBLEMS = Object.freeze([
+  'they are not sure what is actually worth paying for',
+  'they have tried this before and it did not work',
+  'they cannot tell good work from bad work here',
+  'they do not know what to check first',
+  'they think this is simpler than it is',
+  'they think this is harder than it is',
+  'they are worried about wasting money on it',
+  'they do not know how long it should take',
+]);
+
+/**
+ * Normalize a saved mix to formats. A Phase 4.7 mix keyed by content type is
+ * translated rather than discarded, so upgrading does not reset a user's setup.
+ */
+export function normalizeMix(mix) {
+  if (!mix || typeof mix !== 'object') return null;
+  const out = {};
+  for (const [key, value] of Object.entries(mix)) {
+    const weight = Number(value);
+    if (!Number.isFinite(weight) || weight <= 0) continue;
+    const format = PLANNER_FORMATS.includes(key)
+      ? key
+      : LEGACY_TYPE_TO_FORMAT[key] || null;
+    if (!format) continue;
+    // Two legacy types can map onto one format; take the larger weight.
+    out[format] = Math.max(out[format] || 0, weight);
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/** Deal `count` formats from weights, avoiding immediate repeats. */
 export function dealContentTypes(mix, count) {
+  const normalized = normalizeMix(mix);
   const weights = {};
-  for (const type of PLANNER_CONTENT_TYPES) {
-    const raw = Number(mix?.[type]);
-    if (Number.isFinite(raw) && raw > 0) weights[type] = raw;
+  for (const format of PLANNER_FORMATS) {
+    const raw = Number(normalized?.[format]);
+    if (Number.isFinite(raw) && raw > 0) weights[format] = raw;
   }
   const active = Object.keys(weights);
   if (active.length === 0) return dealContentTypes(DEFAULT_CONTENT_MIX, count);
@@ -120,33 +195,49 @@ export function dealContentTypes(mix, count) {
     i += 1;
   }
 
-  // Build the pool, then spread it so the same type does not run consecutively.
+  /*
+   * Build the pool, then spread it by the LAYOUT each format produces. Spreading
+   * by format alone still lets two formats that share a layout (comparison and
+   * myth/fact) sit next to each other and render the same design twice.
+   */
   const pool = [];
   for (const { type, n } of allocation) for (let k = 0; k < n; k += 1) pool.push(type);
-  return spread(pool).slice(0, count);
+  return spread(pool, primaryTemplateOf).slice(0, count);
 }
 
 /**
  * Re-order a multiset so equal neighbours are avoided where possible: repeatedly
- * take the most frequent remaining item that differs from the previous pick.
+ * take the most frequent remaining item whose KEY differs from the previous
+ * pick's key.
+ *
+ * `keyFn` exists because two different formats can still produce the same
+ * layout — a comparison post and a myth/fact post are both two columns. Keying
+ * on the format alone would happily place them side by side and the plan would
+ * show the same design twice in a row.
  */
-export function spread(items) {
+export function spread(items, keyFn = (item) => item) {
   const counts = new Map();
   for (const item of items) counts.set(item, (counts.get(item) || 0) + 1);
   const out = [];
-  let previous = null;
+  let previousKey = null;
   while (out.length < items.length) {
     const candidates = [...counts.entries()]
       .filter(([, n]) => n > 0)
       .sort((a, b) => b[1] - a[1]);
     if (candidates.length === 0) break;
-    // Prefer the most common item that is not a repeat of the last one.
-    const pick = candidates.find(([type]) => type !== previous) || candidates[0];
+    // Prefer the most common item whose key is not a repeat of the last one.
+    const pick = candidates.find(([item]) => keyFn(item) !== previousKey) || candidates[0];
     out.push(pick[0]);
     counts.set(pick[0], pick[1] - 1);
-    previous = pick[0];
+    previousKey = keyFn(pick[0]);
   }
   return out;
+}
+
+/** The layout a format reaches for first — its identity for spreading. */
+function primaryTemplateOf(format) {
+  const candidates = FORMAT_TEMPLATES[format] || FORMAT_TEMPLATES[LEGACY_TYPE_TO_FORMAT[format]];
+  return Array.isArray(candidates) ? candidates[0] : 'editorial-insight';
 }
 
 /** Should this position carry a CTA? */
@@ -173,13 +264,30 @@ export function toneForPosition(tone, index) {
   return rotation[index % rotation.length];
 }
 
-/** Pick the image template for a content type, alternating within the type. */
-export function templateForContentType(contentType, occurrenceIndex = 0) {
-  const alternates = CONTENT_TYPE_TEMPLATE_ALTERNATES[contentType];
-  if (Array.isArray(alternates) && alternates.length) {
-    return alternates[occurrenceIndex % alternates.length];
+/**
+ * Pick the layout for a format.
+ *
+ * The layout follows the content: a checklist gets a list, a comparison gets
+ * two columns. Where a format has more than one layout that can genuinely carry
+ * it, they alternate so the same structure does not run back to back — but the
+ * planner never reaches for a layout that misfits the content merely to look
+ * varied.
+ *
+ * @param {string} format
+ * @param {number} occurrenceIndex how many times this format has been used
+ * @param {string|null} previousTemplate the template on the previous post
+ */
+export function templateForContentType(format, occurrenceIndex = 0, previousTemplate = null) {
+  const candidates = FORMAT_TEMPLATES[format]
+    || FORMAT_TEMPLATES[LEGACY_TYPE_TO_FORMAT[format]]
+    || ['editorial-insight'];
+
+  const chosen = candidates[occurrenceIndex % candidates.length];
+  // Avoid a back-to-back repeat when the format offers a real alternative.
+  if (chosen === previousTemplate && candidates.length > 1) {
+    return candidates[(occurrenceIndex + 1) % candidates.length];
   }
-  return CONTENT_TYPE_TEMPLATES[contentType] || 'editorial-premium';
+  return chosen;
 }
 
 function pick(list, index, fallback = null) {
@@ -208,37 +316,48 @@ export function buildBriefSet({ slots = [], preferences = {}, profile = null, pl
 
   const services = Array.isArray(profile?.services) ? profile.services.filter(Boolean) : [];
   const contentTypes = dealContentTypes(mix, count);
+  const location = [profile?.city, profile?.region].filter(Boolean).join(', ') || null;
 
-  // How many times each type has been used so far, for template alternation.
+  // How many times each format has been used so far, for template alternation.
   const seenType = new Map();
+  let previousTemplate = null;
 
   const briefs = [];
   for (let i = 0; i < count; i += 1) {
-    const contentType = contentTypes[i] || 'educational';
+    const contentType = contentTypes[i] || 'educational_insight';
     const occurrence = seenType.get(contentType) || 0;
     seenType.set(contentType, occurrence + 1);
 
     const service = pick(services, i, null);
     const goal = pick(activeGoals, i, 'awareness');
-    const angleList = ANGLES[contentType] || ANGLES.educational;
+    const angleList = ANGLES[contentType] || ANGLES.educational_insight;
     const angle = pick(angleList, occurrence, angleList[0]);
+    const audienceProblem = pick(AUDIENCE_PROBLEMS, i, AUDIENCE_PROBLEMS[0]);
     const includeCta = ctaForPosition(ctaMode, i);
     const resolvedTone = toneForPosition(tone, i);
+    const templateKey = templateForContentType(contentType, occurrence, previousTemplate);
+    previousTemplate = templateKey;
 
     briefs.push({
       slot: slots[i],
       position: i,
+      // `format` is the strategic shape; `contentType` is kept as an alias so
+      // storage and the Phase 4.7 API surface keep working unchanged.
+      format: contentType,
       contentType,
+      formatLabel: PLANNER_FORMAT_LABELS[contentType] || 'Insight',
       goal,
       angle,
+      audienceProblem,
       serviceEmphasis: service,
+      location: contentType === 'local_relevance' ? location : null,
       tone: CONTENT_TONES.includes(resolvedTone) ? resolvedTone : 'professional',
       includeCta,
       callToAction: includeCta ? profile?.defaultCallToAction || null : null,
-      templateKey: templateForContentType(contentType, occurrence),
+      templateKey,
       platforms: [...platforms],
       // The instruction text handed to the writer as DATA, never as commands.
-      brief: composeBriefText({ contentType, angle, service, goal, profile }),
+      brief: composeBriefText({ contentType, angle, service, goal, audienceProblem, profile }),
     });
   }
   return briefs;
@@ -251,12 +370,13 @@ export function buildBriefSet({ slots = [], preferences = {}, profile = null, pl
  * price, guarantee, statistic, or credential — the writer is explicitly told to
  * work from this data alone.
  */
-export function composeBriefText({ contentType, angle, service, goal, profile }) {
+export function composeBriefText({ contentType, angle, service, goal, audienceProblem, profile }) {
   const parts = [];
-  parts.push(`Post type: ${contentType}.`);
+  parts.push(`Format: ${contentType.replace(/_/g, ' ')}.`);
   parts.push(`Angle: ${angle}.`);
-  if (goal) parts.push(`Goal: ${goal.replace(/_/g, ' ')}.`);
-  if (service) parts.push(`Focus on this service: ${service}.`);
+  if (audienceProblem) parts.push(`The reader's problem: ${audienceProblem}.`);
+  if (goal) parts.push(`Objective: ${goal.replace(/_/g, ' ')}.`);
+  if (service) parts.push(`This post is about this service: ${service}.`);
   if (profile?.businessCategory) parts.push(`Business category: ${profile.businessCategory}.`);
   if (profile?.businessDescription) parts.push(`About the business: ${profile.businessDescription}`);
   const location = [profile?.city, profile?.region].filter(Boolean).join(', ');
@@ -267,6 +387,7 @@ export function composeBriefText({ contentType, angle, service, goal, profile })
 export default {
   buildBriefSet,
   dealContentTypes,
+  normalizeMix,
   spread,
   ctaForPosition,
   toneForPosition,

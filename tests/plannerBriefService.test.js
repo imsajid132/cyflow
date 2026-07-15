@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import {
   buildBriefSet,
   dealContentTypes,
+  normalizeMix,
   spread,
   ctaForPosition,
   toneForPosition,
@@ -14,7 +15,7 @@ import {
   composeBriefText,
   DEFAULT_CONTENT_MIX,
 } from '../src/services/plannerBriefService.js';
-import { CONTENT_TYPE_TEMPLATES, PLANNER_CONTENT_TYPES } from '../src/config/constants.js';
+import { FORMAT_TEMPLATES, PLANNER_FORMATS } from '../src/config/constants.js';
 import { buildSchedule } from '../src/services/plannerScheduleService.js';
 
 const NOW = new Date('2026-07-13T06:00:00Z');
@@ -38,24 +39,38 @@ function sevenSlots() {
 
 test('a weighted mix is allocated proportionally across the plan', () => {
   // 3:1 must stay 3:1 across 8 posts, not drift with rounding.
-  const dealt = dealContentTypes({ educational: 3, tips: 1 }, 8);
+  const dealt = dealContentTypes({ educational_insight: 3, quick_tip: 1 }, 8);
   assert.equal(dealt.length, 8);
-  assert.equal(dealt.filter((t) => t === 'educational').length, 6);
-  assert.equal(dealt.filter((t) => t === 'tips').length, 2);
+  assert.equal(dealt.filter((t) => t === 'educational_insight').length, 6);
+  assert.equal(dealt.filter((t) => t === 'quick_tip').length, 2);
 });
 
-test('every dealt type is a real content type and the count is exact', () => {
+test('a mix saved before this phase still means something', () => {
+  // Phase 4.7 keyed the mix by content type; upgrading must not reset a user's
+  // configuration to the default.
+  const legacy = normalizeMix({ educational: 3, tips: 2, comparison: 1 });
+  assert.deepEqual(legacy, { educational_insight: 3, quick_tip: 2, comparison: 1 });
+
+  const dealt = dealContentTypes({ educational: 3, tips: 1 }, 8);
+  assert.equal(dealt.filter((t) => t === 'educational_insight').length, 6);
+  assert.equal(dealt.filter((t) => t === 'quick_tip').length, 2);
+
+  assert.equal(normalizeMix({ nonsense: 4 }), null);
+  assert.equal(normalizeMix(null), null);
+});
+
+test('every dealt format is a real format and the count is exact', () => {
   for (const count of [1, 3, 5, 7, 14]) {
     const dealt = dealContentTypes(DEFAULT_CONTENT_MIX, count);
     assert.equal(dealt.length, count, `count ${count}`);
-    for (const type of dealt) assert.ok(PLANNER_CONTENT_TYPES.includes(type), `${type} is not a content type`);
+    for (const format of dealt) assert.ok(PLANNER_FORMATS.includes(format), `${format} is not a format`);
   }
 });
 
 test('an empty or invalid mix falls back to the default rather than producing nothing', () => {
   assert.equal(dealContentTypes({}, 5).length, 5);
   assert.equal(dealContentTypes(null, 5).length, 5);
-  assert.equal(dealContentTypes({ educational: 0, tips: -2 }, 5).length, 5);
+  assert.equal(dealContentTypes({ educational_insight: 0, quick_tip: -2 }, 5).length, 5);
   assert.equal(dealContentTypes({ nonsense: 5 }, 5).length, 5);
 });
 
@@ -103,22 +118,46 @@ test('goals, services and angles all rotate across the week', () => {
   assert.equal(briefs[0].slot.localDate, '2026-07-14');
 });
 
-test('template selection follows content type and alternates within a type', () => {
-  // The spec's mapping, asserted directly.
-  assert.equal(templateForContentType('tips', 0), 'checklist-tips');
-  assert.equal(templateForContentType('proof', 0), 'stat-proof');
-  assert.equal(templateForContentType('comparison', 0), 'split-comparison');
-  assert.equal(templateForContentType('authority', 0), 'editorial-premium');
-  assert.equal(templateForContentType('cta', 0), 'geometric-conversion');
-  // The second tips post of a plan must not look like the first.
-  assert.notEqual(templateForContentType('tips', 1), templateForContentType('tips', 0));
-  // An unknown type still yields a usable template.
-  assert.equal(templateForContentType('nonsense', 0), 'editorial-premium');
-  // Every content type maps to something.
-  for (const type of PLANNER_CONTENT_TYPES) {
-    assert.ok(CONTENT_TYPE_TEMPLATES[type], `${type} has no template mapping`);
-    assert.ok(templateForContentType(type, 0));
+test('the layout follows the content format, per the spec mapping', () => {
+  assert.equal(templateForContentType('checklist', 0), 'checklist-guide');
+  assert.equal(templateForContentType('process', 0), 'checklist-guide');
+  assert.equal(templateForContentType('comparison', 0), 'comparison-cards');
+  assert.equal(templateForContentType('educational_insight', 0), 'editorial-insight');
+  assert.equal(templateForContentType('service_benefit', 0), 'service-authority');
+  assert.equal(templateForContentType('local_relevance', 0), 'local-insight');
+  assert.equal(templateForContentType('myth_fact', 0), 'comparison-cards');
+  // An unknown format still yields a usable layout.
+  assert.equal(templateForContentType('nonsense', 0), 'editorial-insight');
+  // Every format maps to a layout that can genuinely carry it.
+  for (const format of PLANNER_FORMATS) {
+    assert.ok(FORMAT_TEMPLATES[format], `${format} has no template mapping`);
+    assert.ok(templateForContentType(format, 0));
   }
+});
+
+test('templates are never rotated merely for novelty', () => {
+  // A checklist is a list whichever occurrence it is: the format only has one
+  // layout that fits, so it must not wander onto another for variety.
+  assert.equal(templateForContentType('checklist', 0), 'checklist-guide');
+  assert.equal(templateForContentType('checklist', 1), 'checklist-guide');
+  assert.equal(templateForContentType('checklist', 5), 'checklist-guide');
+  assert.equal(templateForContentType('comparison', 3), 'comparison-cards');
+});
+
+test('a format with real alternatives avoids a back-to-back repeat', () => {
+  // educational_insight can be carried by two layouts, so a repeat is avoidable.
+  const first = templateForContentType('educational_insight', 0, null);
+  const second = templateForContentType('educational_insight', 1, first);
+  assert.notEqual(second, first);
+  // ...and when the previous post used the other layout, it switches back.
+  assert.equal(templateForContentType('educational_insight', 0, 'editorial-insight'), 'light-editorial');
+});
+
+test('a legacy content type still resolves to a layout', () => {
+  // Drafts saved before this phase carry the old type names.
+  assert.equal(templateForContentType('tips', 0), 'light-editorial');
+  assert.equal(templateForContentType('educational', 0), 'editorial-insight');
+  assert.equal(templateForContentType('local', 0), 'local-insight');
 });
 
 test('a plan uses several different templates', () => {
@@ -171,18 +210,20 @@ test('tone maps through, and "mixed" rotates', () => {
 
 test('the brief text only ever contains business facts we were given', () => {
   const text = composeBriefText({
-    contentType: 'educational', angle: 'explain how something works in plain language',
-    service: 'Roof repair', goal: 'awareness', profile: PROFILE,
+    contentType: 'educational_insight', angle: 'explain how something works in plain language',
+    service: 'Roof repair', goal: 'awareness',
+    audienceProblem: 'they do not know what to check first', profile: PROFILE,
   });
-  assert.match(text, /Post type: educational/);
-  assert.match(text, /Focus on this service: Roof repair/);
+  assert.match(text, /Format: educational insight/);
+  assert.match(text, /This post is about this service: Roof repair/);
+  assert.match(text, /The reader's problem: they do not know what to check first/);
   assert.match(text, /Serves: London, Greater London/);
   // No invented commercial claims.
   assert.equal(/guarantee|free|discount|\d+%|\$|£\d/i.test(text), false, `invented claim in: ${text}`);
 
   // A bare profile produces a bare brief, not filler.
-  const bare = composeBriefText({ contentType: 'tips', angle: 'a short numbered checklist', profile: null });
-  assert.match(bare, /Post type: tips/);
+  const bare = composeBriefText({ contentType: 'checklist', angle: 'the concrete checks worth running', profile: null });
+  assert.match(bare, /Format: checklist/);
   assert.equal(bare.includes('undefined'), false);
 });
 
@@ -205,9 +246,41 @@ test('no profile and no preferences still produces a usable plan', () => {
   const briefs = buildBriefSet({ slots: sevenSlots(), platforms: ['facebook'] });
   assert.equal(briefs.length, 7);
   for (const brief of briefs) {
-    assert.ok(PLANNER_CONTENT_TYPES.includes(brief.contentType));
+    assert.ok(PLANNER_FORMATS.includes(brief.format));
     assert.ok(brief.templateKey);
     assert.ok(brief.tone);
+    assert.ok(brief.formatLabel, 'every card needs a badge label');
+    assert.ok(brief.audienceProblem, 'every post answers a stated problem');
+  }
+});
+
+test('a seven-post plan carries at least four distinct strategic formats', () => {
+  // The spec's bar: a week that is seven service adverts is the failure mode.
+  const briefs = buildBriefSet({
+    slots: sevenSlots(),
+    preferences: { contentMix: DEFAULT_CONTENT_MIX },
+    profile: PROFILE,
+    platforms: ['instagram'],
+  });
+  const formats = new Set(briefs.map((b) => b.format));
+  assert.ok(formats.size >= 4, `only ${formats.size} formats: ${[...formats].join(', ')}`);
+  // ...and audience problems rotate, so seven posts answer seven worries.
+  assert.ok(new Set(briefs.map((b) => b.audienceProblem)).size >= 4);
+});
+
+test('no two consecutive posts share a template', () => {
+  const briefs = buildBriefSet({
+    slots: sevenSlots(),
+    preferences: { contentMix: DEFAULT_CONTENT_MIX },
+    profile: PROFILE,
+    platforms: ['threads'],
+  });
+  for (let i = 1; i < briefs.length; i += 1) {
+    assert.notEqual(
+      briefs[i].templateKey,
+      briefs[i - 1].templateKey,
+      `positions ${i - 1}/${i} both use ${briefs[i].templateKey}`,
+    );
   }
 });
 

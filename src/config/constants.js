@@ -192,6 +192,7 @@ export const EVENT_TYPES = Object.freeze({
   PLANNER_RUN_COMPLETED: 'planner.run_completed',
   PLANNER_RUN_FAILED: 'planner.run_failed',
   PLANNER_RUN_DELETED: 'planner.run_deleted',
+  PLANNER_RUN_ARCHIVED: 'planner.run_archived',
   PLANNER_ITEM_UPDATED: 'planner.item_updated',
   PLANNER_ITEM_REGENERATED: 'planner.item_regenerated',
   PLANNER_ITEM_APPROVED: 'planner.item_approved',
@@ -247,17 +248,38 @@ export const ACCOUNT_TYPE_TO_PLATFORM = Object.freeze({
 // Server-owned image templates (trusted HTML/CSS only). These branded layouts
 // are what the UI offers; each has a module under src/templates/layouts/.
 export const IMAGE_TEMPLATES = Object.freeze([
-  'editorial-premium', // Clean Editorial Premium
-  'bold-service-promo', // Bold Service Promo
-  'local-authority', // Local Business Authority
-  'modern-split', // Modern Split Layout
-  'minimal-luxury', // Minimal Luxury Card
-  'geometric-conversion', // Geometric Conversion Post
-  // Phase 4.7 — content-type layouts the planner selects by post shape.
-  'checklist-tips', // Checklist Tips (renders bullets)
-  'stat-proof', // Stat Proof (renders one big figure)
-  'split-comparison', // Split Comparison (renders two columns)
-  'photo-overlay', // Photo Overlay Ready (background-image slot, no invented photo)
+  // Phase 4.7.1 — the planner design families. Content-first compositions with
+  // no decorative geometry; these are what the planner selects from.
+  'editorial-insight', // Editorial Insight (brand field, large headline)
+  'light-editorial', // Light Editorial (light canvas, brand rail)
+  'checklist-guide', // Checklist Guide (3-5 real rows)
+  'comparison-cards', // Comparison Cards (two columns)
+  'stat-highlight', // Stat Highlight (a verified figure only)
+  'service-authority', // Service Authority (service panel + insight)
+  'local-insight', // Local Insight (place label + card)
+  // Earlier layouts. Still offered in the manual picker and still rendering
+  // drafts saved before this phase.
+  'editorial-premium',
+  'bold-service-promo',
+  'local-authority',
+  'modern-split',
+  'minimal-luxury',
+  'geometric-conversion',
+  'checklist-tips',
+  'stat-proof',
+  'split-comparison',
+  'photo-overlay',
+]);
+
+/** The design families the planner picks from. */
+export const PLANNER_DESIGN_FAMILIES = Object.freeze([
+  'editorial-insight',
+  'light-editorial',
+  'checklist-guide',
+  'comparison-cards',
+  'stat-highlight',
+  'service-authority',
+  'local-insight',
 ]);
 
 /**
@@ -436,49 +458,151 @@ export const PLANNER_CONTENT_TYPES = Object.freeze([
 ]);
 
 /**
- * Content type → image template. The layout follows the *shape* of the message:
- * a tips post is a checklist, a proof post leads with a number, a comparison
- * post needs two columns. Keeping this map here (rather than inside the
- * generator) makes the variation rule reviewable in one place.
+ * Strategic content formats. A format is what the post DOES, and it determines
+ * both how the copy is written and which layout can carry it.
  */
-export const CONTENT_TYPE_TEMPLATES = Object.freeze({
-  tips: 'checklist-tips',
-  proof: 'stat-proof',
-  comparison: 'split-comparison',
-  authority: 'editorial-premium',
-  educational: 'editorial-premium',
-  cta: 'geometric-conversion',
-  promotional: 'bold-service-promo',
-  local: 'local-authority',
+export const PLANNER_FORMATS = Object.freeze([
+  'educational_insight',
+  'quick_tip',
+  'common_mistake',
+  'myth_fact',
+  'checklist',
+  'comparison',
+  'process',
+  'service_benefit',
+  'local_relevance',
+  'faq_answer',
+  'authority',
+  'soft_promo',
+]);
+
+/** Human labels, used for the card badge and the review board. */
+export const PLANNER_FORMAT_LABELS = Object.freeze({
+  educational_insight: 'Insight',
+  quick_tip: 'Quick tip',
+  common_mistake: 'Common mistake',
+  myth_fact: 'Myth vs fact',
+  checklist: 'Checklist',
+  comparison: 'Comparison',
+  process: 'Process',
+  service_benefit: 'Service benefit',
+  local_relevance: 'Local',
+  faq_answer: 'FAQ',
+  authority: 'Authority',
+  soft_promo: 'Service',
 });
 
 /**
- * Alternate templates per content type, used to break up visual repetition
- * across a plan. The planner rotates through these so two consecutive posts of
- * the same type never look identical.
+ * Format → layout. The layout follows the SHAPE of the message: a checklist is
+ * a list, a comparison needs two columns, a verified result leads with a
+ * number. Templates are chosen by content, never rotated for novelty.
+ *
+ * Each format lists the layouts that can genuinely carry it. Where a format has
+ * two, the planner alternates between them so the same structure does not run
+ * back to back — but it never reaches for a layout that misfits the content.
  */
-export const CONTENT_TYPE_TEMPLATE_ALTERNATES = Object.freeze({
-  tips: ['checklist-tips', 'modern-split'],
-  proof: ['stat-proof', 'minimal-luxury'],
-  comparison: ['split-comparison', 'modern-split'],
-  authority: ['editorial-premium', 'minimal-luxury'],
-  educational: ['editorial-premium', 'modern-split'],
-  cta: ['geometric-conversion', 'bold-service-promo'],
-  promotional: ['bold-service-promo', 'geometric-conversion'],
-  local: ['local-authority', 'editorial-premium'],
+export const FORMAT_TEMPLATES = Object.freeze({
+  checklist: ['checklist-guide'],
+  process: ['checklist-guide'],
+  comparison: ['comparison-cards'],
+  myth_fact: ['comparison-cards', 'editorial-insight'],
+  educational_insight: ['editorial-insight', 'light-editorial'],
+  quick_tip: ['light-editorial', 'checklist-guide'],
+  common_mistake: ['editorial-insight', 'light-editorial'],
+  faq_answer: ['light-editorial', 'editorial-insight'],
+  authority: ['editorial-insight', 'stat-highlight'],
+  service_benefit: ['service-authority'],
+  soft_promo: ['service-authority', 'light-editorial'],
+  local_relevance: ['local-insight'],
 });
+
+/**
+ * Which formats may carry a stat layout. `stat-highlight` is only reachable via
+ * `authority`, and only when the business actually supplied a figure — the
+ * generator returns an empty stat otherwise and the layout falls back.
+ */
+export const STAT_CAPABLE_FORMATS = Object.freeze(['authority']);
 
 /** Bounds on the structured extras the content-type templates render. */
 export const PLANNER_VISUAL_LIMITS = Object.freeze({
   BULLET_MAX: 64,
-  BULLETS_MIN: 2,
-  BULLETS_MAX: 4,
+  BULLETS_MIN: 3,
+  BULLETS_MAX: 5,
   STAT_VALUE_MAX: 12,
   STAT_LABEL_MAX: 70,
   COMPARE_TITLE_MAX: 24,
   COMPARE_ITEM_MAX: 40,
   COMPARE_ITEMS_MAX: 3,
+  BADGE_MAX: 22,
+  LOCATION_MAX: 28,
 });
+
+/**
+ * Headline shape for planner visuals: specific, natural, and short enough to
+ * set on two lines. Enforced after generation, because a model asked for
+ * "4 to 9 words" will still occasionally return fourteen.
+ */
+export const HEADLINE_RULES = Object.freeze({
+  MIN_WORDS: 3,
+  MAX_WORDS: 9,
+  MAX_CHARS: 62,
+});
+
+/**
+ * Dash characters that must never appear in generated copy.
+ *
+ * Em and en dashes are the single most reliable tell of machine-written
+ * marketing text. The model is instructed not to use them AND the output is
+ * repaired, because instructions alone do not hold.
+ */
+export const BANNED_DASHES = Object.freeze(['—', '–', '‒', '―']);
+
+/**
+ * Generic AI marketing filler. These are checked case-insensitively against
+ * generated copy; a hit forces a regeneration rather than being silently
+ * rewritten, because the phrase usually indicates the whole sentence is empty.
+ */
+export const BANNED_PHRASES = Object.freeze([
+  'in today’s digital world',
+  "in today's digital world",
+  'in todays digital world',
+  'in today’s fast-paced',
+  "in today's fast-paced",
+  'unlock your potential',
+  'unlock the power',
+  'take your business to the next level',
+  'to the next level',
+  'elevate your brand',
+  'elevate your business',
+  'game changer',
+  'game-changer',
+  'supercharge your growth',
+  'supercharge your',
+  'transform your online presence',
+  'transform your business',
+  'ready to grow',
+  'look no further',
+  'whether you are',
+  'whether you’re',
+  "whether you're",
+  'it is more important than ever',
+  'more important than ever',
+  'in the digital age',
+  'digital landscape',
+  'ever-evolving',
+  'harness the power',
+  'stand out from the crowd',
+  'take the first step',
+  'let’s dive in',
+  "let's dive in",
+  'dive into',
+  'unleash',
+  'revolutionize',
+  'cutting-edge solutions',
+  'seamlessly',
+  'robust solution',
+  'at the end of the day',
+]);
 
 /** Planner tone options (a superset of CONTENT_TONES plus 'mixed'). */
 export const PLANNER_TONES = Object.freeze([
@@ -533,10 +657,13 @@ export const PLANNER_PLAN_LENGTHS = Object.freeze([3, 5, 7, 14]);
 export const PLANNER_LIMITS = Object.freeze({
   MIN_PLAN_LENGTH: 1,
   MAX_PLAN_LENGTH: 14,
-  // Hard ceiling on posts per run: plan length x times per day. Bounds both the
+  // Hard ceiling on posts per run: plan length x posts per day. Bounds both the
   // OpenAI/HCTI spend and the duplication comparison work.
   MAX_ITEMS_PER_RUN: 28,
-  MAX_TIMES_PER_DAY: 4,
+  MAX_TIMES_PER_DAY: 5,
+  // Posts per ACTIVE day. Always explicit, never inferred from the time count.
+  MAX_POSTS_PER_DAY: 5,
+  DEFAULT_POSTS_PER_DAY: 1,
   MAX_REGENERATION_ATTEMPTS: 2,
   // How many recent items the uniqueness check compares a new post against.
   DUPLICATE_LOOKBACK_ITEMS: 60,

@@ -28,7 +28,7 @@ function safeParseJson(value, fallback) {
 
 const RUN_COLUMNS =
   'id, user_id, business_profile_id, name, status, start_date, end_date, timezone, ' +
-  'plan_length, settings_json, generation_notes, created_at, updated_at';
+  'plan_length, posts_per_day, settings_json, generation_notes, archived_at, created_at, updated_at';
 
 const ITEM_COLUMNS =
   'id, planner_run_id, user_id, post_id, position, scheduled_for, original_timezone, ' +
@@ -50,8 +50,10 @@ export function sanitizeRun(row) {
     endDate: row.end_date ?? null,
     timezone: row.timezone ?? null,
     planLength: Number(row.plan_length),
+    postsPerDay: Number(row.posts_per_day ?? 1),
     settings: safeParseJson(row.settings_json, {}),
     generationNotes: row.generation_notes ?? null,
+    archivedAt: row.archived_at ?? null,
     createdAt: row.created_at ?? null,
     updatedAt: row.updated_at ?? null,
   };
@@ -98,8 +100,8 @@ export async function createRun(input, connection) {
   const [result] = await runner(connection).execute(
     `INSERT INTO planner_runs
        (user_id, business_profile_id, name, status, start_date, end_date, timezone,
-        plan_length, settings_json, generation_notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        plan_length, posts_per_day, settings_json, generation_notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.userId,
       input.businessProfileId ?? null,
@@ -109,6 +111,7 @@ export async function createRun(input, connection) {
       input.endDate ?? null,
       input.timezone ?? null,
       input.planLength ?? 7,
+      input.postsPerDay ?? 1,
       JSON.stringify(input.settings ?? {}),
       input.generationNotes ?? null,
     ],
@@ -142,6 +145,7 @@ export async function updateRun(runId, userId, fields, connection) {
     generationNotes: 'generation_notes',
     startDate: 'start_date',
     endDate: 'end_date',
+    archivedAt: 'archived_at',
   };
   const sets = [];
   const values = [];

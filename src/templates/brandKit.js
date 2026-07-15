@@ -178,76 +178,137 @@ export function ensureReadableFill(hex, darkInk, target = AA_CONTRAST) {
 
 const DEFAULT_PRIMARY = '#1f3a8a';
 const DEFAULT_ACCENT = '#e0653a';
+/** Used only when every saved colour is too light to be a field. */
+const NEUTRAL_CANVAS = '#141719';
 
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
+/** Chroma proxy: how much colour a hex actually carries (0..100). */
+export function chromaOf(hex) {
+  const { s, l } = hexToHsl(hex);
+  // A saturated colour at L=0 or L=100 still reads as black/white, so weight
+  // saturation by how far the colour is from those extremes.
+  return s * (1 - Math.abs(l - 50) / 50);
+}
+
 /**
- * Derive the full working palette from whatever the business supplied.
+ * Assign each saved brand colour a ROLE rather than mutating its value.
  *
- * Loud or washed-out brand colours are pulled into a usable band rather than
- * rejected, so the business still recognizes its brand while the composition
- * stays legible. Neutrals carry a trace of the brand hue — that shared tint is
- * what makes the set read as one designed system instead of a colour swap.
+ * This is the correction to the earlier design, which clamped every brand
+ * colour into a mid lightness band so it could "carry a filled area". That
+ * destroyed exactly the palettes real brands use: a near-black primary like
+ * #111827 was forced up to L=32% and came out as an unrelated mid-blue.
+ *
+ * Taste comes from WHERE a colour is used and HOW MUCH area it gets — not from
+ * rewriting the hex. So the values are preserved exactly and sorted into roles:
+ *
+ *   canvas   — the darkest/most neutral colour, used as a large field
+ *   accent   — the most chromatic bright colour, used sparingly (CTA, emphasis)
+ *   support  — the next most chromatic, used for secondary marks
+ *
+ * @returns {{ canvas, accent, support, source: 'saved_brand_palette'|'fallback_palette',
+ *             adjusted: string[], provided: string[] }}
+ */
+export function resolveBrandRoles({ primaryColor, secondaryColor, accentColor } = {}) {
+  const provided = [
+    ['primary', safeColor(primaryColor)],
+    ['secondary', safeColor(secondaryColor)],
+    ['accent', safeColor(accentColor)],
+  ].filter(([, hex]) => Boolean(hex));
+
+  if (provided.length === 0) {
+    return {
+      canvas: DEFAULT_PRIMARY,
+      accent: DEFAULT_ACCENT,
+      support: DEFAULT_ACCENT,
+      source: 'fallback_palette',
+      provided: [],
+    };
+  }
+
+  const hexes = provided.map(([, hex]) => hex);
+  const byLuminance = [...hexes].sort((a, b) => luminance(a) - luminance(b));
+  const byChroma = [...hexes].sort((a, b) => chromaOf(b) - chromaOf(a));
+
+  /*
+   * The canvas is the darkest saved colour. If every saved colour is near-white
+   * there is no field to fill — white on white is not a design — so the canvas
+   * role falls back to a NEUTRAL near-black. A neutral is not "an unrelated
+   * blue": it introduces no hue the brand did not have.
+   */
+  let canvas = byLuminance[0];
+  let canvasFallback = false;
+  if (luminance(canvas) > 0.85) {
+    canvas = NEUTRAL_CANVAS;
+    canvasFallback = true;
+  }
+
+  // The accent must not be the canvas, and should be the most colourful thing
+  // available — that is what a CTA wants.
+  const accent = byChroma.find((h) => h !== canvas) || byChroma[0];
+  const support = byChroma.find((h) => h !== canvas && h !== accent) || accent;
+
+  return {
+    canvas,
+    accent,
+    support,
+    source: 'saved_brand_palette',
+    canvasFallback,
+    provided: hexes,
+  };
+}
+
+/**
+ * Derive the working palette from whatever the business supplied.
+ *
+ * Saved brand colours are used EXACTLY. The only permitted change is a
+ * readability adjustment when text could not otherwise sit on a fill, and every
+ * such adjustment is reported in `adjusted` so it is visible rather than silent.
  */
 export function buildPalette({ primaryColor, secondaryColor, accentColor, backgroundStyle = 'light' } = {}) {
-  const primaryRaw = safeColor(primaryColor) || DEFAULT_PRIMARY;
-  const p = hexToHsl(primaryRaw);
+  const roles = resolveBrandRoles({ primaryColor, secondaryColor, accentColor });
+  const adjusted = [];
+
+  const canvasHsl = hexToHsl(roles.canvas);
+  const achromatic = canvasHsl.s < 10;
+  const canvasIsDark = luminance(roles.canvas) < 0.18;
 
   /*
-   * A grey, black, or near-white brand colour has no hue to work with. Forcing
-   * it up to a minimum saturation would invent one — a white brand would come
-   * out brown — so achromatic brands stay achromatic and simply darken into a
-   * usable charcoal.
+   * Ink for filled areas is always dark, whatever the page mode: text on a
+   * coloured button is chosen for the button, not for the page.
    */
-  const achromatic = p.s < 10;
-  const brandS = achromatic ? clamp(p.s, 0, 10) : clamp(p.s, 32, 82);
-  const brandL = achromatic ? clamp(p.l, 18, 34) : clamp(p.l, 32, 56);
+  const fillInk = hslToHex(canvasHsl.h, achromatic ? 0 : 18, 12);
 
-  /*
-   * Ink for filled areas (CTA, brand panels) is always the dark tint, whatever
-   * the page mode: text on a coloured button is chosen for the button.
-   */
-  const fillInk = hslToHex(p.h, achromatic ? 0 : 22, 13);
+  // Exact, unless text genuinely cannot sit on them.
+  const brand = keepOrAdjust(roles.canvas, fillInk, 'brand', adjusted);
+  const accent = keepOrAdjust(roles.accent, fillInk, 'accent', adjusted);
+  const support = keepOrAdjust(roles.support, fillInk, 'support', adjusted);
 
-  // Normalize the brand colour into a band that can carry large filled areas.
-  const brand = ensureReadableFill(hslToHex(p.h, brandS, brandL), fillInk);
-  const brandDeep = hslToHex(p.h, achromatic ? brandS : clamp(p.s, 28, 70), clamp(brandL * 0.55, 12, 26));
-  const brandSoft = hslToHex(p.h, achromatic ? clamp(brandS, 0, 8) : clamp(p.s, 20, 55), clamp(brandL + 50, 82, 93));
-
-  // Support colour: the secondary if usable, otherwise an analogous shift.
-  const secondaryRaw = safeColor(secondaryColor);
-  const support = secondaryRaw
-    ? (() => {
-        const s = hexToHsl(secondaryRaw);
-        if (s.s < 10) return hslToHex(s.h, clamp(s.s, 0, 10), clamp(s.l, 34, 62));
-        return hslToHex(s.h, clamp(s.s, 18, 70), clamp(s.l, 34, 62));
-      })()
-    : hslToHex(p.h + 28, clamp(p.s * 0.7, 18, 55), clamp(p.l + 8, 40, 62));
-
-  // Accent is used sparingly, so it keeps more of its punch — but it carries
-  // the CTA label, so it still has to be readable.
-  const accentRaw = safeColor(accentColor) || safeColor(secondaryColor) || DEFAULT_ACCENT;
-  const a = hexToHsl(accentRaw);
-  const accent = ensureReadableFill(hslToHex(a.h, clamp(a.s, 45, 92), clamp(a.l, 38, 60)), fillInk);
+  // Derived shades of the brand colour, for depth. These are DERIVED, so they
+  // may move — the saved value itself is still available as `brand`.
+  const brandDeep = hslToHex(canvasHsl.h, canvasHsl.s, clamp(canvasHsl.l * 0.6, 4, 22));
+  const brandSoft = hslToHex(canvasHsl.h, achromatic ? clamp(canvasHsl.s, 0, 8) : clamp(canvasHsl.s * 0.5, 8, 40), 92);
 
   const dark = backgroundStyle === 'dark';
 
   /*
-   * Neutrals carry a trace of the brand hue rather than being flat greys —
-   * that shared tint is what makes the whole set read as one designed system.
-   * An achromatic brand has no hue to borrow, so its neutrals stay true grey.
+   * Neutrals carry a trace of the brand hue rather than being flat greys — that
+   * shared tint is what makes the set read as one designed system. An
+   * achromatic brand has no hue to borrow, so its neutrals stay true grey.
    */
   const tint = (amount) => (achromatic ? 0 : amount);
-  const wash = dark ? hslToHex(p.h, tint(16), 11) : hslToHex(p.h, tint(14), 97);
-  const surface = dark ? hslToHex(p.h, tint(14), 15) : hslToHex(p.h, tint(18), 99);
-  const ink = dark ? hslToHex(p.h, tint(10), 96) : hslToHex(p.h, tint(22), 13);
-  const muted = dark ? hslToHex(p.h, tint(8), 72) : hslToHex(p.h, tint(10), 42);
-  const hairline = dark ? hslToHex(p.h, tint(12), 26) : hslToHex(p.h, tint(16), 88);
+  const wash = dark ? hslToHex(canvasHsl.h, tint(16), 11) : hslToHex(canvasHsl.h, tint(12), 97);
+  // Still a tint, never pure white: the shared trace of brand hue is what makes
+  // the surfaces read as one system.
+  const surface = dark ? hslToHex(canvasHsl.h, tint(14), 15) : hslToHex(canvasHsl.h, tint(10), 99);
+  const ink = dark ? hslToHex(canvasHsl.h, tint(8), 96) : hslToHex(canvasHsl.h, tint(18), 12);
+  const muted = dark ? hslToHex(canvasHsl.h, tint(8), 72) : hslToHex(canvasHsl.h, tint(10), 44);
+  const hairline = dark ? hslToHex(canvasHsl.h, tint(12), 26) : hslToHex(canvasHsl.h, tint(14), 89);
 
   return {
     brand,
-    brandDeep: dark ? brandSoft : brandDeep,
-    brandSoft: dark ? brandDeep : brandSoft,
+    brandDeep,
+    brandSoft,
     support,
     accent,
     wash,
@@ -255,16 +316,35 @@ export function buildPalette({ primaryColor, secondaryColor, accentColor, backgr
     ink,
     muted,
     hairline,
-    // Brand-coloured TEXT sitting on the canvas (eyebrow, the big stat figure).
-    // The fill shades are chosen for text-on-them; these are chosen for
-    // them-on-the-canvas, which is the opposite problem.
+    // Brand-coloured TEXT sitting on the canvas. The fill shades are chosen for
+    // text-on-them; these are chosen for them-on-the-canvas — the opposite
+    // problem, so they are computed separately.
     brandOnWash: ensureReadableOn(brand, wash),
     accentOnWash: ensureReadableOn(accent, wash),
-    // Chosen for the fill, not the page mode.
     onBrand: inkOn(brand, fillInk),
     onAccent: inkOn(accent, fillInk),
+    onSupport: inkOn(support, fillInk),
     isDark: dark,
+    // True when the saved primary is dark enough to be a full-bleed field. The
+    // layouts use this to pick a dark composition rather than pasting a dark
+    // brand onto a light wash.
+    canvasIsDark,
+    /*
+     * Provenance, surfaced in image metadata for debugging. `adjusted` names any
+     * role whose value had to move for legibility, so a mismatch between the
+     * saved palette and the render is never a mystery.
+     */
+    source: roles.source,
+    adjusted,
+    providedColors: roles.provided,
   };
+}
+
+/** Keep a colour exactly unless no ink can sit on it; record any change. */
+function keepOrAdjust(hex, fillInk, role, adjusted) {
+  const safe = ensureReadableFill(hex, fillInk);
+  if (safe.toLowerCase() !== hex.toLowerCase()) adjusted.push(role);
+  return safe;
 }
 
 // --- typography ------------------------------------------------------------
@@ -318,15 +398,25 @@ export function fontStack(label) {
  * character count keeps the type block optically similar at any length.
  */
 export function headlineScale(headline, { base = 1 } = {}) {
-  const len = String(headline || '').length;
+  const text = String(headline || '');
+  const len = text.length;
   let size;
   let leading;
   let tracking;
-  if (len <= 18) { size = 118; leading = 0.98; tracking = -0.03; }
-  else if (len <= 32) { size = 96; leading = 1.02; tracking = -0.025; }
-  else if (len <= 48) { size = 78; leading = 1.06; tracking = -0.02; }
-  else if (len <= 64) { size = 64; leading = 1.1; tracking = -0.015; }
-  else { size = 54; leading = 1.14; tracking = -0.01; }
+  if (len <= 18) { size = 108; leading = 1; tracking = -0.03; }
+  else if (len <= 32) { size = 90; leading = 1.04; tracking = -0.025; }
+  else if (len <= 48) { size = 74; leading = 1.08; tracking = -0.02; }
+  else if (len <= 64) { size = 62; leading = 1.1; tracking = -0.015; }
+  else { size = 52; leading = 1.14; tracking = -0.01; }
+
+  /*
+   * Step down once more when one word is long enough to be stranded on its own
+   * line. A single-word line is the most visible sign of a machine-set headline,
+   * and the spec is explicit: shrink before allowing one.
+   */
+  const longestWord = text.split(/\s+/).reduce((max, w) => Math.max(max, w.length), 0);
+  if (longestWord >= 11 && size > 60) size = Math.round(size * 0.88);
+
   return {
     size: Math.round(size * base),
     leading,
@@ -375,6 +465,8 @@ export default {
   safeColor,
   safeImageUrl,
   buildPalette,
+  resolveBrandRoles,
+  chromaOf,
   fontStack,
   fontCategory,
   headlineScale,
