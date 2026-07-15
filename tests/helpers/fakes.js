@@ -913,6 +913,328 @@ export function createFakeOverrides(extra = {}) {
     socialImageService,
     businessProfileRepository: extra.businessProfileRepository ?? createFakeBusinessProfileRepository(),
     websiteAnalysisService: extra.websiteAnalysisService ?? createFakeWebsiteAnalysisService(),
+    plannerPreferenceRepository: extra.plannerPreferenceRepository ?? createFakePlannerPreferenceRepository(),
+    plannerRunRepository: extra.plannerRunRepository ?? createFakePlannerRunRepository(),
+  };
+}
+
+// --- Phase 4.7: auto content planner ----------------------------------------
+
+/** Fake `plannerPreferenceRepository` — one row per user, in-memory. */
+export function createFakePlannerPreferenceRepository() {
+  const rows = new Map(); // userId -> preferences
+  let nextId = 1;
+
+  const api = {
+    _rows: rows,
+    async findByUserId(userId) {
+      const row = rows.get(String(userId));
+      return row ? { ...row } : null;
+    },
+    async upsertPreferences(userId, data) {
+      const key = String(userId);
+      const base = rows.get(key) || {
+        id: String(nextId++),
+        userId: key,
+        cadence: 'every_day',
+        weekdays: [],
+        times: [],
+        platforms: [],
+        goals: [],
+        contentMix: {},
+        tone: 'professional',
+        ctaMode: 'some',
+        approvalMode: 'require_approval',
+        defaultPlanLength: 7,
+        timezone: null,
+        autopilotEnabled: false,
+        nextPlanGenerationAt: null,
+        createdAt: '2026-01-01 00:00:00',
+        updatedAt: '2026-01-01 00:00:00',
+      };
+      const next = { ...base };
+      for (const [k, v] of Object.entries(data)) next[k] = v;
+      rows.set(key, next);
+      return { ...next };
+    },
+    async listDueAutopilot(nowUtc) {
+      return [...rows.values()]
+        .filter((r) => r.autopilotEnabled && r.nextPlanGenerationAt && r.nextPlanGenerationAt <= nowUtc)
+        .map((r) => ({ ...r }));
+    },
+    async deletePreferences(userId) {
+      return { deleted: rows.delete(String(userId)) };
+    },
+  };
+  return api;
+}
+
+/** Fake `plannerRunRepository` — runs + items, in-memory, user-scoped. */
+export function createFakePlannerRunRepository() {
+  const runs = new Map(); // id -> run
+  const items = new Map(); // id -> item
+  let nextRunId = 1;
+  let nextItemId = 1;
+
+  const api = {
+    _runs: runs,
+    _items: items,
+
+    async createRun(input) {
+      const id = String(nextRunId++);
+      const run = {
+        id,
+        userId: String(input.userId),
+        businessProfileId: input.businessProfileId ?? null,
+        name: input.name ?? null,
+        status: input.status ?? 'generating',
+        startDate: input.startDate ?? null,
+        endDate: input.endDate ?? null,
+        timezone: input.timezone ?? null,
+        planLength: input.planLength ?? 7,
+        settings: input.settings ?? {},
+        generationNotes: input.generationNotes ?? null,
+        createdAt: '2026-07-13 06:00:00',
+        updatedAt: '2026-07-13 06:00:00',
+      };
+      runs.set(id, run);
+      return { ...run };
+    },
+    async findRunByIdForUser(runId, userId) {
+      const run = runs.get(String(runId));
+      // Ownership is enforced here exactly as the SQL WHERE clause does.
+      if (!run || run.userId !== String(userId)) return null;
+      return { ...run };
+    },
+    async listRunsForUser(userId, { limit = 20, offset = 0 } = {}) {
+      return [...runs.values()]
+        .filter((r) => r.userId === String(userId))
+        .sort((a, b) => Number(b.id) - Number(a.id))
+        .slice(offset, offset + limit)
+        .map((r) => ({ ...r }));
+    },
+    async updateRun(runId, userId, fields) {
+      const run = runs.get(String(runId));
+      if (!run || run.userId !== String(userId)) return null;
+      Object.assign(run, fields);
+      return { ...run };
+    },
+    async deleteRun(runId, userId) {
+      const run = runs.get(String(runId));
+      if (!run || run.userId !== String(userId)) return { deleted: false };
+      runs.delete(String(runId));
+      // Items cascade, mirroring the FK.
+      for (const [id, item] of items) if (item.plannerRunId === String(runId)) items.delete(id);
+      return { deleted: true };
+    },
+
+    async createItem(input) {
+      const id = String(nextItemId++);
+      const item = {
+        id,
+        plannerRunId: String(input.plannerRunId),
+        userId: String(input.userId),
+        postId: input.postId ?? null,
+        position: input.position ?? 0,
+        scheduledFor: input.scheduledFor ?? null,
+        originalTimezone: input.originalTimezone ?? null,
+        contentType: input.contentType ?? 'educational',
+        goal: input.goal ?? null,
+        platformTargets: input.platformTargets ?? [],
+        templateKey: input.templateKey ?? null,
+        aspectRatio: input.aspectRatio ?? null,
+        backgroundStyle: input.backgroundStyle ?? null,
+        headline: input.headline ?? null,
+        subheadline: input.subheadline ?? null,
+        summary: input.summary ?? null,
+        caption: input.caption ?? null,
+        hashtags: input.hashtags ?? [],
+        altText: input.altText ?? null,
+        brief: input.brief ?? null,
+        mediaAssetId: input.mediaAssetId ?? null,
+        approvalStatus: input.approvalStatus ?? 'needs_review',
+        duplicationScore: Number(input.duplicationScore ?? 0),
+        duplicationNotes: input.duplicationNotes ?? null,
+        regenerationCount: Number(input.regenerationCount ?? 0),
+        fingerprint: input.fingerprint ?? null,
+        editedFields: input.editedFields ?? [],
+        createdAt: '2026-07-13 06:00:00',
+        updatedAt: '2026-07-13 06:00:00',
+      };
+      items.set(id, item);
+      return { ...item };
+    },
+    async findItemByIdForUser(itemId, userId) {
+      const item = items.get(String(itemId));
+      if (!item || item.userId !== String(userId)) return null;
+      return { ...item };
+    },
+    async listItemsForRun(runId, userId) {
+      return [...items.values()]
+        .filter((i) => i.plannerRunId === String(runId) && i.userId === String(userId))
+        .sort((a, b) => a.position - b.position || Number(a.id) - Number(b.id))
+        .map((i) => ({ ...i }));
+    },
+    async updateItem(itemId, userId, fields) {
+      const item = items.get(String(itemId));
+      if (!item || item.userId !== String(userId)) return null;
+      Object.assign(item, fields);
+      return { ...item };
+    },
+    async deleteItem(itemId, userId) {
+      const item = items.get(String(itemId));
+      if (!item || item.userId !== String(userId)) return { deleted: false };
+      items.delete(String(itemId));
+      return { deleted: true };
+    },
+    async listRecentFingerprintsForUser(userId, { limit = 60, excludeRunId = null } = {}) {
+      return [...items.values()]
+        .filter((i) => i.userId === String(userId) && i.fingerprint)
+        .filter((i) => (excludeRunId ? i.plannerRunId !== String(excludeRunId) : true))
+        .sort((a, b) => Number(b.id) - Number(a.id))
+        .slice(0, limit)
+        .map((i) => ({ id: i.id, plannerRunId: i.plannerRunId, ...i.fingerprint }));
+    },
+    async countItemsByStatus(runId, userId) {
+      const counts = { draft: 0, needs_review: 0, approved: 0, queued: 0, rejected: 0 };
+      for (const item of items.values()) {
+        if (item.plannerRunId !== String(runId) || item.userId !== String(userId)) continue;
+        counts[item.approvalStatus] = (counts[item.approvalStatus] || 0) + 1;
+      }
+      return counts;
+    },
+  };
+  return api;
+}
+
+/*
+ * Genuinely different posts, the way a competent writer would produce them:
+ * different vocabulary, different openings, different angles. A templated fake
+ * ("post number 1 about X", "post number 2 about X") would be flagged by
+ * contentUniquenessService for the entirely correct reason that such captions
+ * ARE near-duplicates — which would make these tests assert the wrong thing.
+ */
+const FAKE_POSTS = [
+  {
+    headline: 'Winter is coming for your gutters',
+    caption: 'Leaves pile up faster than most people expect. A ten minute clear-out now saves a soaked ceiling in January.',
+    hashtags: ['#gutters', '#autumn'],
+  },
+  {
+    headline: 'Eleven years on the tools',
+    caption: 'Dan has been fitting lead flashing since he was nineteen. Ask him about chimneys and you will not get away quickly.',
+    hashtags: ['#team', '#craft'],
+  },
+  {
+    headline: 'What a slipped tile really costs',
+    caption: 'One loose tile lets water track along the batten. By the time it shows inside, the timber has been wet for months.',
+    hashtags: ['#maintenance'],
+  },
+  {
+    headline: 'Booking is open for spring',
+    caption: 'Our diary for March has just opened up. Early slots tend to go to whoever calls first, so do not sit on it.',
+    hashtags: ['#booking'],
+  },
+  {
+    headline: 'Three signs you need a survey',
+    caption: 'Damp patches near a chimney breast, grit in the guttering, daylight in the loft. Any one of those is worth a look.',
+    hashtags: ['#survey', '#advice'],
+  },
+  {
+    headline: 'Flat roofs are not all equal',
+    caption: 'Felt, fibreglass and single ply all behave differently once the frost arrives. The right choice depends on the deck.',
+    hashtags: ['#flatroof'],
+  },
+  {
+    headline: 'We work across Greater London',
+    caption: 'From Barnet down to Croydon, most of our jobs come from a neighbour pointing over a fence. That suits us fine.',
+    hashtags: ['#london', '#local'],
+  },
+  {
+    headline: 'Scaffolding, and why it matters',
+    caption: 'A ladder is fine for a look. It is not fine for a day of work. Proper access is how the job gets done safely.',
+    hashtags: ['#safety'],
+  },
+  {
+    headline: 'The quote is the easy part',
+    caption: 'Anyone can put a number on paper. Ask what happens if the timber underneath turns out to be rotten.',
+    hashtags: ['#quotes'],
+  },
+  {
+    headline: 'Moss is a symptom, not a cause',
+    caption: 'Scrubbing it off makes the roof look better for a season. Working out why it thrives there lasts a lot longer.',
+    hashtags: ['#moss'],
+  },
+  {
+    headline: 'Storm damage: what to do first',
+    caption: 'Photograph everything from ground level, ring your insurer, and stay off the roof until someone has looked properly.',
+    hashtags: ['#storm'],
+  },
+  {
+    headline: 'Small jobs are still jobs',
+    caption: 'A single ridge tile is not too small to call about. Most of our big repairs started as somebody ignoring one.',
+    hashtags: ['#repairs'],
+  },
+];
+
+/**
+ * Fake planner-post generator. Produces genuinely DISTINCT content per call by
+ * default; pass `{ duplicate: true }` to force identical output and exercise
+ * the duplication engine.
+ */
+export function createFakePlannerOpenAI(opts = {}) {
+  const calls = [];
+  let n = 0;
+  return {
+    _calls: calls,
+    isAvailable: () => opts.available !== false,
+    async generateSocialContent() {
+      return {
+        facebook: { caption: 'Caption for facebook', hashtags: ['#cyflow'] },
+        instagram: { caption: 'Caption for instagram', hashtags: ['#cyflow'] },
+        threads: { caption: 'Caption for threads', hashtags: ['#cyflow'] },
+        visual: { headline: 'Great Headline', subheadline: 'Sub', imageAltText: 'Alt text' },
+        _meta: { model: 'fake', responseId: 'resp_1', usage: { inputUnits: 1, outputUnits: 1 } },
+      };
+    },
+    async generatePlannerPost(input) {
+      calls.push(input);
+      if (opts.error) throw opts.error;
+      const i = n;
+      n += 1;
+
+      if (opts.duplicate) {
+        return {
+          caption: 'Identical caption every single time for duplication testing purposes.',
+          hashtags: ['#same'],
+          headline: 'Identical headline',
+          subheadline: 'Same sub',
+          imageAltText: 'Alt',
+          summary: 'Summary',
+          _meta: { model: 'fake', responseId: 'resp_dup', usage: { inputUnits: 1, outputUnits: 1 } },
+        };
+      }
+
+      const post = FAKE_POSTS[i % FAKE_POSTS.length];
+      const out = {
+        caption: post.caption,
+        hashtags: post.hashtags,
+        headline: post.headline,
+        subheadline: `Supporting line ${i}`,
+        imageAltText: `Alt ${i}`,
+        summary: `Summary ${i}`,
+        _meta: { model: 'fake', responseId: `resp_${i}`, usage: { inputUnits: 1, outputUnits: 1 } },
+      };
+      if (input.contentType === 'tips') out.bullets = [`Tip A${i}`, `Tip B${i}`];
+      if (input.contentType === 'proof') out.stat = { value: `${i + 1}0%`, label: `metric ${i}` };
+      if (input.contentType === 'comparison') {
+        out.comparison = {
+          leftTitle: `Option A${i}`, leftItems: [`a${i}`],
+          rightTitle: `Option B${i}`, rightItems: [`b${i}`],
+        };
+      }
+      return out;
+    },
   };
 }
 

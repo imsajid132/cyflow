@@ -12,6 +12,8 @@ import { navigate, onRouteChange } from './router.js';
 
 const ITEMS = [
   { path: '/dashboard', label: 'Dashboard', ico: 'dashboard' },
+  // The planner is the primary workflow, so it sits above Create Post.
+  { path: '/planner', label: 'Auto Planner', ico: 'planner' },
   { path: '/brand', label: 'Brand', ico: 'brand' },
   { path: '/connections', label: 'Connections', ico: 'connections' },
   { path: '/create', label: 'Create Post', ico: 'create' },
@@ -40,9 +42,15 @@ function setDrawer(open) {
   }
 }
 
+/**
+ * Mark the current nav item. A sub-route keeps its section highlighted, so
+ * /planner/week still shows "Auto Planner" as current.
+ */
 function highlight(path) {
   document.querySelectorAll('#nav-list .nav-link').forEach((link) => {
-    if (link.getAttribute('href') === path) link.setAttribute('aria-current', 'page');
+    const href = link.getAttribute('href');
+    const isCurrent = href === path || (href !== '/' && path.startsWith(`${href}/`));
+    if (isCurrent) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
   });
 }

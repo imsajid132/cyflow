@@ -63,6 +63,9 @@ export class SocialImageError extends AppError {
 export const SANITIZE_ALLOWED_TAGS = Object.freeze([
   'div', 'span', 'header', 'footer', 'aside', 'section',
   'h1', 'h2', 'p', 'br', 'strong', 'em', 'small', 'img',
+  // Phase 4.7: the checklist and comparison layouts are genuinely lists.
+  // Discarding these would keep the text but flatten the layout silently.
+  'ul', 'ol', 'li',
 ]);
 
 function sanitizeGeneratedHtml(html) {
@@ -200,7 +203,23 @@ export function createSocialImageService({
     return ASPECT_RATIOS[aspectRatio] || ASPECT_RATIOS.square;
   }
 
-  return { generateSocialImage, dimensionsFor };
+  /**
+   * Can this user render an image right now?
+   *
+   * The planner asks before generating a batch: it would rather produce a plan
+   * with captions and pending images than fail the whole run. Returns a boolean
+   * rather than throwing, and never exposes credential state beyond ready/not.
+   */
+  async function isReadyForUser(userId) {
+    try {
+      const record = await integrationRepository.getHctiCredentialRecord(userId);
+      return Boolean(record && record.configured && record.verifiedAt);
+    } catch {
+      return false;
+    }
+  }
+
+  return { generateSocialImage, dimensionsFor, isReadyForUser };
 }
 
 export const socialImageService = createSocialImageService();

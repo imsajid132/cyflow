@@ -46,6 +46,8 @@ test('the app declares exactly the planned routes', () => {
     '/onboarding/brand', '/onboarding/connections', '/dashboard', '/brand',
     '/connections', '/create', '/queue', '/calendar', '/integrations',
     '/profile', '/settings',
+    // Phase 4.7: auto content planner.
+    '/planner', '/planner/new', '/planner/week', '/planner/history',
   ]);
 });
 
@@ -175,11 +177,23 @@ test('the app never claims that publishing happens', () => {
   for (const { file, source } of FRONTEND) {
     assert.equal(claims.test(source), false, `${file} must not claim posts are published`);
   }
-  const honest = ['queue', 'calendar', 'create', 'dashboard']
+  const honest = ['queue', 'calendar', 'create', 'dashboard', 'planner', 'plannerWeek', 'plannerNew']
     .map((p) => FRONTEND.find((f) => f.file === `assets/js/pages/${p}.js`));
   for (const page of honest) {
     assert.ok(page);
-    assert.match(page.source, /later phase|future publishing phase|does not publish/i,
+    assert.match(page.source, /later phase|future publishing phase|does not publish|not published|nothing is published/i,
       `${page.file} must state that publishing is not implemented yet`);
   }
+});
+
+test('the planner never claims autopilot is live', () => {
+  // Autopilot is PREPARED (a stored flag + date). No job runs it, so the UI
+  // must not imply otherwise.
+  const claims = /(autopilot is (running|active|live)|generates? automatically every week|will post for you)/i;
+  for (const { file, source } of FRONTEND) {
+    assert.equal(claims.test(source), false, `${file} must not claim autopilot is live`);
+  }
+  // Where autopilot is offered, the limitation is stated.
+  const settings = FRONTEND.find((f) => f.file === 'assets/js/pages/settings.js');
+  assert.match(settings.source, /not running yet/i, 'settings must say autopilot is not running yet');
 });

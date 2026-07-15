@@ -1,0 +1,420 @@
+/**
+ * Weekly review board.
+ *
+ * The primary workflow's main screen: every generated post, grouped by day,
+ * with an edit drawer, per-card actions and bulk controls.
+ *
+ * Edits are sent field-by-field and the server records which fields a human
+ * touched, so regenerating one thing never discards another.
+ */
+
+import * as api from '../api.js';
+import {
+  el, card, pageHead, badge, notice, toast, emptyState, skeleton,
+  field, selectField, val, setLoading, confirmModal, clear,
+} from '../ui.js';
+import { PROVIDER_LABELS } from '../icons.js';
+import {
+  plannerCard, statusChip, dayKeyOf, dayLabelOf, formatSlot, TEMPLATE_LABELS,
+} from '../components/plannerCard.js';
+
+const TEMPLATE_OPTIONS = Object.entries(TEMPLATE_LABELS).map(([value, label]) => ({ value, label }));
+const BACKGROUNDS = ['light', 'dark', 'gradient-blue', 'gradient-warm', 'neutral'];
+
+export async function render(root, ctx) {
+  const params = new URLSearchParams(window.location.search);
+  let runId = params.get('run');
+
+  // No run in the URL: fall back to the most recent plan.
+  if (!runId) {
+    const plans = await api.plannerPlans({ limit: 1 });
+    if (!plans.length) {
+      root.appendChild(el('div', { className: 'page' }, [
+        pageHead('Weekly board', 'Review your generated posts.'),
+        card([emptyState({
+          title: 'No plan to review',
+          subtitle: 'Generate a plan and its posts will appear here.',
+          action: el('a', { className: 'btn btn-primary', text: 'Generate a plan', attrs: { href: '/planner/new', 'data-link': '' } }),
+        })]),
+      ]));
+      return;
+    }
+    runId = plans[0].id;
+  }
+
+  const selected = new Set();
+  let plan = null;
+
+  const boardHost = el('div', {});
+  const summaryHost = el('div', {});
+  const drawer = el('aside', { className: 'drawer', attrs: { hidden: true, 'aria-label': 'Edit planned post' } });
+  const bulkHost = el('div', { className: 'planner-bulk' });
+
+  const page = el('div', { className: 'page' }, [
+    pageHead('Weekly board', 'Review, edit and approve. Nothing is queued until you say so.', [
+      el('a', { className: 'btn btn-secondary', text: 'All plans', attrs: { href: '/planner/history', 'data-link': '' } }),
+      el('a', { className: 'btn btn-secondary', text: 'New plan', attrs: { href: '/planner/new', 'data-link': '' } }),
+    ]),
+    summaryHost,
+    bulkHost,
+    boardHost,
+    notice('Queued posts are stored for a future publishing phase — Cyflow does not post to providers yet.', 'info'),
+  ]);
+  root.appendChild(page);
+  root.appendChild(drawer);
+
+  boardHost.appendChild(skeleton({ lines: 4 }));
+
+  async function load() {
+    const res = await api.plannerPlan(runId);
+    if (res.unauthorized) { ctx.navigate('/login'); return false; }
+    if (!res.ok) {
+      clear(boardHost);
+      boardHost.appendChild(notice(api.errorMessage(res, 'That plan could not be loaded.'), 'err'));
+      return false;
+    }
+    plan = api.payload(res);
+    // Drop selections for cards that no longer exist.
+    for (const id of [...selected]) {
+      if (!plan.items.some((i) => i.id === id)) selected.delete(id);
+    }
+    renderSummary();
+    renderBulk();
+    renderBoard();
+    return true;
+  }
+
+  function renderSummary() {
+    clear(summaryHost);
+    const counts = plan.counts || {};
+    summaryHost.appendChild(card([
+      el('div', { className: 'card-head' }, [
+        el('span', { className: 'card-title', text: plan.run.name || 'Plan' }),
+        badge(plan.run.status.replace(/_/g, ' '), plan.run.status === 'queued' ? 'ok' : 'warn'),
+      ]),
+      el('p', { className: 'card-sub', text: `${plan.run.startDate} to ${plan.run.endDate} · ${plan.run.timezone || 'UTC'} · ${plan.items.length} posts` }),
+      el('div', { className: 'row', attrs: { style: 'gap:.5rem;flex-wrap:wrap;margin-top:.5rem' } },
+        Object.entries(counts).filter(([, n]) => n > 0).map(([status, n]) =>
+          el('span', { className: 'row', attrs: { style: 'gap:.3rem' } }, [statusChip(status), el('span', { className: 'card-sub', text: String(n) })]))),
+      plan.run.generationNotes
+        ? el('p', { className: 'hint', attrs: { style: 'margin-top:.6rem' }, text: plan.run.generationNotes })
+        : null,
+    ]));
+  }
+
+  function renderBulk() {
+    clear(bulkHost);
+    const count = selected.size;
+
+    const selectAll = el('button', {
+      className: 'btn btn-ghost btn-sm',
+      text: count ? 'Clear selection' : 'Select all',
+      attrs: { type: 'button' },
+    });
+    selectAll.addEventListener('click', () => {
+      if (count) selected.clear();
+      else for (const item of plan.items) if (item.approvalStatus !== 'queued') selected.add(item.id);
+      renderBulk();
+      renderBoard();
+    });
+
+    const approveSelected = el('button', {
+      className: 'btn btn-primary btn-sm',
+      text: count ? `Approve ${count} selected` : 'Approve all',
+      attrs: { type: 'button' },
+    });
+    approveSelected.addEventListener('click', () => bulkStatus('approved'));
+
+    const rejectSelected = el('button', { className: 'btn btn-secondary btn-sm', text: 'Reject selected', attrs: { type: 'button' } });
+    rejectSelected.disabled = count === 0;
+    rejectSelected.addEventListener('click', () => bulkStatus('rejected'));
+
+    const removeRejected = el('button', { className: 'btn btn-ghost btn-sm', text: 'Remove rejected', attrs: { type: 'button' } });
+    removeRejected.disabled = !(plan.counts?.rejected > 0);
+    removeRejected.addEventListener('click', async () => {
+      const ok = await confirmModal({
+        title: 'Remove rejected posts?',
+        message: 'They are deleted from this plan. Approved and queued posts are untouched.',
+        confirmText: 'Remove',
+        danger: true,
+      });
+      if (!ok) return;
+      const res = await api.apiRequest(`/api/planner/plans/${encodeURIComponent(runId)}/remove-rejected`, { method: 'POST', body: {} });
+      if (!res.ok) { toast(api.errorMessage(res, 'They could not be removed.'), 'err'); return; }
+      toast('Rejected posts removed.', 'ok');
+      await load();
+    });
+
+    const queueBtn = el('button', { className: 'btn btn-primary btn-sm', text: 'Queue approved posts', attrs: { type: 'button' } });
+    queueBtn.disabled = !(plan.counts?.approved > 0);
+    queueBtn.addEventListener('click', async () => {
+      const n = plan.counts.approved;
+      const ok = await confirmModal({
+        title: `Queue ${n} approved post${n === 1 ? '' : 's'}?`,
+        message: 'They move into your queue at their scheduled times. Cyflow does not publish to providers yet — this stores them for a later phase.',
+        confirmText: 'Queue them',
+      });
+      if (!ok) return;
+      setLoading(queueBtn, true, 'Queueing…');
+      try {
+        const res = await api.apiRequest(`/api/planner/plans/${encodeURIComponent(runId)}/queue`, { method: 'POST', body: { itemIds: [] } });
+        if (!res.ok) { toast(api.errorMessage(res, 'They could not be queued.'), 'err'); return; }
+        const body = api.payload(res);
+        toast(`${body.queued.length} post${body.queued.length === 1 ? '' : 's'} queued.`, 'ok');
+        if (body.skipped?.length) {
+          summaryHost.appendChild(notice(
+            `${body.skipped.length} post${body.skipped.length === 1 ? ' was' : 's were'} skipped: ${[...new Set(body.skipped.map((s) => s.reason))].join('; ')}.`,
+            'warn',
+          ));
+        }
+        await load();
+      } finally {
+        setLoading(queueBtn, false);
+      }
+    });
+
+    bulkHost.appendChild(el('div', { className: 'row', attrs: { style: 'gap:.5rem;flex-wrap:wrap' } }, [
+      selectAll,
+      approveSelected,
+      rejectSelected,
+      removeRejected,
+      el('span', { className: 'spacer' }),
+      queueBtn,
+    ]));
+  }
+
+  async function bulkStatus(status) {
+    const itemIds = [...selected];
+    const res = await api.apiRequest(`/api/planner/plans/${encodeURIComponent(runId)}/bulk-status`, {
+      method: 'POST',
+      body: { status, itemIds },
+    });
+    if (res.unauthorized) { ctx.navigate('/login'); return; }
+    if (!res.ok) { toast(api.errorMessage(res, 'That could not be applied.'), 'err'); return; }
+    const body = api.payload(res);
+    toast(`${body.updated.length} post${body.updated.length === 1 ? '' : 's'} ${status}.`, 'ok');
+    if (body.skipped?.length) {
+      toast(`${body.skipped.length} skipped: ${[...new Set(body.skipped.map((s) => s.reason))].join('; ')}.`, 'err');
+    }
+    selected.clear();
+    await load();
+  }
+
+  function renderBoard() {
+    clear(boardHost);
+    if (!plan.items.length) {
+      boardHost.appendChild(card([emptyState({
+        title: 'This plan has no posts',
+        subtitle: 'Generate a new plan to start again.',
+        action: el('a', { className: 'btn btn-primary btn-sm', text: 'New plan', attrs: { href: '/planner/new', 'data-link': '' } }),
+      })]));
+      return;
+    }
+
+    // Grouped by day — the unit a person actually reviews in.
+    const days = new Map();
+    for (const item of plan.items) {
+      const key = dayKeyOf(item.scheduledFor);
+      if (!days.has(key)) days.set(key, { label: dayLabelOf(item.scheduledFor), items: [] });
+      days.get(key).items.push(item);
+    }
+
+    for (const [key, day] of days) {
+      boardHost.appendChild(el('section', { className: 'planner-day', attrs: { 'data-day': key } }, [
+        el('div', { className: 'planner-day-head' }, [
+          el('h2', { className: 'planner-day-title', text: day.label }),
+          el('span', { className: 'card-sub', text: `${day.items.length} post${day.items.length === 1 ? '' : 's'}` }),
+        ]),
+        el('div', { className: 'planner-day-grid' }, day.items.map((item) =>
+          plannerCard(item, {
+            selected: selected.has(item.id),
+            onSelect: (id, on) => { if (on) selected.add(id); else selected.delete(id); renderBulk(); },
+            onOpen: openDrawer,
+            onApprove: (i) => setStatus(i, 'approved'),
+            onReject: (i) => setStatus(i, 'rejected'),
+          }))),
+      ]));
+    }
+  }
+
+  async function setStatus(item, status) {
+    const res = await api.apiRequest(`/api/planner/items/${encodeURIComponent(item.id)}/status`, {
+      method: 'POST', body: { status },
+    });
+    if (res.unauthorized) { ctx.navigate('/login'); return; }
+    if (!res.ok) { toast(api.errorMessage(res, 'That could not be applied.'), 'err'); return; }
+    await load();
+  }
+
+  // --- edit drawer ---------------------------------------------------------
+
+  function closeDrawer() {
+    drawer.hidden = true;
+    clear(drawer);
+    document.removeEventListener('keydown', onDrawerKey);
+  }
+  function onDrawerKey(e) {
+    if (e.key === 'Escape') closeDrawer();
+  }
+
+  function openDrawer(item) {
+    clear(drawer);
+    drawer.hidden = false;
+    document.addEventListener('keydown', onDrawerKey);
+
+    const closeBtn = el('button', { className: 'btn btn-ghost btn-sm', text: 'Close', attrs: { type: 'button' } });
+    closeBtn.addEventListener('click', closeDrawer);
+
+    const preview = item.media?.publicToken
+      ? el('img', {
+          className: 'drawer-preview',
+          attrs: { src: `/media/${encodeURIComponent(item.media.publicToken)}`, alt: item.altText || 'Generated post image' },
+        })
+      : el('div', { className: 'drawer-preview drawer-preview-empty' }, [
+          el('span', { className: 'card-sub', text: 'No image yet' }),
+        ]);
+
+    const saveBtn = el('button', { className: 'btn btn-primary', text: 'Save changes', attrs: { type: 'button' } });
+    const regenCaptionBtn = el('button', { className: 'btn btn-secondary btn-sm', text: 'Regenerate caption', attrs: { type: 'button' } });
+    const regenImageBtn = el('button', { className: 'btn btn-secondary btn-sm', text: 'Regenerate image', attrs: { type: 'button' } });
+    const duplicateBtn = el('button', { className: 'btn btn-ghost btn-sm', text: 'Copy to manual draft', attrs: { type: 'button' } });
+    const deleteBtn = el('button', { className: 'btn btn-danger btn-sm', text: 'Delete', attrs: { type: 'button' } });
+
+    saveBtn.addEventListener('click', async () => {
+      setLoading(saveBtn, true, 'Saving…');
+      try {
+        const body = {
+          caption: val('d-caption'),
+          headline: val('d-headline'),
+          subheadline: val('d-subheadline'),
+          altText: val('d-alt'),
+          templateKey: val('d-template'),
+          backgroundStyle: val('d-background'),
+        };
+        const when = val('d-when');
+        if (when) body.scheduledFor = new Date(when).toISOString();
+        const res = await api.apiRequest(`/api/planner/items/${encodeURIComponent(item.id)}`, { method: 'PATCH', body });
+        if (!res.ok) { toast(api.errorMessage(res, 'Your changes could not be saved.'), 'err'); return; }
+        toast('Saved.', 'ok');
+        closeDrawer();
+        await load();
+      } finally {
+        setLoading(saveBtn, false);
+      }
+    });
+
+    regenCaptionBtn.addEventListener('click', async () => {
+      // The server refuses to overwrite an edited caption without confirmation.
+      const doRegen = async (force) => api.apiRequest(
+        `/api/planner/items/${encodeURIComponent(item.id)}/regenerate`,
+        { method: 'POST', body: { target: 'caption', force } },
+      );
+      setLoading(regenCaptionBtn, true, 'Writing…');
+      try {
+        let res = await doRegen(false);
+        if (res.status === 409) {
+          const ok = await confirmModal({
+            title: 'Discard your caption?',
+            message: api.errorMessage(res, 'You have edited this caption. Regenerating replaces it.'),
+            confirmText: 'Regenerate anyway',
+            danger: true,
+          });
+          if (!ok) return;
+          res = await doRegen(true);
+        }
+        if (!res.ok) { toast(api.errorMessage(res, 'The caption could not be regenerated.'), 'err'); return; }
+        toast('Caption regenerated.', 'ok');
+        closeDrawer();
+        await load();
+      } finally {
+        setLoading(regenCaptionBtn, false);
+      }
+    });
+
+    regenImageBtn.addEventListener('click', async () => {
+      setLoading(regenImageBtn, true, 'Rendering…');
+      try {
+        const res = await api.apiRequest(`/api/planner/items/${encodeURIComponent(item.id)}/regenerate`, {
+          method: 'POST', body: { target: 'image' },
+        });
+        if (!res.ok) { toast(api.errorMessage(res, 'The image could not be regenerated.'), 'err'); return; }
+        toast('Image regenerated.', 'ok');
+        closeDrawer();
+        await load();
+      } finally {
+        setLoading(regenImageBtn, false);
+      }
+    });
+
+    duplicateBtn.addEventListener('click', async () => {
+      const res = await api.apiRequest(`/api/planner/items/${encodeURIComponent(item.id)}/duplicate`, { method: 'POST', body: {} });
+      if (!res.ok) { toast(api.errorMessage(res, 'It could not be copied.'), 'err'); return; }
+      toast('Copied to a manual draft.', 'ok');
+    });
+
+    deleteBtn.addEventListener('click', async () => {
+      const ok = await confirmModal({
+        title: 'Delete this post?',
+        message: 'It is removed from the plan. This cannot be undone.',
+        confirmText: 'Delete',
+        danger: true,
+      });
+      if (!ok) return;
+      const res = await api.apiRequest(`/api/planner/items/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
+      if (!res.ok) { toast(api.errorMessage(res, 'It could not be deleted.'), 'err'); return; }
+      toast('Post deleted.', 'ok');
+      closeDrawer();
+      await load();
+    });
+
+    // datetime-local wants local wall time, not the UTC string we store.
+    const localWhen = item.scheduledFor
+      ? (() => {
+          const d = new Date(`${item.scheduledFor.replace(' ', 'T')}Z`);
+          const pad = (n) => String(n).padStart(2, '0');
+          return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        })()
+      : '';
+
+    drawer.append(
+      el('div', { className: 'drawer-head' }, [
+        el('h2', { className: 'card-title', text: 'Edit post' }),
+        el('span', { className: 'spacer' }),
+        statusChip(item.approvalStatus),
+        closeBtn,
+      ]),
+      el('div', { className: 'drawer-body' }, [
+        preview,
+        item.duplicationNotes ? notice(item.duplicationNotes, 'warn') : null,
+        el('p', { className: 'card-sub', text: `${formatSlot(item.scheduledFor)} · ${(item.platformTargets || []).map((p) => PROVIDER_LABELS[p] || p).join(', ')}` }),
+        field({ id: 'd-caption', label: 'Caption', type: 'textarea', value: item.caption || '', attrs: { rows: 6 } }),
+        field({ id: 'd-headline', label: 'Image headline', value: item.headline || '' }),
+        field({ id: 'd-subheadline', label: 'Image subheadline', value: item.subheadline || '' }),
+        field({ id: 'd-alt', label: 'Image alt text', value: item.altText || '' }),
+        el('div', { className: 'grid grid-2' }, [
+          selectField({ id: 'd-template', label: 'Template', options: TEMPLATE_OPTIONS, value: item.templateKey || 'editorial-premium' }),
+          selectField({
+            id: 'd-background', label: 'Background',
+            options: BACKGROUNDS.map((b) => ({ value: b, label: b })),
+            value: item.backgroundStyle || 'light',
+          }),
+        ]),
+        field({ id: 'd-when', label: 'Scheduled for', type: 'datetime-local', value: localWhen }),
+        item.editedFields?.length
+          ? el('p', { className: 'hint', text: `You have edited: ${item.editedFields.join(', ')}. Regenerating will not overwrite these.` })
+          : null,
+      ]),
+      el('div', { className: 'drawer-foot' }, [
+        saveBtn,
+        regenCaptionBtn,
+        regenImageBtn,
+        el('span', { className: 'spacer' }),
+        duplicateBtn,
+        deleteBtn,
+      ]),
+    );
+    drawer.querySelector('#d-caption')?.focus();
+  }
+
+  await load();
+}

@@ -186,6 +186,19 @@ export const EVENT_TYPES = Object.freeze({
   BUSINESS_WEBSITE_ANALYZED: 'business.website_analyzed',
   BUSINESS_WEBSITE_ANALYSIS_FAILED: 'business.website_analysis_failed',
   BUSINESS_ONBOARDING_COMPLETED: 'business.onboarding_completed',
+  // Phase 4.7: auto content planner
+  PLANNER_PREFERENCES_UPDATED: 'planner.preferences_updated',
+  PLANNER_RUN_STARTED: 'planner.run_started',
+  PLANNER_RUN_COMPLETED: 'planner.run_completed',
+  PLANNER_RUN_FAILED: 'planner.run_failed',
+  PLANNER_RUN_DELETED: 'planner.run_deleted',
+  PLANNER_ITEM_UPDATED: 'planner.item_updated',
+  PLANNER_ITEM_REGENERATED: 'planner.item_regenerated',
+  PLANNER_ITEM_APPROVED: 'planner.item_approved',
+  PLANNER_ITEM_REJECTED: 'planner.item_rejected',
+  PLANNER_ITEM_DELETED: 'planner.item_deleted',
+  PLANNER_ITEMS_QUEUED: 'planner.items_queued',
+  PLANNER_DUPLICATE_DETECTED: 'planner.duplicate_detected',
 });
 
 // Least-privilege OAuth scopes requested per provider. Do NOT add unrelated
@@ -240,6 +253,10 @@ export const IMAGE_TEMPLATES = Object.freeze([
   'modern-split', // Modern Split Layout
   'minimal-luxury', // Minimal Luxury Card
   'geometric-conversion', // Geometric Conversion Post
+  // Phase 4.7 — content-type layouts the planner selects by post shape.
+  'checklist-tips', // Checklist Tips (renders bullets)
+  'stat-proof', // Stat Proof (renders one big figure)
+  'split-comparison', // Split Comparison (renders two columns)
   'photo-overlay', // Photo Overlay Ready (background-image slot, no invented photo)
 ]);
 
@@ -377,3 +394,170 @@ export const LOGO_MIME_TYPES = Object.freeze([
   'image/x-icon',
   'image/vnd.microsoft.icon',
 ]);
+
+// --- Phase 4.7: auto content planner ---------------------------------------
+
+/** How often the planner places posts across the plan window. */
+export const PLANNER_CADENCES = Object.freeze([
+  'every_day',
+  'weekdays',
+  'selected_weekdays',
+  'custom',
+]);
+
+/** ISO-8601 weekday numbers (Monday = 1 … Sunday = 7). */
+export const PLANNER_WEEKDAYS = Object.freeze([1, 2, 3, 4, 5, 6, 7]);
+export const PLANNER_WEEKDAY_LABELS = Object.freeze({
+  1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday',
+  5: 'Friday', 6: 'Saturday', 7: 'Sunday',
+});
+
+/** What a post is trying to achieve. */
+export const PLANNER_GOALS = Object.freeze([
+  'awareness',
+  'engagement',
+  'lead_generation',
+  'education',
+  'service_promotion',
+  'trust_building',
+  'offers',
+]);
+
+/** The kind of post. Drives copy framing AND image template selection. */
+export const PLANNER_CONTENT_TYPES = Object.freeze([
+  'educational',
+  'promotional',
+  'authority',
+  'tips',
+  'cta',
+  'proof',
+  'local',
+  'comparison',
+]);
+
+/**
+ * Content type → image template. The layout follows the *shape* of the message:
+ * a tips post is a checklist, a proof post leads with a number, a comparison
+ * post needs two columns. Keeping this map here (rather than inside the
+ * generator) makes the variation rule reviewable in one place.
+ */
+export const CONTENT_TYPE_TEMPLATES = Object.freeze({
+  tips: 'checklist-tips',
+  proof: 'stat-proof',
+  comparison: 'split-comparison',
+  authority: 'editorial-premium',
+  educational: 'editorial-premium',
+  cta: 'geometric-conversion',
+  promotional: 'bold-service-promo',
+  local: 'local-authority',
+});
+
+/**
+ * Alternate templates per content type, used to break up visual repetition
+ * across a plan. The planner rotates through these so two consecutive posts of
+ * the same type never look identical.
+ */
+export const CONTENT_TYPE_TEMPLATE_ALTERNATES = Object.freeze({
+  tips: ['checklist-tips', 'modern-split'],
+  proof: ['stat-proof', 'minimal-luxury'],
+  comparison: ['split-comparison', 'modern-split'],
+  authority: ['editorial-premium', 'minimal-luxury'],
+  educational: ['editorial-premium', 'modern-split'],
+  cta: ['geometric-conversion', 'bold-service-promo'],
+  promotional: ['bold-service-promo', 'geometric-conversion'],
+  local: ['local-authority', 'editorial-premium'],
+});
+
+/** Bounds on the structured extras the content-type templates render. */
+export const PLANNER_VISUAL_LIMITS = Object.freeze({
+  BULLET_MAX: 64,
+  BULLETS_MIN: 2,
+  BULLETS_MAX: 4,
+  STAT_VALUE_MAX: 12,
+  STAT_LABEL_MAX: 70,
+  COMPARE_TITLE_MAX: 24,
+  COMPARE_ITEM_MAX: 40,
+  COMPARE_ITEMS_MAX: 3,
+});
+
+/** Planner tone options (a superset of CONTENT_TONES plus 'mixed'). */
+export const PLANNER_TONES = Object.freeze([
+  'professional',
+  'friendly',
+  'confident',
+  'educational',
+  'promotional',
+  'mixed',
+]);
+
+/** Map a planner tone onto the tone the caption generator understands. */
+export const PLANNER_TONE_TO_CONTENT_TONE = Object.freeze({
+  professional: 'professional',
+  friendly: 'friendly',
+  confident: 'bold',
+  educational: 'informative',
+  promotional: 'bold',
+  // 'mixed' is resolved per-post by the planner, never sent through directly.
+});
+
+/** How often a CTA appears across the plan. */
+export const PLANNER_CTA_MODES = Object.freeze(['always', 'some', 'light']);
+
+/** Whether generated posts need a human before they can be queued. */
+export const PLANNER_APPROVAL_MODES = Object.freeze(['require_approval', 'auto_queue']);
+
+/** Lifecycle of a whole generated plan. */
+export const PLANNER_RUN_STATUS = Object.freeze({
+  GENERATING: 'generating',
+  REVIEW: 'review',
+  PARTIALLY_QUEUED: 'partially_queued',
+  QUEUED: 'queued',
+  ARCHIVED: 'archived',
+  FAILED: 'failed',
+});
+export const PLANNER_RUN_STATUS_VALUES = Object.freeze(Object.values(PLANNER_RUN_STATUS));
+
+/** Lifecycle of a single planned post. */
+export const PLANNER_ITEM_STATUS = Object.freeze({
+  DRAFT: 'draft',
+  NEEDS_REVIEW: 'needs_review',
+  APPROVED: 'approved',
+  QUEUED: 'queued',
+  REJECTED: 'rejected',
+});
+export const PLANNER_ITEM_STATUS_VALUES = Object.freeze(Object.values(PLANNER_ITEM_STATUS));
+
+/** Plan lengths offered in the wizard; any 1..PLANNER_LIMITS.MAX_PLAN_LENGTH is accepted. */
+export const PLANNER_PLAN_LENGTHS = Object.freeze([3, 5, 7, 14]);
+
+export const PLANNER_LIMITS = Object.freeze({
+  MIN_PLAN_LENGTH: 1,
+  MAX_PLAN_LENGTH: 14,
+  // Hard ceiling on posts per run: plan length x times per day. Bounds both the
+  // OpenAI/HCTI spend and the duplication comparison work.
+  MAX_ITEMS_PER_RUN: 28,
+  MAX_TIMES_PER_DAY: 4,
+  MAX_REGENERATION_ATTEMPTS: 2,
+  // How many recent items the uniqueness check compares a new post against.
+  DUPLICATE_LOOKBACK_ITEMS: 60,
+  DUPLICATE_LOOKBACK_DAYS: 60,
+  NAME_MAX: 160,
+  NOTES_MAX: 2000,
+  SUMMARY_MAX: 500,
+  BRIEF_MAX: 2000,
+});
+
+/** Similarity thresholds used by contentUniquenessService (0..1). */
+export const DUPLICATION_THRESHOLDS = Object.freeze({
+  // At or above this, the post is regenerated automatically.
+  REGENERATE: 0.62,
+  // At or above this (but below REGENERATE), it is flagged for human review.
+  WARN: 0.45,
+  // An exact-match headline or caption is always a hard block.
+  EXACT: 1,
+});
+
+/** api_usage operation identifiers for planner work. */
+export const PLANNER_USAGE_OPERATIONS = Object.freeze({
+  GENERATE_PLAN: 'generate_plan',
+});

@@ -19,6 +19,10 @@ const ROUTES = {
   '/onboarding/brand': { layout: 'wizard', view: 'brand', auth: true, load: () => import('./pages/onboarding.js') },
   '/onboarding/connections': { layout: 'wizard', view: 'connections', auth: true, load: () => import('./pages/onboarding.js') },
   '/dashboard': { layout: 'app', auth: true, load: () => import('./pages/dashboard.js') },
+  '/planner': { layout: 'app', auth: true, load: () => import('./pages/planner.js') },
+  '/planner/new': { layout: 'app', auth: true, load: () => import('./pages/plannerNew.js') },
+  '/planner/week': { layout: 'app', auth: true, load: () => import('./pages/plannerWeek.js') },
+  '/planner/history': { layout: 'app', auth: true, load: () => import('./pages/plannerHistory.js') },
   '/brand': { layout: 'app', auth: true, load: () => import('./pages/brand.js') },
   '/connections': { layout: 'app', auth: true, load: () => import('./pages/connections.js') },
   '/create': { layout: 'app', auth: true, load: () => import('./pages/create.js') },
@@ -36,6 +40,8 @@ const TITLES = {
   '/profile': 'Profile', '/settings': 'Settings',
   '/onboarding/business': 'Business setup', '/onboarding/brand': 'Brand review',
   '/onboarding/connections': 'Connect accounts',
+  '/planner': 'Auto planner', '/planner/new': 'Generate a plan',
+  '/planner/week': 'Weekly board', '/planner/history': 'Plan history',
 };
 
 let currentUser = null;

@@ -31,6 +31,7 @@ import { createSocialAccountRoutes } from './routes/socialAccountRoutes.js';
 import { createPostRoutes } from './routes/postRoutes.js';
 import { createMediaRoutes } from './routes/mediaRoutes.js';
 import { createBusinessProfileRoutes } from './routes/businessProfileRoutes.js';
+import { createPlannerRoutes } from './routes/plannerRoutes.js';
 import { buildContainer } from './container.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -57,6 +58,11 @@ export const APP_ROUTES = Object.freeze([
   '/integrations',
   '/profile',
   '/settings',
+  // Phase 4.7: auto content planner.
+  '/planner',
+  '/planner/new',
+  '/planner/week',
+  '/planner/history',
 ]);
 
 /** Build the MySQL-backed session store (table is created via schema.sql). */
@@ -215,6 +221,13 @@ export function createApp(overrides = {}) {
     '/api/posts',
     createPostRoutes({
       postController: container.postController,
+      requireAuth: container.requireAuth,
+    }),
+  );
+  app.use(
+    '/api/planner',
+    createPlannerRoutes({
+      plannerController: container.plannerController,
       requireAuth: container.requireAuth,
     }),
   );

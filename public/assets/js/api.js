@@ -110,4 +110,24 @@ export async function businessProfile() {
   return payload(res)?.profile ?? null;
 }
 
-export default { apiRequest, getCsrfToken, clearCachedCsrfToken, me, payload, errorMessage, fieldErrors };
+// --- planner ---------------------------------------------------------------
+
+export async function plannerPreferences() {
+  const res = await apiRequest('/api/planner/preferences');
+  return payload(res)?.preferences ?? null;
+}
+
+export async function plannerPlans({ limit = 20 } = {}) {
+  const res = await apiRequest(`/api/planner/plans?limit=${encodeURIComponent(limit)}`);
+  return payload(res)?.plans ?? [];
+}
+
+export async function plannerPlan(runId) {
+  const res = await apiRequest(`/api/planner/plans/${encodeURIComponent(runId)}`);
+  return res;
+}
+
+export default {
+  apiRequest, getCsrfToken, clearCachedCsrfToken, me, payload, errorMessage, fieldErrors,
+  plannerPreferences, plannerPlans, plannerPlan,
+};

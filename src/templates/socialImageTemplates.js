@@ -22,6 +22,7 @@ import {
   IMAGE_TEMPLATES,
   BACKGROUND_STYLES,
   LEGACY_IMAGE_TEMPLATE_ALIASES,
+  PLANNER_VISUAL_LIMITS,
 } from '../config/constants.js';
 import {
   escapeHtml,
@@ -79,6 +80,8 @@ function scaleBase(aspectRatio) {
  *   accentColor?: string, headingFont?: string, bodyFont?: string,
  *   cta?: string, website?: string, phone?: string,
  *   businessCategory?: string, serviceTag?: string,
+ *   bullets?: string[], stat?: { value, label },
+ *   comparison?: { leftTitle, rightTitle, leftItems, rightItems },
  * }} input
  * @returns {{ html:string, css:string, width:number, height:number, template:string, templateLabel:string }}
  */
@@ -113,6 +116,38 @@ export function buildTemplate(input = {}) {
     sub: subheadlineScale(sub, { base }),
   };
 
+  /*
+   * Structured extras for the content-type layouts. Each is escaped, clamped
+   * and count-limited here, so a layout can render them directly and an absent
+   * or malformed value simply produces no block rather than a broken one.
+   */
+  const V = PLANNER_VISUAL_LIMITS;
+  const bullets = Array.isArray(input.bullets)
+    ? input.bullets
+        .filter((b) => typeof b === 'string' && b.trim())
+        .slice(0, V.BULLETS_MAX)
+        .map((b) => escapeHtml(clampText(b, V.BULLET_MAX)))
+    : [];
+
+  const statValue = escapeHtml(clampText(input.stat?.value, V.STAT_VALUE_MAX));
+  const statLabel = escapeHtml(clampText(input.stat?.label, V.STAT_LABEL_MAX));
+
+  const compareItems = (items) =>
+    Array.isArray(items)
+      ? items
+          .filter((i) => typeof i === 'string' && i.trim())
+          .slice(0, V.COMPARE_ITEMS_MAX)
+          .map((i) => escapeHtml(clampText(i, V.COMPARE_ITEM_MAX)))
+      : [];
+  const comparison = input.comparison
+    ? {
+        leftTitle: escapeHtml(clampText(input.comparison.leftTitle, V.COMPARE_TITLE_MAX)),
+        rightTitle: escapeHtml(clampText(input.comparison.rightTitle, V.COMPARE_TITLE_MAX)),
+        leftItems: compareItems(input.comparison.leftItems),
+        rightItems: compareItems(input.comparison.rightItems),
+      }
+    : null;
+
   // Escape once, here — layouts and parts only ever handle safe strings.
   const text = {
     brandName: escapeHtml(clampText(input.brandName, TEXT_LIMITS.BRAND)),
@@ -126,6 +161,11 @@ export function buildTemplate(input = {}) {
       brandName: clampText(input.brandName, TEXT_LIMITS.BRAND),
       businessCategory: clampText(input.businessCategory, TEXT_LIMITS.TAG),
     })),
+    // Content-type extras — already escaped and clamped above.
+    bullets,
+    statValue,
+    statLabel,
+    comparison,
   };
 
   const logoUrl = escapeHtml(safeImageUrl(input.logoUrl));

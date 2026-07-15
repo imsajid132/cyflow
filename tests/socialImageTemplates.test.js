@@ -56,15 +56,18 @@ function assertBalancedHtml(html, label) {
   assert.deepEqual(stack, [], `${label}: unclosed tags`);
 }
 
-test('the template set is the six named premium layouts plus photo-overlay', () => {
+test('the template set is the premium layouts plus the content-type layouts', () => {
   assert.deepEqual([...IMAGE_TEMPLATES], [
     'editorial-premium', 'bold-service-promo', 'local-authority',
-    'modern-split', 'minimal-luxury', 'geometric-conversion', 'photo-overlay',
+    'modern-split', 'minimal-luxury', 'geometric-conversion',
+    // Phase 4.7 content-type layouts.
+    'checklist-tips', 'stat-proof', 'split-comparison',
+    'photo-overlay',
   ]);
-  assert.equal(IMAGE_TEMPLATES.length, 7);
   assert.deepEqual(listTemplates().map((t) => t.label), [
     'Clean Editorial Premium', 'Bold Service Promo', 'Local Business Authority',
     'Modern Split Layout', 'Minimal Luxury Card', 'Geometric Conversion Post',
+    'Checklist Tips', 'Stat Proof', 'Split Comparison',
     'Photo Overlay Ready',
   ]);
   // Every advertised template really has a layout behind it.
@@ -402,6 +405,111 @@ test('sanitization still strips anything that is not an inert layout element', (
   // ...while the legitimate structure and classes are kept.
   assert.match(safe, /class="canvas"/);
   assert.match(safe, /class="x"/);
+});
+
+test('content-type layouts render their structured data', () => {
+  const checklist = buildTemplate({
+    ...BRAND,
+    template: 'checklist-tips',
+    bullets: ['Clear the gutters', 'Check flashing seals', 'Look for lifted tiles'],
+  });
+  assert.match(checklist.html, /Clear the gutters/);
+  assert.match(checklist.html, /class="marker">1</);
+  assert.match(checklist.html, /class="marker">3</);
+
+  const stat = buildTemplate({
+    ...BRAND, template: 'stat-proof', stat: { value: '92%', label: 'first-visit fixes' },
+  });
+  assert.match(stat.html, /class="stat-value">92%</);
+  assert.match(stat.html, /first-visit fixes/);
+
+  const comparison = buildTemplate({
+    ...BRAND,
+    template: 'split-comparison',
+    comparison: {
+      leftTitle: 'Quick patch', leftItems: ['Cheaper today'],
+      rightTitle: 'Proper repair', rightItems: ['Fixes the cause'],
+    },
+  });
+  assert.match(comparison.html, /Quick patch/);
+  assert.match(comparison.html, /Proper repair/);
+  assert.match(comparison.html, /class="versus">vs</);
+});
+
+test('content-type layouts fall back cleanly when structured data is missing', () => {
+  // A generation miss must degrade to a plain card, never an empty frame.
+  for (const template of ['checklist-tips', 'stat-proof', 'split-comparison']) {
+    const built = buildTemplate({ ...BRAND, template });
+    assertBalancedHtml(built.html, `${template} (no structured data)`);
+    assert.match(built.html, /Roof repairs done right, first time/);
+    // The empty structures are omitted entirely.
+    assert.equal(built.html.includes('class="list"'), false);
+    assert.equal(built.html.includes('class="stat"'), false);
+    assert.equal(built.html.includes('class="compare"'), false);
+    // ...and the subheadline stands in for them.
+    assert.match(built.html, /class="subheadline"/);
+  }
+});
+
+test('structured visual data is escaped, clamped and count-limited', () => {
+  const built = buildTemplate({
+    ...BRAND,
+    template: 'checklist-tips',
+    bullets: ['<script>alert(1)</script>', 'x'.repeat(200), 'ok', 'four', 'five', 'six'],
+  });
+  assert.equal(built.html.includes('<script'), false);
+  assert.match(built.html, /&lt;script&gt;/);
+  assert.equal(/x{65}/.test(built.html), false, 'a bullet must be clamped');
+  assert.equal(built.html.includes('>five<'), false, 'bullets must be count-limited');
+  assertBalancedHtml(built.html, 'hostile bullets');
+
+  const stat = buildTemplate({
+    ...BRAND, template: 'stat-proof',
+    stat: { value: '"><img src=x>', label: '<b>label</b>' },
+  });
+  // The only <img> may be the business's own validated logo — the hostile one
+  // in the stat value must not have become a second tag.
+  const imgs = stat.html.match(/<img[^>]*>/g) || [];
+  assert.equal(imgs.length, 1);
+  assert.match(imgs[0], /src="https:\/\/cdn\.example\.com\/logo\.png"/);
+  assert.equal(stat.html.includes('<b>'), false);
+  assert.match(stat.html, /&lt;b&gt;label/);
+});
+
+test('list layouts survive sanitization (their lists are real lists)', () => {
+  // ul/li must be in the allow-list: discarding them keeps the text but
+  // silently flattens the layout, which no error would reveal.
+  const checklist = sanitizeForTest(
+    buildTemplate({ ...BRAND, template: 'checklist-tips', bullets: ['One', 'Two'] }).html,
+  );
+  assert.match(checklist, /<ul class="list">/);
+  assert.match(checklist, /<li class="row">/);
+
+  const comparison = sanitizeForTest(
+    buildTemplate({
+      ...BRAND, template: 'split-comparison',
+      comparison: { leftTitle: 'A', leftItems: ['x'], rightTitle: 'B', rightItems: ['y'] },
+    }).html,
+  );
+  assert.match(comparison, /<ul class="col-list">/);
+  assert.match(comparison, /<li class="col-item">/);
+});
+
+test('brand-coloured text stays readable on the canvas in both modes', () => {
+  // A dark navy brand on a dark canvas would otherwise vanish.
+  for (const backgroundStyle of ['light', 'dark']) {
+    for (const primaryColor of ['#123456', '#00ff00', '#ffffff', '#0b0b0b']) {
+      const built = buildTemplate({
+        ...BRAND, primaryColor, backgroundStyle, template: 'stat-proof',
+        stat: { value: '92%', label: 'fixes' },
+      });
+      const wash = /\.tpl-stat-proof \{ background: (#[0-9a-f]{6})/.exec(built.css);
+      const statColour = /\.stat-value \{[^}]*color: (#[0-9a-f]{6})/.exec(built.css);
+      assert.ok(wash && statColour, `could not read colours for ${primaryColor}/${backgroundStyle}`);
+      const ratio = contrastRatio(statColour[1], wash[1]);
+      assert.ok(ratio >= 4.5, `stat/wash contrast ${ratio.toFixed(2)} for ${primaryColor} ${backgroundStyle}`);
+    }
+  }
 });
 
 test('re-exported validators behave as the templates rely on', () => {

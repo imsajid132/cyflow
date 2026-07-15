@@ -459,6 +459,85 @@ legend { padding: 0; }
 .cal-pill-queued { background: var(--ok-bg); color: var(--ok-fg); border-color: var(--ok-bd); }
 .cal-pill-draft { background: var(--ink-100); color: var(--ink-600); border-color: var(--ink-200); }
 
+/* --- planner board -------------------------------------------------------- */
+.planner-bulk {
+  position: sticky; top: 0; z-index: 20;
+  padding: .6rem .75rem; margin-bottom: .75rem;
+  background: rgba(255, 255, 255, .92); backdrop-filter: blur(6px);
+  border: 1px solid var(--ink-200); border-radius: var(--radius);
+}
+.planner-day { margin-bottom: 1.25rem; }
+.planner-day-head {
+  display: flex; align-items: baseline; gap: .6rem;
+  padding-bottom: .45rem; margin-bottom: .7rem;
+  border-bottom: 1px solid var(--ink-200);
+}
+.planner-day-title { font-size: .95rem; font-weight: 700; color: var(--ink-900); letter-spacing: -.01em; }
+.planner-day-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: .75rem; }
+
+.planner-card {
+  display: flex; flex-direction: column; gap: .55rem;
+  padding: .8rem; background: #fff;
+  border: 1px solid var(--ink-200); border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--speed), box-shadow var(--speed);
+}
+.planner-card:hover { border-color: var(--brand-500); box-shadow: var(--shadow-md); }
+.planner-card[data-status="approved"] { border-left: 3px solid var(--ok-fg); }
+.planner-card[data-status="queued"] { border-left: 3px solid var(--brand-600); }
+.planner-card[data-status="needs_review"] { border-left: 3px solid var(--warn-fg); }
+/* Rejected cards stay readable but visibly out of the running. */
+.planner-card.is-rejected { opacity: .55; }
+.planner-card.is-rejected .planner-thumb { filter: grayscale(1); }
+
+.planner-card-head { display: flex; align-items: center; gap: .5rem; }
+.card-select { width: 16px; height: 16px; flex: 0 0 16px; accent-color: var(--brand-600); }
+.planner-time { font-size: .78rem; font-weight: 700; color: var(--ink-600); }
+.planner-card-body { display: flex; gap: .7rem; align-items: flex-start; }
+.planner-thumb {
+  width: 84px; height: 84px; flex: 0 0 84px;
+  border-radius: var(--radius-sm); object-fit: cover; background: var(--ink-100);
+}
+.planner-thumb-empty {
+  display: flex; align-items: center; justify-content: center;
+  border: 1px dashed var(--ink-200);
+}
+.thumb-note { font-size: .65rem; color: var(--ink-400); }
+.planner-card-text { min-width: 0; display: flex; flex-direction: column; gap: .3rem; }
+.planner-template { font-size: .7rem; color: var(--ink-500); }
+.planner-headline { font-size: .88rem; font-weight: 700; color: var(--ink-900); line-height: 1.25; }
+.planner-caption { font-size: .78rem; color: var(--ink-500); line-height: 1.4; }
+.planner-meta { font-size: .7rem; color: var(--ink-400); }
+.planner-warning {
+  font-size: .72rem; padding: .4rem .55rem; border-radius: var(--radius-sm);
+  background: var(--warn-bg); color: var(--warn-fg); border: 1px solid var(--warn-bd);
+}
+.planner-card-actions { display: flex; gap: .35rem; flex-wrap: wrap; }
+
+/* --- edit drawer ---------------------------------------------------------- */
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 60;
+  width: min(560px, 100vw);
+  display: flex; flex-direction: column;
+  background: #fff; border-left: 1px solid var(--ink-200);
+  box-shadow: var(--shadow-lg);
+}
+.drawer-head {
+  display: flex; align-items: center; gap: .5rem;
+  padding: .9rem 1rem; border-bottom: 1px solid var(--ink-200);
+}
+.drawer-body { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: .7rem; }
+.drawer-foot {
+  display: flex; align-items: center; gap: .4rem; flex-wrap: wrap;
+  padding: .8rem 1rem; border-top: 1px solid var(--ink-200); background: var(--ink-50);
+}
+.drawer-preview {
+  width: 100%; max-width: 320px; aspect-ratio: 1 / 1; align-self: center;
+  border-radius: var(--radius); border: 1px solid var(--ink-200);
+  object-fit: contain; background: var(--ink-100);
+}
+.drawer-preview-empty { display: flex; align-items: center; justify-content: center; border-style: dashed; }
+
 /* --- responsive ----------------------------------------------------------- */
 @media (max-width: 900px) {
   .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -480,4 +559,8 @@ legend { padding: 0; }
   .scrim { display: block; position: fixed; inset: 0; z-index: 40; background: rgba(15, 23, 42, .45); }
   .scrim[hidden] { display: none; }
   .cal-day { min-height: 60px; }
+
+  /* The drawer becomes a full-height sheet rather than a side panel. */
+  .drawer { width: 100vw; }
+  .planner-day-grid { grid-template-columns: minmax(0, 1fr); }
 }

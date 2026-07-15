@@ -219,6 +219,26 @@ export const businessProfileLimiter = limiter({
   message: 'Too many requests, please slow down',
 });
 
+/**
+ * Generating a plan is the most expensive action in the app: one OpenAI call
+ * and one HCTI render per planned post. This is deliberately much stricter than
+ * a single-post generation.
+ */
+export const plannerGenerateLimiter = limiter({
+  windowMs: 60 * 60 * 1000,
+  max: 6,
+  keyGenerator: userOrIpKey,
+  message: 'Too many plans generated. Please wait before generating another.',
+});
+
+/** Ordinary planner board actions: editing, approving, queueing. */
+export const plannerWriteLimiter = limiter({
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  keyGenerator: userOrIpKey,
+  message: 'Too many requests, please slow down',
+});
+
 export default {
   createRateLimiter,
   generalApiLimiter,
@@ -241,4 +261,6 @@ export default {
   mediaProxyLimiter,
   websiteAnalysisLimiter,
   businessProfileLimiter,
+  plannerGenerateLimiter,
+  plannerWriteLimiter,
 };

@@ -125,6 +125,32 @@ export function inkOn(background, darkInk, lightInk = '#ffffff') {
 }
 
 /**
+ * Nudge a colour's lightness until it is readable ON a given background.
+ *
+ * Brand-coloured text (eyebrows, the big stat figure) sits directly on the
+ * canvas. A dark navy brand on a dark canvas is invisible, so the shade — not
+ * the hue — is adjusted until it passes. The hue is what the business
+ * recognizes; the lightness is ours to solve with.
+ */
+export function ensureReadableOn(hex, background, target = AA_CONTRAST) {
+  if (contrastRatio(hex, background) >= target) return hex;
+  const { h, s, l } = hexToHsl(hex);
+  // Move away from the background's lightness first — that is the direction
+  // that can actually gain contrast.
+  const bgLight = luminance(background) > 0.4;
+  const order = bgLight ? [-1, 1] : [1, -1];
+  for (let delta = 1; delta <= 100; delta += 1) {
+    for (const direction of order) {
+      const candidate = hslToHex(h, s, l + direction * delta);
+      const next = l + direction * delta;
+      if (next < 0 || next > 100) continue;
+      if (contrastRatio(candidate, background) >= target) return candidate;
+    }
+  }
+  return bgLight ? hslToHex(h, s, 12) : hslToHex(h, s, 94);
+}
+
+/**
  * Nudge a fill's lightness until some ink can sit on it at AA contrast.
  *
  * A brand colour like #ff0088 leaves neither white nor near-black readable at
@@ -229,6 +255,11 @@ export function buildPalette({ primaryColor, secondaryColor, accentColor, backgr
     ink,
     muted,
     hairline,
+    // Brand-coloured TEXT sitting on the canvas (eyebrow, the big stat figure).
+    // The fill shades are chosen for text-on-them; these are chosen for
+    // them-on-the-canvas, which is the opposite problem.
+    brandOnWash: ensureReadableOn(brand, wash),
+    accentOnWash: ensureReadableOn(accent, wash),
     // Chosen for the fill, not the page mode.
     onBrand: inkOn(brand, fillInk),
     onAccent: inkOn(accent, fillInk),
@@ -353,6 +384,7 @@ export default {
   contrastRatio,
   inkOn,
   ensureReadableFill,
+  ensureReadableOn,
   hexToHsl,
   hslToHex,
   luminance,

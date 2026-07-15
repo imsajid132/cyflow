@@ -34,9 +34,11 @@ export function baseCss({ width, height, palette: c, fonts, type, scope }) {
     ${s} .content { position: relative; z-index: 3; width: 100%; height: 100%; display: flex; flex-direction: column; }
 
     /* --- type roles ------------------------------------------------------ */
+    /* Brand-coloured text on the canvas uses the wash-readable shade: the raw
+       brand can be invisible against a dark canvas. */
     ${s} .eyebrow {
       font-family: ${fonts.utility}; font-size: 22px; font-weight: 700;
-      letter-spacing: .22em; text-transform: uppercase; color: ${c.brand};
+      letter-spacing: .22em; text-transform: uppercase; color: ${c.brandOnWash};
     }
     ${s} .headline {
       font-family: ${fonts.display}; font-size: ${type.headline.size}px;
@@ -57,8 +59,11 @@ export function baseCss({ width, height, palette: c, fonts, type, scope }) {
     ${s} .logo-right { object-position: right center; }
 
     /* --- CTA ------------------------------------------------------------- */
+    /* flex-shrink:0 + nowrap: in a row beside the footer lockup the CTA must
+       keep its shape and let the footer wrap instead. */
     ${s} .cta {
       display: inline-flex; align-items: center; align-self: flex-start;
+      flex: 0 0 auto; white-space: nowrap;
       padding: 22px 42px; border-radius: 999px;
       background: ${c.accent}; color: ${c.onAccent};
       font-family: ${fonts.utility}; font-size: 28px; font-weight: 700; letter-spacing: .01em;

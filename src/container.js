@@ -17,7 +17,12 @@ import * as postRepositoryModule from './repositories/postRepository.js';
 import * as mediaAssetRepositoryModule from './repositories/mediaAssetRepository.js';
 import * as apiUsageRepositoryModule from './repositories/apiUsageRepository.js';
 import * as businessProfileRepositoryModule from './repositories/businessProfileRepository.js';
+import * as plannerPreferenceRepositoryModule from './repositories/plannerPreferenceRepository.js';
+import * as plannerRunRepositoryModule from './repositories/plannerRunRepository.js';
 import { createBusinessProfileService } from './services/businessProfileService.js';
+import { createPlannerService } from './services/plannerService.js';
+import { contentUniquenessService as realUniquenessService } from './services/contentUniquenessService.js';
+import { createPlannerController } from './controllers/plannerController.js';
 import { websiteAnalysisService as realWebsiteAnalysisService } from './services/websiteAnalysisService.js';
 import { createBusinessProfileController } from './controllers/businessProfileController.js';
 import { createLoggingService } from './services/loggingService.js';
@@ -119,9 +124,32 @@ export function buildContainer(overrides = {}) {
       logging,
     });
 
+  // Phase 4.7: auto content planner.
+  const plannerPreferences = overrides.plannerPreferenceRepository ?? plannerPreferenceRepositoryModule;
+  const plannerRuns = overrides.plannerRunRepository ?? plannerRunRepositoryModule;
+  const uniquenessService = overrides.contentUniquenessService ?? realUniquenessService;
+  const plannerService =
+    overrides.plannerService ??
+    createPlannerService({
+      preferences: plannerPreferences,
+      runs: plannerRuns,
+      businessProfiles,
+      socialAccounts,
+      posts: postRepo,
+      mediaRepository: mediaRepo,
+      apiUsage,
+      openaiContentService: overrides.openaiContentService,
+      socialImageService: overrides.socialImageService,
+      mediaAssetService,
+      uniqueness: uniquenessService,
+      logging,
+      withTransaction,
+    });
+
   const postController = createPostController({ postService });
   const mediaController = createMediaController({ mediaAssetService });
   const businessProfileController = createBusinessProfileController({ businessProfileService });
+  const plannerController = createPlannerController({ plannerService });
 
   const { requireAuth, guestOnly, attachUser } = createAuthMiddleware({ users });
 
@@ -146,6 +174,10 @@ export function buildContainer(overrides = {}) {
     businessProfileRepository: businessProfiles,
     websiteAnalysisService,
     businessProfileService,
+    plannerPreferenceRepository: plannerPreferences,
+    plannerRunRepository: plannerRuns,
+    contentUniquenessService: uniquenessService,
+    plannerService,
     authController,
     integrationController,
     oauthController,
@@ -154,6 +186,7 @@ export function buildContainer(overrides = {}) {
     postController,
     mediaController,
     businessProfileController,
+    plannerController,
     requireAuth,
     guestOnly,
     attachUser,

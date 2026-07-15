@@ -373,6 +373,115 @@ CREATE TABLE IF NOT EXISTS `data_deletion_requests` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------------------------------
+-- L. planner_preferences  (one row per user: how their weekly plan is built)
+--    `autopilot_enabled` / `next_plan_generation_at` are PREPARED for a future
+--    scheduler sweep. Nothing reads them yet and nothing publishes.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `planner_preferences` (
+  `id`                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id`                 BIGINT UNSIGNED NOT NULL,
+  `cadence`                 VARCHAR(32)     NOT NULL DEFAULT 'every_day',
+  `weekdays_json`           JSON            NULL DEFAULT NULL,
+  `times_json`              JSON            NULL DEFAULT NULL,
+  `platforms_json`          JSON            NULL DEFAULT NULL,
+  `goals_json`              JSON            NULL DEFAULT NULL,
+  `content_mix_json`        JSON            NULL DEFAULT NULL,
+  `tone`                    VARCHAR(32)     NOT NULL DEFAULT 'professional',
+  `cta_mode`                VARCHAR(32)     NOT NULL DEFAULT 'some',
+  `approval_mode`           VARCHAR(32)     NOT NULL DEFAULT 'require_approval',
+  `default_plan_length`     INT UNSIGNED    NOT NULL DEFAULT 7,
+  `timezone`                VARCHAR(64)     NULL DEFAULT NULL,
+  `autopilot_enabled`       TINYINT(1)      NOT NULL DEFAULT 0,
+  `next_plan_generation_at` DATETIME        NULL DEFAULT NULL,
+  `created_at`              DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`              DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_planner_preferences_user` (`user_id`),
+  KEY `idx_planner_preferences_autopilot` (`autopilot_enabled`, `next_plan_generation_at`),
+  CONSTRAINT `fk_planner_preferences_user`
+    FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------------------------------
+-- M. planner_runs  (one generated plan = a batch of planned posts)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `planner_runs` (
+  `id`                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id`             BIGINT UNSIGNED NOT NULL,
+  `business_profile_id` BIGINT UNSIGNED NULL DEFAULT NULL,
+  `name`                VARCHAR(160)    NULL DEFAULT NULL,
+  `status`              ENUM('generating','review','partially_queued','queued','archived','failed')
+                                        NOT NULL DEFAULT 'generating',
+  `start_date`          DATE            NULL DEFAULT NULL,
+  `end_date`            DATE            NULL DEFAULT NULL,
+  `timezone`            VARCHAR(64)     NULL DEFAULT NULL,
+  `plan_length`         INT UNSIGNED    NOT NULL DEFAULT 7,
+  `settings_json`       JSON            NULL DEFAULT NULL,
+  `generation_notes`    VARCHAR(2000)   NULL DEFAULT NULL,
+  `created_at`          DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`          DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_planner_runs_user_created` (`user_id`, `created_at`),
+  KEY `idx_planner_runs_user_status` (`user_id`, `status`),
+  CONSTRAINT `fk_planner_runs_user`
+    FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_planner_runs_business_profile`
+    FOREIGN KEY (`business_profile_id`) REFERENCES `business_profiles` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------------------------------
+-- N. planner_run_items  (one planned post inside a run)
+--    post_id is ON DELETE SET NULL both ways: deleting a planner item never
+--    deletes the approved post it produced, and deleting the post leaves the
+--    item as a history record.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `planner_run_items` (
+  `id`                       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `planner_run_id`           BIGINT UNSIGNED NOT NULL,
+  `user_id`                  BIGINT UNSIGNED NOT NULL,
+  `post_id`                  BIGINT UNSIGNED NULL DEFAULT NULL,
+  `position`                 INT UNSIGNED    NOT NULL DEFAULT 0,
+  `scheduled_for`            DATETIME        NULL DEFAULT NULL,
+  `original_timezone`        VARCHAR(64)     NULL DEFAULT NULL,
+  `content_type`             VARCHAR(32)     NOT NULL DEFAULT 'educational',
+  `goal`                     VARCHAR(32)     NULL DEFAULT NULL,
+  `platform_targets_json`    JSON            NULL DEFAULT NULL,
+  `template_key`             VARCHAR(128)    NULL DEFAULT NULL,
+  `aspect_ratio`             VARCHAR(32)     NULL DEFAULT NULL,
+  `background_style`         VARCHAR(64)     NULL DEFAULT NULL,
+  `generated_headline`       VARCHAR(255)    NULL DEFAULT NULL,
+  `generated_subheadline`    VARCHAR(255)    NULL DEFAULT NULL,
+  `generated_summary`        VARCHAR(500)    NULL DEFAULT NULL,
+  `generated_caption`        TEXT            NULL DEFAULT NULL,
+  `generated_hashtags_json`  JSON            NULL DEFAULT NULL,
+  `generated_alt_text`       VARCHAR(500)    NULL DEFAULT NULL,
+  `brief`                    VARCHAR(2000)   NULL DEFAULT NULL,
+  `media_asset_id`           BIGINT UNSIGNED NULL DEFAULT NULL,
+  `approval_status`          ENUM('draft','needs_review','approved','queued','rejected')
+                                             NOT NULL DEFAULT 'needs_review',
+  `duplication_score`        DECIMAL(4,3)    NOT NULL DEFAULT 0.000,
+  `duplication_notes`        VARCHAR(500)    NULL DEFAULT NULL,
+  `regeneration_count`       INT UNSIGNED    NOT NULL DEFAULT 0,
+  `content_fingerprint_json` JSON            NULL DEFAULT NULL,
+  `edited_fields_json`       JSON            NULL DEFAULT NULL,
+  `created_at`               DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`               DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_planner_items_run_position` (`planner_run_id`, `position`),
+  KEY `idx_planner_items_run_status` (`planner_run_id`, `approval_status`),
+  KEY `idx_planner_items_user_created` (`user_id`, `created_at`),
+  KEY `idx_planner_items_post` (`post_id`),
+  CONSTRAINT `fk_planner_items_run`
+    FOREIGN KEY (`planner_run_id`) REFERENCES `planner_runs` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_planner_items_user`
+    FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_planner_items_post`
+    FOREIGN KEY (`post_id`) REFERENCES `scheduled_posts` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_planner_items_media_asset`
+    FOREIGN KEY (`media_asset_id`) REFERENCES `media_assets` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------------------------------
 -- J. sessions  (server-side session store for express-mysql-session)
 --    Matches the library's default schema (utf8mb4_bin session_id).
 -- -----------------------------------------------------------------------------

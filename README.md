@@ -3,9 +3,14 @@
 A web-based platform to **generate**, **schedule**, and **automatically publish**
 social media content — captions and images — to your connected accounts.
 
+> **Status: Phase 4.7 — auto content planner.** Adds the primary workflow:
+> generate a week of posts, review them on a board, edit or regenerate any of
+> them, approve, and queue. Includes a duplicate-prevention engine and three
+> content-type image templates.
+>
 > **Status: Phase 4.6 — premium branded post design.** Rebuilds the image
 > templates as a real design system: a derived brand palette, a length-aware
-> type scale, and **seven** composed layouts.
+> type scale, and composed layouts.
 >
 > **Status: Phase 4.5b — multi-page UX + branded images.** Replaces the single
 > dashboard page with a multi-page app (15 directly-loadable routes), a shared
@@ -75,6 +80,103 @@ Enforced by `tests/appShell.test.js`, which scans every frontend module:
 - Raw crawler, provider, OpenAI, and HCTI errors are never displayed — pages
   show safe, already-classified messages only.
 - Nothing from an analyzed website is loaded as script, SVG, HTML, or a font.
+
+## Phase 4.7 — auto content planner
+
+The planner is the primary workflow. Manual **Create Post** still works
+unchanged; it is now the exception rather than the default path.
+
+### The flow
+
+```
+preferences → schedule → briefs → captions → duplication check → images
+   → weekly board → edit / regenerate → approve → queue (future publishing)
+```
+
+1. `/planner` — dashboard: current plan, settings summary, setup blockers.
+2. `/planner/new` — wizard: length, cadence, days, times, platforms, approval.
+3. `/planner/week` — the board: every post grouped by day, with an edit drawer.
+4. `/planner/history` — every plan generated.
+
+Planner preferences (cadence, times, goals, content mix, tone, CTA mode,
+approval mode, autopilot) live in **Settings → Auto planner**.
+
+### How variation is engineered
+
+Repetition is prevented before it is detected. Rather than asking a model for
+"7 different posts" and hoping, the plan is dealt out in advance
+(`plannerBriefService`): content types are allocated from the user's weighted
+mix by largest-remainder and then spread so the same type never lands twice in a
+row; goals, services, angles, tone and CTA placement rotate; and the image
+template alternates within a content type.
+
+### Duplicate prevention
+
+`contentUniquenessService` scores every candidate against both the current batch
+and the user's recent history, across independent axes:
+
+| Group | Axes | Behaviour |
+| --- | --- | --- |
+| **Strong** | caption trigrams, headline, opening line | Any one alone can fail a post — an identical headline must not hide behind five fresh axes |
+| **Soft** | topic (type+goal+service), hashtags, CTA | Reuse that is often *correct*; these only add up, and no single one can flag a post |
+
+A business is *supposed* to reuse its CTA and hashtags — flagging that would
+train users to ignore warnings. So soft signals only warn in combination, and
+the note names the **biggest contributor first**.
+
+Scores at/above `REGENERATE` (0.62) are regenerated automatically (up to 2
+attempts); if still repetitive, the **freshest** attempt is kept and the card is
+flagged for review rather than silently shipped. Scores at/above `WARN` (0.45)
+are flagged. Only derived token sets are persisted — never the caption text.
+
+### Template selection by content type
+
+| Content type | Template |
+| --- | --- |
+| `tips` | Checklist Tips (renders numbered bullets) |
+| `proof` | Stat Proof (one large figure) |
+| `comparison` | Split Comparison (two columns) |
+| `authority` / `educational` | Clean Editorial Premium |
+| `cta` | Geometric Conversion Post |
+| `promotional` | Bold Service Promo |
+| `local` | Local Business Authority |
+
+Each has an alternate so consecutive posts of the same type differ visually.
+When a layout's structured data is missing, it falls back to a plain card rather
+than rendering an empty frame.
+
+**On invented facts:** a `proof` post asks the model for a figure that appears
+in the brief and to return an **empty string** when the brief states none. No
+statistic, price, or guarantee is fabricated to fill a template.
+
+### Editing and regeneration
+
+Every field a human touches is recorded in `editedFields`, and regeneration
+refuses to overwrite those fields — "regenerate the image" never discards a
+rewritten caption. Regenerating a caption *does* require an explicit `force`
+when the caption was edited, and says so. Only fields whose values **actually
+changed** are marked as edited, because the drawer submits the whole form.
+
+### Queue integration
+
+Approving and queueing creates the same `scheduled_posts` rows the manual flow
+creates, with targets, captions and the rendered image, marked `queued` for a
+future publishing phase. **Nothing in the planner calls a provider endpoint.**
+Deleting a plan never deletes posts it already queued (`post_id` is
+`ON DELETE SET NULL`).
+
+### Autopilot: prepared, not live
+
+`autopilot_enabled` and `next_plan_generation_at` are stored so a scheduler can
+be wired up later without another migration. **No job reads them today**, and
+autopilot would only ever trigger *generation* — never publishing. The UI says
+so.
+
+### Migration
+
+`database/migrations/007_auto_content_planner.sql` — additive only. Adds
+`planner_preferences`, `planner_runs`, `planner_run_items`. Existing tables are
+untouched.
 
 ## Phase 4.6 — premium branded post design
 
@@ -626,6 +728,8 @@ cyflow-social/
 │   ├── routes/               # health, csrf, auth, integration, oauth, socialAccount, post, media
 │   ├── services/             # encryption, auth, hcti, logging, oauth, openaiContent, socialImage, mediaAsset, post, threadsCallback
 │   ├── templates/            # brandKit, baseStyles, parts, layouts/ (trusted HTML/CSS)
+│   ├── (planner)             # services: plannerService, plannerBriefService,
+│   │                         #   plannerScheduleService, contentUniquenessService
 │   ├── validators/           # auth, integration, socialAccount, post, threadsCallback
 │   ├── scheduler/            # runOnce.js (reports queue; does NOT publish)
 │   └── utils/                # errors, redaction, validation, time, session, providerHttp, oauthErrors, signedRequest, asyncHandler, apiResponse

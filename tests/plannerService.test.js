@@ -1,0 +1,676 @@
+// Phase 4.7: plan generation, approval, edit preservation, queue integration.
+import './helpers/setupEnv.js';
+
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { createPlannerService } from '../src/services/plannerService.js';
+import { createMediaAssetService } from '../src/services/mediaAssetService.js';
+import { contentUniquenessService } from '../src/services/contentUniquenessService.js';
+import { PLANNER_ITEM_STATUS, PLANNER_RUN_STATUS } from '../src/config/constants.js';
+import {
+  createFakeSocialAccountRepository,
+  createFakePostRepository,
+  createFakeMediaAssetRepository,
+  createFakeApiUsageRepository,
+  createFakeBusinessProfileRepository,
+  createFakePlannerPreferenceRepository,
+  createFakePlannerRunRepository,
+  createFakePlannerOpenAI,
+  createFakeSocialImageService,
+  fakeWithTransaction,
+} from './helpers/fakes.js';
+
+const noopLogging = { record: async () => {} };
+const USER = '5';
+const NOW = new Date('2026-07-13T06:00:00Z');
+
+/** An image service that reports HCTI as ready (or not). */
+function fakeImages({ ready = true } = {}) {
+  const base = createFakeSocialImageService();
+  return { ...base, isReadyForUser: async () => ready };
+}
+
+function build(extra = {}) {
+  const socialAccounts = createFakeSocialAccountRepository();
+  const posts = createFakePostRepository({ socialAccounts });
+  const media = createFakeMediaAssetRepository();
+  const apiUsage = extra.apiUsage ?? createFakeApiUsageRepository();
+  const businessProfiles = createFakeBusinessProfileRepository();
+  const preferences = createFakePlannerPreferenceRepository();
+  const runs = createFakePlannerRunRepository();
+  const openai = extra.openai ?? createFakePlannerOpenAI();
+  const images = extra.images ?? fakeImages();
+  const mediaAssetService = createMediaAssetService({ mediaRepository: media });
+
+  const svc = createPlannerService({
+    preferences,
+    runs,
+    businessProfiles,
+    socialAccounts,
+    posts,
+    mediaRepository: media,
+    apiUsage,
+    openaiContentService: openai,
+    socialImageService: images,
+    mediaAssetService,
+    uniqueness: contentUniquenessService,
+    logging: noopLogging,
+    withTransaction: fakeWithTransaction,
+    now: () => NOW,
+  });
+
+  return { svc, socialAccounts, posts, media, apiUsage, businessProfiles, preferences, runs, openai, images };
+}
+
+async function seedAccount(socialAccounts, { accountType = 'threads_profile', provider = 'threads', id = 'acc_1' } = {}) {
+  return socialAccounts.upsertSocialAccount({
+    userId: USER,
+    provider,
+    accountType,
+    providerAccountId: id,
+    displayName: 'My Account',
+    username: 'acct',
+    encryptedAccessToken: 'v1:x',
+    scopes: [],
+    providerMetadata: {},
+    status: 'active',
+  });
+}
+
+async function seedProfile(businessProfiles) {
+  return businessProfiles.createOrUpdateProfile(USER, {
+    businessName: 'Acme Roofing',
+    businessCategory: 'Roofing contractor',
+    services: ['Roof repair', 'Gutter cleaning'],
+    defaultCallToAction: 'Book a free quote',
+    primaryColor: '#123456',
+    logoUrl: 'https://cdn.example.com/logo.png',
+    websiteUrl: 'https://acme-roofing.com',
+  });
+}
+
+/** Generate a standard 7-day plan. */
+async function generate(ctx, options = {}) {
+  await seedAccount(ctx.socialAccounts);
+  await seedProfile(ctx.businessProfiles);
+  return ctx.svc.generatePlan(USER, {
+    startDate: '2026-07-14', planLength: 7, cadence: 'every_day',
+    times: ['09:00'], timezone: 'UTC', ...options,
+  });
+}
+
+// --- preferences ------------------------------------------------------------
+
+test('preferences fall back to documented defaults before anything is saved', async () => {
+  const { svc } = build();
+  const prefs = await svc.getPreferences(USER);
+  assert.equal(prefs.isDefault, true);
+  assert.equal(prefs.cadence, 'every_day');
+  assert.equal(prefs.approvalMode, 'require_approval');
+  assert.equal(prefs.defaultPlanLength, 7);
+  assert.ok(Array.isArray(prefs.times) && prefs.times.length > 0);
+});
+
+test('preferences save and load round-trip', async () => {
+  const { svc } = build();
+  const saved = await svc.savePreferences(USER, {
+    cadence: 'selected_weekdays',
+    weekdays: [2, 4],
+    times: ['08:30', '17:00'],
+    platforms: ['threads'],
+    goals: ['awareness', 'offers'],
+    contentMix: { educational: 2, tips: 1 },
+    tone: 'confident',
+    ctaMode: 'light',
+    approvalMode: 'auto_queue',
+    defaultPlanLength: 5,
+    timezone: 'Europe/London',
+  });
+  assert.equal(saved.cadence, 'selected_weekdays');
+  assert.deepEqual(saved.weekdays, [2, 4]);
+  assert.deepEqual(saved.times, ['08:30', '17:00']);
+  assert.equal(saved.isDefault, false);
+
+  const loaded = await svc.getPreferences(USER);
+  assert.equal(loaded.tone, 'confident');
+  assert.equal(loaded.ctaMode, 'light');
+  assert.equal(loaded.approvalMode, 'auto_queue');
+  assert.equal(loaded.defaultPlanLength, 5);
+  assert.equal(loaded.timezone, 'Europe/London');
+  assert.deepEqual(loaded.goals, ['awareness', 'offers']);
+});
+
+test('invalid preferences are rejected field by field', async () => {
+  const { svc } = build();
+  const cases = [
+    [{ cadence: 'hourly' }, 'cadence'],
+    [{ weekdays: [0, 9] }, 'weekdays'],
+    [{ times: ['9am'] }, 'times'],
+    [{ times: ['01:00', '02:00', '03:00', '04:00', '05:00'] }, 'times'],
+    [{ platforms: ['tiktok'] }, 'platforms'],
+    [{ goals: ['world_domination'] }, 'goals'],
+    [{ contentMix: { nonsense: 1 } }, 'contentMix'],
+    [{ contentMix: { tips: 99 } }, 'contentMix'],
+    [{ tone: 'shouty' }, 'tone'],
+    [{ ctaMode: 'never' }, 'ctaMode'],
+    [{ approvalMode: 'yolo' }, 'approvalMode'],
+    [{ defaultPlanLength: 90 }, 'defaultPlanLength'],
+    [{ timezone: 'Not/AZone' }, 'timezone'],
+  ];
+  for (const [patch, field] of cases) {
+    await assert.rejects(
+      () => svc.savePreferences(USER, patch),
+      (err) => {
+        assert.equal(err.statusCode, 400);
+        assert.ok(err.details?.some((d) => d.field === field), `expected an error on ${field}`);
+        return true;
+      },
+      `${JSON.stringify(patch)} should be rejected`,
+    );
+  }
+});
+
+test('enabling autopilot schedules only a future GENERATION, never a publish', async () => {
+  const { svc, preferences } = build();
+  const saved = await svc.savePreferences(USER, { autopilotEnabled: true });
+  assert.equal(saved.autopilotEnabled, true);
+  assert.equal(saved.nextPlanGenerationAt, '2026-07-20 06:00:00');
+
+  // It is stored for a future scheduler; nothing consumes it yet.
+  const due = await preferences.listDueAutopilot('2026-07-21 00:00:00');
+  assert.equal(due.length, 1);
+
+  const off = await svc.savePreferences(USER, { autopilotEnabled: false });
+  assert.equal(off.nextPlanGenerationAt, null);
+});
+
+// --- generation -------------------------------------------------------------
+
+test('a 7-day plan generates one reviewable post per day', async () => {
+  const ctx = build();
+  const plan = await generate(ctx);
+
+  assert.equal(plan.items.length, 7);
+  assert.equal(plan.run.status, PLANNER_RUN_STATUS.REVIEW);
+  assert.equal(plan.run.startDate, '2026-07-14');
+  assert.equal(plan.run.endDate, '2026-07-20');
+  assert.equal(plan.counts.needs_review, 7);
+
+  for (const item of plan.items) {
+    assert.ok(item.caption, 'every item needs a caption');
+    assert.ok(item.headline, 'every item needs a headline');
+    assert.ok(item.scheduledFor, 'every item needs a slot');
+    assert.ok(item.templateKey, 'every item needs a template');
+    assert.deepEqual(item.platformTargets, ['threads']);
+    assert.equal(item.approvalStatus, PLANNER_ITEM_STATUS.NEEDS_REVIEW);
+  }
+  // Days are consecutive.
+  assert.deepEqual(plan.items.map((i) => i.scheduledFor.slice(0, 10)), [
+    '2026-07-14', '2026-07-15', '2026-07-16', '2026-07-17',
+    '2026-07-18', '2026-07-19', '2026-07-20',
+  ]);
+});
+
+test('no post in a batch has a duplicate caption or headline', async () => {
+  const ctx = build();
+  const plan = await generate(ctx);
+  const captions = plan.items.map((i) => i.caption);
+  const headlines = plan.items.map((i) => i.headline);
+  assert.equal(new Set(captions).size, captions.length, 'captions must be unique');
+  assert.equal(new Set(headlines).size, headlines.length, 'headlines must be unique');
+});
+
+test('a plan varies content type and template across the week', async () => {
+  const ctx = build();
+  const plan = await generate(ctx);
+  assert.ok(new Set(plan.items.map((i) => i.contentType)).size >= 4, 'content types must vary');
+  assert.ok(new Set(plan.items.map((i) => i.templateKey)).size >= 3, 'templates must vary');
+  // The spec's mapping holds for whichever types were dealt.
+  for (const item of plan.items) {
+    if (item.contentType === 'tips') assert.match(item.templateKey, /checklist-tips|modern-split/);
+    if (item.contentType === 'proof') assert.match(item.templateKey, /stat-proof|minimal-luxury/);
+    if (item.contentType === 'comparison') assert.match(item.templateKey, /split-comparison|modern-split/);
+  }
+});
+
+test('selected weekdays and multiple times are honoured', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, {
+    planLength: 7, cadence: 'selected_weekdays', weekdays: [2, 4], times: ['09:00', '17:00'],
+  });
+  // Tue + Thu across the window, two posts each day.
+  assert.equal(plan.items.length, 4);
+  const days = [...new Set(plan.items.map((i) => i.scheduledFor.slice(0, 10)))];
+  assert.deepEqual(days, ['2026-07-14', '2026-07-16']);
+  const times = plan.items.map((i) => i.scheduledFor.slice(11, 16));
+  assert.deepEqual(times, ['09:00', '17:00', '09:00', '17:00']);
+});
+
+test('only connected platforms are planned for', async () => {
+  const ctx = build();
+  await seedAccount(ctx.socialAccounts, { accountType: 'facebook_page', provider: 'meta', id: 'fb_1' });
+  await seedProfile(ctx.businessProfiles);
+  // Ask for all three; only the connected one is used.
+  const plan = await ctx.svc.generatePlan(USER, {
+    startDate: '2026-07-14', planLength: 3, times: ['09:00'], timezone: 'UTC',
+    platforms: ['facebook', 'instagram', 'threads'],
+  });
+  for (const item of plan.items) assert.deepEqual(item.platformTargets, ['facebook']);
+});
+
+test('generating with no connected account is refused with a useful message', async () => {
+  const ctx = build();
+  await seedProfile(ctx.businessProfiles);
+  await assert.rejects(
+    () => ctx.svc.generatePlan(USER, { startDate: '2026-07-14', planLength: 3 }),
+    (err) => {
+      assert.equal(err.statusCode, 400);
+      assert.match(err.message, /Connect at least one/);
+      return true;
+    },
+  );
+});
+
+test('a schedule with no upcoming slots is refused rather than generating nothing', async () => {
+  const ctx = build();
+  await seedAccount(ctx.socialAccounts);
+  await assert.rejects(
+    // Entirely in the past.
+    () => ctx.svc.generatePlan(USER, { startDate: '2020-01-01', planLength: 2, times: ['09:00'], timezone: 'UTC' }),
+    (err) => {
+      assert.match(err.message, /no upcoming slots/);
+      return true;
+    },
+  );
+});
+
+test('the daily generation limit is enforced before any spend', async () => {
+  const apiUsage = createFakeApiUsageRepository();
+  apiUsage.countUserOperationsSince = async () => 99; // limit is 100 in test env
+  const ctx = build({ apiUsage });
+  await seedAccount(ctx.socialAccounts);
+  await assert.rejects(
+    () => ctx.svc.generatePlan(USER, { startDate: '2026-07-14', planLength: 7, times: ['09:00'], timezone: 'UTC' }),
+    (err) => {
+      assert.equal(err.statusCode, 429);
+      return true;
+    },
+  );
+  // Nothing was generated.
+  assert.equal(ctx.openai._calls.length, 0);
+});
+
+test('a plan still generates when HCTI is unavailable, and says so', async () => {
+  const ctx = build({ images: fakeImages({ ready: false }) });
+  const plan = await generate(ctx, { planLength: 3 });
+  assert.equal(plan.items.length, 3);
+  for (const item of plan.items) {
+    assert.equal(item.mediaAssetId, null);
+    assert.ok(item.caption, 'captions are still generated');
+  }
+  assert.match(plan.run.generationNotes, /HCTI is not verified/);
+});
+
+test('images are attached when HCTI is ready', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 2 });
+  for (const item of plan.items) {
+    assert.ok(item.mediaAssetId, 'an image should be rendered');
+    assert.ok(item.media?.publicToken, 'the board needs a preview token');
+  }
+});
+
+test('auto-queue mode approves fresh posts but still holds flagged ones', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 3, approvalMode: 'auto_queue' });
+  assert.equal(plan.run.status, PLANNER_RUN_STATUS.QUEUED);
+  for (const item of plan.items) assert.equal(item.approvalStatus, PLANNER_ITEM_STATUS.APPROVED);
+});
+
+// --- duplicate prevention ---------------------------------------------------
+
+test('repetitive generation is regenerated, then flagged for review', async () => {
+  // This generator returns the SAME post every time, so regeneration cannot
+  // save it — the engine must flag rather than silently ship duplicates.
+  const openai = createFakePlannerOpenAI({ duplicate: true });
+  const ctx = build({ openai });
+  const plan = await generate(ctx, { planLength: 3 });
+
+  const later = plan.items.slice(1);
+  for (const item of later) {
+    assert.ok(item.duplicationScore > 0, 'a repeated post must score above zero');
+    assert.equal(item.approvalStatus, PLANNER_ITEM_STATUS.NEEDS_REVIEW);
+    assert.ok(item.duplicationNotes, 'the card must explain why it was flagged');
+    assert.match(item.duplicationNotes, /similar/i);
+    assert.ok(item.regenerationCount > 0, 'it must have been retried before being flagged');
+  }
+  assert.match(plan.run.generationNotes, /flagged for similarity review/);
+});
+
+test('a unique plan flags nothing and needs no regeneration', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 5 });
+  for (const item of plan.items) {
+    assert.equal(item.duplicationNotes, null);
+    assert.equal(item.regenerationCount, 0);
+  }
+  assert.equal(plan.run.generationNotes, null);
+});
+
+test('the duplication lookback compares against earlier plans, not just this batch', async () => {
+  const openai = createFakePlannerOpenAI({ duplicate: true });
+  const ctx = build({ openai });
+  await generate(ctx, { planLength: 1 });
+  // A second plan repeating the first must be caught even though its own batch
+  // is empty at that point.
+  const second = await ctx.svc.generatePlan(USER, {
+    startDate: '2026-07-21', planLength: 1, times: ['09:00'], timezone: 'UTC',
+  });
+  assert.ok(second.items[0].duplicationScore > 0);
+  assert.match(second.items[0].duplicationNotes, /recent post/);
+});
+
+test('the caption text is never persisted in the fingerprint', async () => {
+  const ctx = build();
+  await generate(ctx, { planLength: 2 });
+  for (const item of ctx.runs._items.values()) {
+    const serialized = JSON.stringify(item.fingerprint);
+    assert.equal(serialized.includes(item.caption), false, 'the fingerprint must not carry the caption');
+  }
+});
+
+// --- editing ----------------------------------------------------------------
+
+test('editing a caption records the edit and moves the card out of triage', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 2 });
+  const item = plan.items[0];
+
+  const edited = await ctx.svc.updateItem(USER, item.id, { caption: 'My own words entirely.' });
+  assert.equal(edited.caption, 'My own words entirely.');
+  assert.ok(edited.editedFields.includes('caption'));
+  assert.equal(edited.approvalStatus, PLANNER_ITEM_STATUS.DRAFT);
+});
+
+test('a whole-form save only marks the fields that actually changed', async () => {
+  /*
+   * The edit drawer submits every field. If re-sending an untouched headline
+   * counted as an edit, "regenerate the caption" would stop refreshing the
+   * headline — silently breaking the feature's core promise.
+   */
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 1 });
+  const item = plan.items[0];
+
+  const saved = await ctx.svc.updateItem(USER, item.id, {
+    caption: 'Only this changed.',
+    headline: item.headline, // unchanged
+    subheadline: item.subheadline, // unchanged
+    altText: item.altText, // unchanged
+    templateKey: item.templateKey, // unchanged
+    backgroundStyle: item.backgroundStyle, // unchanged
+  });
+  assert.deepEqual(saved.editedFields, ['caption'], `got ${JSON.stringify(saved.editedFields)}`);
+
+  // ...so regenerating the caption still refreshes the headline.
+  const after = await ctx.svc.regenerateItem(USER, item.id, 'caption', { force: true });
+  assert.notEqual(after.headline, item.headline, 'an untouched headline must still regenerate');
+});
+
+test('re-saving identical values is a no-op, not an edit', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 1 });
+  const item = plan.items[0];
+  const saved = await ctx.svc.updateItem(USER, item.id, {
+    caption: item.caption, headline: item.headline,
+  });
+  assert.deepEqual(saved.editedFields, []);
+  // The card stays in triage rather than being demoted to a draft.
+  assert.equal(saved.approvalStatus, item.approvalStatus);
+});
+
+test('regenerating the image preserves an edited caption', async () => {
+  // This is the whole point of "regenerate one field without losing the rest".
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 1 });
+  const item = plan.items[0];
+
+  await ctx.svc.updateItem(USER, item.id, { caption: 'Hand-written caption.', headline: 'Hand-written headline' });
+  const after = await ctx.svc.regenerateItem(USER, item.id, 'image');
+
+  assert.equal(after.caption, 'Hand-written caption.', 'the edited caption must survive');
+  assert.equal(after.headline, 'Hand-written headline', 'the edited headline must survive');
+  assert.ok(after.mediaAssetId);
+});
+
+test('regenerating a caption refuses to silently discard a user edit', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 1 });
+  const item = plan.items[0];
+  await ctx.svc.updateItem(USER, item.id, { caption: 'Hand-written caption.' });
+
+  await assert.rejects(
+    () => ctx.svc.regenerateItem(USER, item.id, 'caption'),
+    (err) => {
+      assert.equal(err.statusCode, 409);
+      assert.match(err.message, /discard your changes/);
+      return true;
+    },
+  );
+
+  // ...but an explicit confirmation goes through.
+  const forced = await ctx.svc.regenerateItem(USER, item.id, 'caption', { force: true });
+  assert.notEqual(forced.caption, 'Hand-written caption.');
+  assert.equal(forced.editedFields.includes('caption'), false, 'forcing clears the edit flag');
+});
+
+test('regenerating a caption keeps a separately edited headline', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 1 });
+  const item = plan.items[0];
+  await ctx.svc.updateItem(USER, item.id, { headline: 'Kept headline' });
+
+  const after = await ctx.svc.regenerateItem(USER, item.id, 'caption');
+  assert.equal(after.headline, 'Kept headline', 'an edited headline survives a caption regeneration');
+  assert.notEqual(after.caption, plan.items[0].caption, 'the caption really was regenerated');
+  assert.ok(after.regenerationCount >= 1);
+});
+
+test('editing validates its input', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 1 });
+  const id = plan.items[0].id;
+
+  await assert.rejects(() => ctx.svc.updateItem(USER, id, { caption: '   ' }), /Invalid changes/);
+  await assert.rejects(() => ctx.svc.updateItem(USER, id, { templateKey: 'nope' }), /Invalid changes/);
+  await assert.rejects(() => ctx.svc.updateItem(USER, id, { platformTargets: [] }), /Invalid changes/);
+  await assert.rejects(() => ctx.svc.updateItem(USER, id, { platformTargets: ['tiktok'] }), /Invalid changes/);
+  // A time in the past cannot be scheduled.
+  await assert.rejects(() => ctx.svc.updateItem(USER, id, { scheduledFor: '2020-01-01T09:00:00Z' }), /Invalid changes/);
+});
+
+test('the schedule time can be changed to a future slot', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 1 });
+  const updated = await ctx.svc.updateItem(USER, plan.items[0].id, { scheduledFor: '2026-08-01T10:30:00Z' });
+  assert.equal(updated.scheduledFor, '2026-08-01 10:30:00');
+  assert.ok(updated.editedFields.includes('scheduledFor'));
+});
+
+test('changing the template is an edit that sticks', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 1 });
+  const updated = await ctx.svc.updateItem(USER, plan.items[0].id, { templateKey: 'minimal-luxury' });
+  assert.equal(updated.templateKey, 'minimal-luxury');
+  assert.ok(updated.editedFields.includes('templateKey'));
+  // A legacy name is normalized rather than rejected.
+  const legacy = await ctx.svc.updateItem(USER, plan.items[0].id, { templateKey: 'bold' });
+  assert.equal(legacy.templateKey, 'bold-service-promo');
+});
+
+// --- approval ---------------------------------------------------------------
+
+test('approve and reject move a card between states', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 2 });
+
+  const approved = await ctx.svc.setItemStatus(USER, plan.items[0].id, 'approved');
+  assert.equal(approved.approvalStatus, PLANNER_ITEM_STATUS.APPROVED);
+
+  const rejected = await ctx.svc.setItemStatus(USER, plan.items[1].id, 'rejected');
+  assert.equal(rejected.approvalStatus, PLANNER_ITEM_STATUS.REJECTED);
+
+  await assert.rejects(() => ctx.svc.setItemStatus(USER, plan.items[0].id, 'nonsense'), /Invalid status/);
+});
+
+test('bulk approve-all approves every card', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 4 });
+  const result = await ctx.svc.bulkSetStatus(USER, plan.run.id, [], 'approved');
+  assert.equal(result.updated.length, 4);
+  assert.equal(result.plan.counts.approved, 4);
+});
+
+test('bulk approve-selected touches only the selection', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 4 });
+  const chosen = [plan.items[0].id, plan.items[2].id];
+  const result = await ctx.svc.bulkSetStatus(USER, plan.run.id, chosen, 'approved');
+  assert.equal(result.updated.length, 2);
+  assert.deepEqual(result.updated.sort(), chosen.sort());
+  assert.equal(result.plan.counts.approved, 2);
+  assert.equal(result.plan.counts.needs_review, 2);
+});
+
+test('removing rejected cards deletes only those', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 3 });
+  await ctx.svc.setItemStatus(USER, plan.items[0].id, 'rejected');
+  const result = await ctx.svc.removeRejected(USER, plan.run.id);
+  assert.equal(result.removed, 1);
+  assert.equal(result.plan.items.length, 2);
+});
+
+// --- queue integration ------------------------------------------------------
+
+test('queueing approved posts creates real queued posts and never publishes', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 3 });
+  await ctx.svc.bulkSetStatus(USER, plan.run.id, [], 'approved');
+
+  const result = await ctx.svc.queueApproved(USER, plan.run.id, []);
+  assert.equal(result.queued.length, 3);
+  // The notice is explicit that nothing is published.
+  assert.match(result.notice, /queued/i);
+  assert.match(result.notice, /later phase/i);
+
+  for (const { postId, itemId } of result.queued) {
+    const post = await ctx.posts.findPostByIdForUser(postId, USER);
+    assert.ok(post, 'a real post row must exist');
+    assert.equal(post.status, 'queued');
+    assert.ok(post.scheduledAtUtc);
+    assert.ok(post.platformCaptions.threads.caption, 'the caption carries across');
+    assert.ok(post.mediaAssetId, 'the rendered image carries across');
+    // The post links back to the plan that produced it.
+    assert.equal(post.generationParams.plannerItemId, itemId);
+    assert.equal(post.generationParams.plannerRunId, plan.run.id);
+    // Targets were set from the connected account.
+    const targets = await ctx.posts.listPostTargets(postId, USER);
+    assert.equal(targets.length, 1);
+  }
+
+  const after = await ctx.svc.getPlan(USER, plan.run.id);
+  assert.equal(after.counts.queued, 3);
+  assert.equal(after.run.status, PLANNER_RUN_STATUS.QUEUED);
+  for (const item of after.items) assert.ok(item.postId, 'the item records its post');
+});
+
+test('queueing only queues approved posts, and reports partial state', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 3 });
+  await ctx.svc.setItemStatus(USER, plan.items[0].id, 'approved');
+
+  const result = await ctx.svc.queueApproved(USER, plan.run.id, []);
+  assert.equal(result.queued.length, 1);
+  assert.equal(result.plan.run.status, PLANNER_RUN_STATUS.PARTIALLY_QUEUED);
+  assert.equal(result.plan.counts.queued, 1);
+  assert.equal(result.plan.counts.needs_review, 2);
+});
+
+test('queueing with nothing approved is refused', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 2 });
+  await assert.rejects(
+    () => ctx.svc.queueApproved(USER, plan.run.id, []),
+    /Approve at least one post/,
+  );
+});
+
+test('a queued card cannot be edited, regenerated, or deleted from the planner', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 1 });
+  await ctx.svc.setItemStatus(USER, plan.items[0].id, 'approved');
+  await ctx.svc.queueApproved(USER, plan.run.id, []);
+  const id = plan.items[0].id;
+
+  await assert.rejects(() => ctx.svc.updateItem(USER, id, { caption: 'x' }), /already queued/);
+  await assert.rejects(() => ctx.svc.regenerateItem(USER, id, 'caption'), /already queued/);
+  await assert.rejects(() => ctx.svc.setItemStatus(USER, id, 'rejected'), /already queued/);
+  await assert.rejects(() => ctx.svc.deleteItem(USER, id), /queued/);
+});
+
+test('deleting a plan leaves the posts it already queued intact', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 1 });
+  await ctx.svc.setItemStatus(USER, plan.items[0].id, 'approved');
+  const { queued } = await ctx.svc.queueApproved(USER, plan.run.id, []);
+  const postId = queued[0].postId;
+
+  await ctx.svc.deletePlan(USER, plan.run.id);
+  await assert.rejects(() => ctx.svc.getPlan(USER, plan.run.id), /not found/i);
+
+  // Approved work outlives its plan (the post FK is ON DELETE SET NULL).
+  const post = await ctx.posts.findPostByIdForUser(postId, USER);
+  assert.ok(post, 'the queued post must survive');
+  assert.equal(post.status, 'queued');
+});
+
+test('a planned post can be duplicated into a manual draft', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 1 });
+  const { postId } = await ctx.svc.duplicateAsDraft(USER, plan.items[0].id);
+  const post = await ctx.posts.findPostByIdForUser(postId, USER);
+  assert.equal(post.status, 'draft');
+  assert.equal(post.platformCaptions.threads.caption, plan.items[0].caption);
+  // The planner card is untouched.
+  const after = await ctx.svc.getPlan(USER, plan.run.id);
+  assert.equal(after.items[0].approvalStatus, PLANNER_ITEM_STATUS.NEEDS_REVIEW);
+});
+
+// --- history + ownership ----------------------------------------------------
+
+test('plan history lists runs newest first with status counts', async () => {
+  const ctx = build();
+  await generate(ctx, { planLength: 2 });
+  await ctx.svc.generatePlan(USER, { startDate: '2026-07-21', planLength: 2, times: ['09:00'], timezone: 'UTC' });
+
+  const plans = await ctx.svc.listPlans(USER);
+  assert.equal(plans.length, 2);
+  assert.ok(Number(plans[0].id) > Number(plans[1].id), 'newest first');
+  assert.equal(plans[0].counts.needs_review, 2);
+  assert.ok(plans[0].name);
+});
+
+test('one user can never read or mutate another user plan', async () => {
+  const ctx = build();
+  const plan = await generate(ctx, { planLength: 1 });
+  const OTHER = '999';
+
+  await assert.rejects(() => ctx.svc.getPlan(OTHER, plan.run.id), /not found/i);
+  await assert.rejects(() => ctx.svc.deletePlan(OTHER, plan.run.id), /not found/i);
+  await assert.rejects(() => ctx.svc.updateItem(OTHER, plan.items[0].id, { caption: 'x' }), /not found/i);
+  await assert.rejects(() => ctx.svc.setItemStatus(OTHER, plan.items[0].id, 'approved'), /not found/i);
+  await assert.rejects(() => ctx.svc.deleteItem(OTHER, plan.items[0].id), /not found/i);
+  assert.deepEqual(await ctx.svc.listPlans(OTHER), []);
+});

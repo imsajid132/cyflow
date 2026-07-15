@@ -12,6 +12,10 @@ import * as modernSplit from './modernSplit.js';
 import * as minimalLuxury from './minimalLuxury.js';
 import * as geometricConversion from './geometricConversion.js';
 import * as photoOverlay from './photoOverlay.js';
+// Phase 4.7: content-type layouts the planner selects by post shape.
+import * as checklistTips from './checklistTips.js';
+import * as statProof from './statProof.js';
+import * as splitComparison from './splitComparison.js';
 
 const MODULES = [
   editorialPremium,
@@ -20,6 +24,9 @@ const MODULES = [
   modernSplit,
   minimalLuxury,
   geometricConversion,
+  checklistTips,
+  statProof,
+  splitComparison,
   photoOverlay,
 ];
 
