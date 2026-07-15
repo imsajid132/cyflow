@@ -16,17 +16,12 @@ import { PROVIDER_LABELS } from '../icons.js';
 
 const TONES = ['neutral', 'friendly', 'professional', 'playful', 'bold', 'informative'];
 const HASHTAGS = ['none', 'few', 'moderate', 'many'];
-const TEMPLATES = [
-  ['editorial', 'Clean Editorial'],
-  ['bold-service', 'Bold Service'],
-  ['professional-local', 'Professional Local Business'],
-  ['photo-overlay', 'Photo Overlay Ready'],
-];
 const RATIOS = [
   ['square', 'Square · 1080×1080'],
   ['portrait', 'Portrait · 1080×1350'],
   ['landscape', 'Landscape · 1200×630'],
 ];
+const RATIO_LABELS = { square: '1080 × 1080', portrait: '1080 × 1350', landscape: '1200 × 630' };
 const BACKGROUNDS = ['light', 'dark', 'gradient-blue', 'gradient-warm', 'neutral'];
 
 function opts(list) {
@@ -49,6 +44,8 @@ export async function render(root, ctx) {
 
   const capabilities = api.payload(caps) || {};
   const accounts = (api.payload(accountsRes)?.accounts || []).filter((a) => a.status === 'active');
+  // The server owns the template list; never hardcode slugs here.
+  const templates = (capabilities.templates || []).map((t) => ({ value: t.id, label: t.label }));
 
   let post = null; // the server's draft — the single source of truth on this page
 
@@ -141,7 +138,7 @@ export async function render(root, ctx) {
       imageBtn,
     ]),
     el('div', { className: 'grid grid-3' }, [
-      selectField({ id: 'template', label: 'Template', options: opts(TEMPLATES), value: 'editorial' }),
+      selectField({ id: 'template', label: 'Template', options: templates, value: templates[0]?.value }),
       selectField({ id: 'aspectRatio', label: 'Size', options: opts(RATIOS), value: 'square' }),
       selectField({ id: 'backgroundStyle', label: 'Background', options: opts(BACKGROUNDS), value: 'light' }),
     ]),
@@ -153,6 +150,9 @@ export async function render(root, ctx) {
     el('p', { className: 'hint', text: 'Images use your brand colours, fonts, and logo from the Brand page.' }),
     imageHost,
   ]);
+  if (!post?.media) {
+    imageHost.appendChild(el('p', { className: 'hint', text: 'Your rendered image appears here.' }));
+  }
 
   // --- Step 5: schedule ----------------------------------------------------
   const scheduleBtn = el('button', { className: 'btn btn-primary', text: 'Schedule post', attrs: { type: 'button' } });
@@ -274,13 +274,59 @@ export async function render(root, ctx) {
     }
   }
 
+  /** Framed preview with the template it was rendered from. */
   function renderImage() {
     imageHost.textContent = '';
     if (!post?.media?.publicToken) return;
-    imageHost.appendChild(el('img', {
-      className: 'image-preview',
-      attrs: { src: `/media/${encodeURIComponent(post.media.publicToken)}`, alt: post.imageAltText || 'Generated post image' },
-    }));
+
+    const ratio = post.aspectRatio || 'square';
+    const templateLabel = templates.find((t) => t.value === post.template)?.label || post.template || '';
+
+    const frame = el('div', { className: `preview-frame preview-${ratio}` });
+    const img = el('img', {
+      className: 'preview-img',
+      attrs: {
+        src: `/media/${encodeURIComponent(post.media.publicToken)}`,
+        alt: post.imageAltText || 'Generated post image',
+      },
+    });
+    // The frame holds the space while the render loads, so nothing jumps.
+    frame.classList.add('is-loading');
+    img.addEventListener('load', () => frame.classList.remove('is-loading'), { once: true });
+    img.addEventListener('error', () => {
+      frame.classList.remove('is-loading');
+      frame.textContent = '';
+      frame.appendChild(el('p', { className: 'preview-failed', text: 'The image could not be displayed. Generate it again.' }));
+    }, { once: true });
+    frame.appendChild(img);
+
+    imageHost.appendChild(el('div', { className: 'preview' }, [
+      frame,
+      el('div', { className: 'preview-meta' }, [
+        templateLabel ? badge(templateLabel, 'info') : null,
+        el('span', { className: 'card-sub', text: RATIO_LABELS[ratio] || '' }),
+        el('span', { className: 'spacer' }),
+        el('a', {
+          className: 'btn btn-ghost btn-sm',
+          text: 'Open full size',
+          attrs: {
+            href: `/media/${encodeURIComponent(post.media.publicToken)}`,
+            target: '_blank',
+            rel: 'noopener noreferrer',
+          },
+        }),
+      ]),
+    ]));
+  }
+
+  /** Placeholder that reserves the preview's space while HCTI renders. */
+  function renderImageLoading() {
+    imageHost.textContent = '';
+    const ratio = val('aspectRatio') || 'square';
+    imageHost.appendChild(el('div', { className: 'preview' }, [
+      el('div', { className: `preview-frame preview-${ratio} is-loading`, attrs: { 'aria-hidden': 'true' } }),
+      el('span', { className: 'sr-only', text: 'Rendering your image…' }),
+    ]));
   }
 
   generateBtn.addEventListener('click', async () => {
@@ -308,6 +354,7 @@ export async function render(root, ctx) {
 
   imageBtn.addEventListener('click', async () => {
     setLoading(imageBtn, true, 'Rendering…');
+    renderImageLoading();
     try {
       if (!post) return;
       // Persist the chosen template/toggles before rendering.

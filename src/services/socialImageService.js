@@ -22,7 +22,7 @@ import {
   ERROR_CODES,
 } from '../config/constants.js';
 import { AppError } from '../utils/errors.js';
-import { buildTemplate, safeImageUrl } from '../templates/socialImageTemplates.js';
+import { buildTemplate, normalizeTemplate, safeImageUrl } from '../templates/socialImageTemplates.js';
 
 import * as defaultIntegrationRepo from '../repositories/integrationRepository.js';
 import { hctiService as defaultHctiService } from './hctiService.js';
@@ -53,12 +53,21 @@ export class SocialImageError extends AppError {
 
 /**
  * Strict allow-list sanitization of our own generated HTML (defence in depth).
- * `img` is permitted so a business logo can be composited, but only with
- * src/alt and only over https — every other scheme is stripped.
+ *
+ * The sectioning elements the layouts are built from (header/footer/aside/
+ * section) are allowed: they are inert, they carry the layout's flex structure,
+ * and discarding them would silently flatten the design. `img` is permitted so
+ * a business logo can be composited, but only with src/alt and only over https.
+ * Everything else — scripts, styles, iframes, forms, handlers — is discarded.
  */
+export const SANITIZE_ALLOWED_TAGS = Object.freeze([
+  'div', 'span', 'header', 'footer', 'aside', 'section',
+  'h1', 'h2', 'p', 'br', 'strong', 'em', 'small', 'img',
+]);
+
 function sanitizeGeneratedHtml(html) {
   return sanitizeHtmlLib(html, {
-    allowedTags: ['div', 'span', 'h1', 'h2', 'p', 'br', 'strong', 'em', 'small', 'img'],
+    allowedTags: [...SANITIZE_ALLOWED_TAGS],
     allowedAttributes: { '*': ['class'], img: ['class', 'src', 'alt'] },
     // No styles/scripts/iframes/forms/objects/embeds/event handlers.
     allowedSchemes: ['https'],
@@ -69,11 +78,17 @@ function sanitizeGeneratedHtml(html) {
   });
 }
 
-/** Map a legacy template name onto its branded replacement. */
+/** Exposed so tests can prove the layouts survive sanitization intact. */
+export function sanitizeForTest(html) {
+  return sanitizeGeneratedHtml(html);
+}
+
+/**
+ * Map any accepted template name onto a real layout. Delegates to the template
+ * module so the service and the renderer can never disagree about the default.
+ */
 export function resolveTemplate(name) {
-  if (IMAGE_TEMPLATES.includes(name)) return name;
-  if (LEGACY_IMAGE_TEMPLATE_ALIASES[name]) return LEGACY_IMAGE_TEMPLATE_ALIASES[name];
-  return 'editorial';
+  return normalizeTemplate(name);
 }
 
 export function createSocialImageService({
@@ -86,7 +101,8 @@ export function createSocialImageService({
   /**
    * @param {{ userId, headline, subheadline, brandName, template, aspectRatio,
    *           backgroundStyle, logoUrl?, primaryColor?, secondaryColor?,
-   *           accentColor?, headingFont?, bodyFont?, cta?, website?, phone? }} input
+   *           accentColor?, headingFont?, bodyFont?, cta?, website?, phone?,
+   *           businessCategory?, serviceTag? }} input
    * @param {{ postId? }} [ctx]
    */
   async function generateSocialImage(input, ctx = {}) {
@@ -122,6 +138,9 @@ export function createSocialImageService({
       cta: input.cta,
       website: input.website,
       phone: input.phone,
+      // Optional design modules — omitted from the layout when absent.
+      businessCategory: input.businessCategory,
+      serviceTag: input.serviceTag,
     });
     const safeHtml = sanitizeGeneratedHtml(built.html);
 
@@ -158,6 +177,7 @@ export function createSocialImageService({
       width: built.width,
       height: built.height,
       template,
+      templateLabel: built.templateLabel,
       aspectRatio,
       backgroundStyle,
     };

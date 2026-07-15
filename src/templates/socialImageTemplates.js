@@ -1,18 +1,20 @@
 /**
  * Trusted, server-owned branded social image templates.
  *
- * Templates emit escaped user text into a fixed structure (class names only —
- * no inline styles, scripts, iframes, forms, or event handlers) plus a preset
- * CSS string built ONLY from validated values:
- *   - colours must match #rrggbb (else the preset palette is used)
- *   - font names must match a strict plain-name pattern (else a system stack)
- *   - the logo URL must be absolute https (else no logo is rendered)
- * User text is HTML-escaped and never becomes executable markup. Only system
- * fonts are loaded — nothing is fetched from an analyzed website at render time
- * except the business's own validated logo, which HCTI loads as an image.
+ * This module is the orchestrator: it validates and clamps every input, derives
+ * the palette and type scale via brandKit, hands a safe context to the chosen
+ * layout, and returns the HTML/CSS pair HCTI renders.
  *
- * Layouts: Clean Editorial, Bold Service, Professional Local Business, and
- * Photo Overlay Ready (a real background-image slot — we never invent a photo).
+ * Security properties (also asserted by tests):
+ *   - user text is HTML-escaped and can only ever become inert text
+ *   - colours must be #rrggbb or the derived default palette is used
+ *   - font labels must be plain names or a system stack is used
+ *   - a logo must be absolute https or no <img> is emitted at all
+ *   - no url() is ever written to CSS, so a render fetches no remote asset
+ *   - class names and structure are authored here, never supplied by a caller
+ *
+ * No photography is invented. Visual interest comes from CSS geometry, and
+ * `photo-overlay` keeps a real background-image slot for a future provider.
  */
 
 import {
@@ -21,218 +23,140 @@ import {
   BACKGROUND_STYLES,
   LEGACY_IMAGE_TEMPLATE_ALIASES,
 } from '../config/constants.js';
+import {
+  escapeHtml,
+  safeColor,
+  safeImageUrl,
+  buildPalette,
+  fontStack,
+  fontCategory,
+  headlineScale,
+  subheadlineScale,
+  clampText,
+  eyebrowFrom,
+  TEXT_LIMITS,
+} from './brandKit.js';
+import { baseCss } from './baseStyles.js';
+import { LAYOUTS, LAYOUT_IDS, LAYOUT_LABELS } from './layouts/index.js';
 
-/** Escape a string for safe insertion into HTML text nodes. */
-export function escapeHtml(value) {
-  if (value == null) return '';
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
+export { escapeHtml, safeColor, safeImageUrl } from './brandKit.js';
+export { LAYOUT_LABELS, LAYOUT_IDS } from './layouts/index.js';
 
-const SYSTEM_FONTS =
-  "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
-const HEX_RE = /^#[0-9a-fA-F]{6}$/;
-const FONT_NAME_RE = /^[A-Za-z0-9 _-]{1,80}$/;
+export const DEFAULT_TEMPLATE = 'editorial-premium';
 
-/** Only a validated hex colour may reach the CSS. */
-export function safeColor(value, fallback) {
-  return typeof value === 'string' && HEX_RE.test(value.trim()) ? value.trim().toLowerCase() : fallback;
-}
-
-/** Only a validated plain font name may reach the CSS (no url(), no quotes). */
-export function safeFontStack(name) {
-  if (typeof name === 'string' && FONT_NAME_RE.test(name.trim())) {
-    return `'${name.trim()}', ${SYSTEM_FONTS}`;
+/** Map any accepted template name (current or legacy) onto a real layout. */
+export function normalizeTemplate(name) {
+  if (typeof name === 'string') {
+    if (LAYOUTS[name]) return name;
+    const aliased = LEGACY_IMAGE_TEMPLATE_ALIASES[name];
+    if (aliased && LAYOUTS[aliased]) return aliased;
   }
-  return SYSTEM_FONTS;
+  return DEFAULT_TEMPLATE;
 }
 
-/** Only an absolute https URL may be used as an <img src>. */
-export function safeImageUrl(value) {
-  if (typeof value !== 'string') return '';
-  const raw = value.trim();
-  if (!/^https:\/\//i.test(raw)) return '';
-  try {
-    const url = new URL(raw);
-    return url.protocol === 'https:' ? url.toString() : '';
-  } catch {
-    return '';
-  }
-}
-
-const BACKGROUNDS = {
-  light: { bg: '#ffffff', fg: '#0f172a', muted: '#475569', accent: '#4f46e5' },
-  dark: { bg: '#0f172a', fg: '#f8fafc', muted: '#cbd5e1', accent: '#818cf8' },
-  'gradient-blue': { bg: 'linear-gradient(135deg,#4f46e5 0%,#0ea5e9 100%)', fg: '#ffffff', muted: 'rgba(255,255,255,.88)', accent: '#ffffff' },
-  'gradient-warm': { bg: 'linear-gradient(135deg,#f59e0b 0%,#ef4444 100%)', fg: '#ffffff', muted: 'rgba(255,255,255,.9)', accent: '#ffffff' },
-  neutral: { bg: '#f1f5f9', fg: '#0f172a', muted: '#475569', accent: '#4f46e5' },
-};
-
-function normalizeTemplate(name) {
-  if (IMAGE_TEMPLATES.includes(name)) return name;
-  if (LEGACY_IMAGE_TEMPLATE_ALIASES[name]) return LEGACY_IMAGE_TEMPLATE_ALIASES[name];
-  return 'editorial';
-}
-
-function dims(aspectRatio) {
+function dimensionsFor(aspectRatio) {
   return ASPECT_RATIOS[aspectRatio] || ASPECT_RATIOS.square;
 }
 
-/** Relative luminance → pick readable ink for a solid brand colour. */
-function readableInk(hex) {
-  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
-  const lin = [r, g, b].map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
-  const L = 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
-  return L > 0.55 ? '#0f172a' : '#ffffff';
+/**
+ * Non-square canvases scale the type rather than reflowing the layout: the
+ * design system is authored against the 1080 square, and portrait/landscape
+ * derive from it. Landscape is much shorter, so it steps down hardest.
+ */
+function scaleBase(aspectRatio) {
+  if (aspectRatio === 'landscape') return 0.62;
+  if (aspectRatio === 'portrait') return 1.04;
+  return 1;
 }
-
-function baseCss(width, height, t) {
-  return `
-    * { margin:0; padding:0; box-sizing:border-box; }
-    html,body { width:${width}px; height:${height}px; }
-    .card {
-      position:relative; width:${width}px; height:${height}px; display:flex; overflow:hidden;
-      background:${t.canvas}; color:${t.fg}; font-family:${t.bodyFont};
-      -webkit-font-smoothing:antialiased;
-    }
-    .inner { position:relative; z-index:2; width:100%; height:100%; display:flex; flex-direction:column; padding:7%; }
-    .logo { height:64px; max-width:44%; object-fit:contain; }
-    .brand { font-size:26px; font-weight:700; letter-spacing:.02em; color:${t.accent}; }
-    .headline { font-family:${t.headingFont}; color:${t.fg}; line-height:1.06; }
-    .subheadline { color:${t.muted}; line-height:1.35; }
-    .meta { display:flex; gap:18px; flex-wrap:wrap; align-items:center; font-size:24px; color:${t.muted}; }
-    .cta {
-      display:inline-block; align-self:flex-start; padding:14px 26px; border-radius:999px;
-      background:${t.accent}; color:${t.ctaInk}; font-weight:700; font-size:26px;
-    }
-    .rule { height:6px; width:96px; border-radius:6px; background:${t.accent}; }
-    /* Geometric brand accents — deliberately abstract; we never fabricate a photo. */
-    .accent-blob {
-      position:absolute; z-index:1; border-radius:50%; opacity:.18;
-      background:${t.secondary}; width:${Math.round(width * 0.62)}px; height:${Math.round(width * 0.62)}px;
-      right:${-Math.round(width * 0.22)}px; top:${-Math.round(width * 0.18)}px;
-    }
-    .accent-bar { position:absolute; z-index:1; left:0; top:0; bottom:0; width:14px; background:${t.accent}; }
-    .accent-corner {
-      position:absolute; z-index:1; right:0; bottom:0; width:0; height:0;
-      border-left:${Math.round(width * 0.3)}px solid transparent;
-      border-bottom:${Math.round(width * 0.3)}px solid ${t.secondary}; opacity:.22;
-    }
-    /* Photo Overlay Ready: a real background-image slot for a future provider. */
-    .photo-slot { position:absolute; inset:0; z-index:0; background:${t.photoSlot}; }
-    .scrim { position:absolute; inset:0; z-index:1; background:linear-gradient(180deg, rgba(2,6,23,.15) 0%, rgba(2,6,23,.78) 100%); }
-  `;
-}
-
-const LAYOUT_CSS = {
-  editorial: `
-    .tpl-editorial .inner { justify-content:center; gap:22px; }
-    .tpl-editorial .top { display:flex; align-items:center; justify-content:space-between; gap:16px; }
-    .tpl-editorial .headline { font-size:66px; font-weight:600; max-width:94%; letter-spacing:-.01em; }
-    .tpl-editorial .subheadline { font-size:30px; max-width:84%; }
-    .tpl-editorial .foot { margin-top:auto; display:flex; align-items:center; justify-content:space-between; gap:16px; }
-  `,
-  'bold-service': `
-    .tpl-bold-service .inner { justify-content:flex-end; gap:18px; }
-    .tpl-bold-service .top { display:flex; align-items:center; gap:16px; margin-bottom:auto; }
-    .tpl-bold-service .headline { font-size:88px; font-weight:800; text-transform:uppercase; letter-spacing:-.02em; }
-    .tpl-bold-service .subheadline { font-size:32px; font-weight:600; max-width:88%; }
-    .tpl-bold-service .foot { display:flex; align-items:center; gap:18px; flex-wrap:wrap; }
-  `,
-  'professional-local': `
-    .tpl-professional-local .inner { justify-content:center; gap:20px; padding-left:9%; }
-    .tpl-professional-local .top { display:flex; align-items:center; gap:16px; }
-    .tpl-professional-local .headline { font-size:60px; font-weight:700; max-width:92%; }
-    .tpl-professional-local .subheadline { font-size:28px; max-width:82%; }
-    .tpl-professional-local .foot { margin-top:auto; display:flex; flex-direction:column; gap:12px; }
-  `,
-  'photo-overlay': `
-    .tpl-photo-overlay .card { color:#fff; }
-    .tpl-photo-overlay .inner { justify-content:flex-end; gap:16px; }
-    .tpl-photo-overlay .top { display:flex; align-items:center; gap:16px; margin-bottom:auto; }
-    .tpl-photo-overlay .headline { font-size:74px; font-weight:750; color:#fff; max-width:94%; }
-    .tpl-photo-overlay .subheadline { font-size:30px; color:rgba(255,255,255,.92); max-width:86%; }
-    .tpl-photo-overlay .brand { color:#fff; }
-    .tpl-photo-overlay .meta { color:rgba(255,255,255,.9); }
-    .tpl-photo-overlay .foot { display:flex; align-items:center; gap:18px; flex-wrap:wrap; }
-  `,
-};
 
 /**
  * Build the trusted HTML + CSS for a branded image.
- * @param {{ template, aspectRatio, backgroundStyle, brandName, headline,
- *           subheadline, logoUrl, primaryColor, secondaryColor, accentColor,
- *           headingFont, bodyFont, cta, website, phone }} input
- * @returns {{ html:string, css:string, width:number, height:number, template:string }}
+ *
+ * @param {{
+ *   template?: string, aspectRatio?: string, backgroundStyle?: string,
+ *   brandName?: string, headline?: string, subheadline?: string,
+ *   logoUrl?: string, primaryColor?: string, secondaryColor?: string,
+ *   accentColor?: string, headingFont?: string, bodyFont?: string,
+ *   cta?: string, website?: string, phone?: string,
+ *   businessCategory?: string, serviceTag?: string,
+ * }} input
+ * @returns {{ html:string, css:string, width:number, height:number, template:string, templateLabel:string }}
  */
 export function buildTemplate(input = {}) {
   const template = normalizeTemplate(input.template);
+  const layout = LAYOUTS[template];
   const backgroundStyle = BACKGROUND_STYLES.includes(input.backgroundStyle) ? input.backgroundStyle : 'light';
-  const palette = BACKGROUNDS[backgroundStyle] || BACKGROUNDS.light;
-  const { width, height } = dims(input.aspectRatio);
+  const aspectRatio = ASPECT_RATIOS[input.aspectRatio] ? input.aspectRatio : 'square';
+  const { width, height } = dimensionsFor(aspectRatio);
+  const base = scaleBase(aspectRatio);
 
-  // Brand colours (validated) take precedence over the preset palette.
-  const primary = safeColor(input.primaryColor, null);
-  const secondary = safeColor(input.secondaryColor, null) || primary || palette.accent;
-  const accent = safeColor(input.accentColor, null) || primary || palette.accent;
+  const palette = buildPalette({
+    primaryColor: input.primaryColor,
+    secondaryColor: input.secondaryColor,
+    accentColor: input.accentColor,
+    backgroundStyle,
+  });
 
-  const isPhoto = template === 'photo-overlay';
-  const canvas = isPhoto ? '#0f172a' : primary && backgroundStyle === 'light' ? '#ffffff' : palette.bg;
-  const fg = isPhoto ? '#ffffff' : palette.fg;
-
-  const t = {
-    canvas,
-    fg,
-    muted: isPhoto ? 'rgba(255,255,255,.9)' : palette.muted,
-    accent,
-    secondary,
-    ctaInk: readableInk(accent),
-    headingFont: safeFontStack(input.headingFont),
-    bodyFont: safeFontStack(input.bodyFont),
-    // The slot a future image provider fills; until then, a brand-tinted wash.
-    photoSlot: `linear-gradient(135deg, ${secondary} 0%, ${accent} 100%)`,
+  const fonts = {
+    display: fontStack(input.headingFont),
+    body: fontStack(input.bodyFont),
+    // Utility type (eyebrow, footer, CTA) stays in the body voice so the
+    // display face keeps its impact.
+    utility: fontStack(input.bodyFont),
   };
 
-  const brand = escapeHtml(input.brandName || '');
-  const headline = escapeHtml(input.headline || '');
-  const subheadline = escapeHtml(input.subheadline || '');
-  const cta = escapeHtml(input.cta || '');
-  const website = escapeHtml(input.website || '');
-  const phone = escapeHtml(input.phone || '');
-  const logo = safeImageUrl(input.logoUrl);
+  const headline = clampText(input.headline, TEXT_LIMITS.HEADLINE);
+  const sub = clampText(input.subheadline, TEXT_LIMITS.SUBHEADLINE);
 
-  const logoHtml = logo ? `<img class="logo" src="${escapeHtml(logo)}" alt="">` : '';
-  const brandHtml = brand ? `<span class="brand">${brand}</span>` : '';
-  const topHtml = logoHtml || brandHtml ? `<div class="top">${logoHtml}${logoHtml && brandHtml ? '' : brandHtml}</div>` : '';
+  const type = {
+    headline: headlineScale(headline, { base }),
+    sub: subheadlineScale(sub, { base }),
+  };
 
-  const metaBits = [];
-  if (website) metaBits.push(`<span>${website}</span>`);
-  if (phone) metaBits.push(`<span>${phone}</span>`);
-  const metaHtml = metaBits.length ? `<div class="meta">${metaBits.join('')}</div>` : '';
-  const ctaHtml = cta ? `<span class="cta">${cta}</span>` : '';
-  const subHtml = subheadline ? `<p class="subheadline">${subheadline}</p>` : '';
+  // Escape once, here — layouts and parts only ever handle safe strings.
+  const text = {
+    brandName: escapeHtml(clampText(input.brandName, TEXT_LIMITS.BRAND)),
+    headline: escapeHtml(headline),
+    sub: escapeHtml(sub),
+    cta: escapeHtml(clampText(input.cta, TEXT_LIMITS.CTA)),
+    website: escapeHtml(clampText(input.website, TEXT_LIMITS.WEBSITE)),
+    phone: escapeHtml(clampText(input.phone, TEXT_LIMITS.PHONE)),
+    tag: escapeHtml(clampText(input.serviceTag, TEXT_LIMITS.TAG)),
+    eyebrow: escapeHtml(eyebrowFrom({
+      brandName: clampText(input.brandName, TEXT_LIMITS.BRAND),
+      businessCategory: clampText(input.businessCategory, TEXT_LIMITS.TAG),
+    })),
+  };
 
-  const decor = isPhoto
-    ? '<div class="photo-slot"></div><div class="scrim"></div>'
-    : template === 'professional-local'
-      ? '<div class="accent-bar"></div><div class="accent-corner"></div>'
-      : '<div class="accent-blob"></div>';
+  const logoUrl = escapeHtml(safeImageUrl(input.logoUrl));
 
-  const footHtml =
-    ctaHtml || metaHtml ? `<div class="foot">${ctaHtml}${metaHtml}</div>` : '';
+  const ctx = { width, height, palette, fonts, type, text, logoUrl, scope: `.tpl-${template}` };
+  const rendered = layout.render(ctx);
 
-  const html =
-    `<div class="card tpl-${template}">${decor}` +
-    `<div class="inner">${topHtml}` +
-    (template === 'editorial' ? '<div class="rule"></div>' : '') +
-    `<h1 class="headline">${headline}</h1>${subHtml}${footHtml}</div></div>`;
-
-  const css = `${baseCss(width, height, t)}\n${LAYOUT_CSS[template] || LAYOUT_CSS.editorial}`;
-  return { html, css, width, height, template };
+  return {
+    html: rendered.html.replace(/\n\s*/g, ''),
+    css: `${baseCss(ctx)}\n${rendered.css}`,
+    width,
+    height,
+    template,
+    templateLabel: layout.label,
+  };
 }
 
-export default { buildTemplate, escapeHtml, safeColor, safeFontStack, safeImageUrl };
+/** Template slugs + labels, for building a picker. */
+export function listTemplates() {
+  return IMAGE_TEMPLATES.filter((id) => LAYOUTS[id]).map((id) => ({ id, label: LAYOUT_LABELS[id] }));
+}
+
+export default {
+  buildTemplate,
+  normalizeTemplate,
+  listTemplates,
+  escapeHtml,
+  safeColor,
+  safeImageUrl,
+  fontCategory,
+  LAYOUT_IDS,
+  LAYOUT_LABELS,
+  DEFAULT_TEMPLATE,
+};

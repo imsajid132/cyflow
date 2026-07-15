@@ -82,7 +82,9 @@ test('uses a trusted template, escapes user text, and decrypts creds only for th
   assert.equal(call.html.includes('<img'), false);
   assert.match(call.html, /&lt;script&gt;/);
   assert.match(call.html, /&lt;img/);
-  assert.match(call.html, /Acme &amp; Co/);
+  // Escaped wherever the layout places it — bold-service-promo sets the brand
+  // name as an uppercased eyebrow.
+  assert.match(call.html, /Acme &amp; Co|ACME &amp; CO/);
   // Correct dimensions for portrait.
   assert.equal(call.viewportWidth, 1080);
   assert.equal(call.viewportHeight, 1350);

@@ -231,20 +231,31 @@ export const ACCOUNT_TYPE_TO_PLATFORM = Object.freeze({
   threads_profile: PLATFORMS.THREADS,
 });
 
-// Server-owned image templates (trusted HTML/CSS only). These four branded
-// layouts are what the UI offers.
+// Server-owned image templates (trusted HTML/CSS only). These branded layouts
+// are what the UI offers; each has a module under src/templates/layouts/.
 export const IMAGE_TEMPLATES = Object.freeze([
-  'editorial', // Clean Editorial
-  'bold-service', // Bold Service
-  'professional-local', // Professional Local Business
+  'editorial-premium', // Clean Editorial Premium
+  'bold-service-promo', // Bold Service Promo
+  'local-authority', // Local Business Authority
+  'modern-split', // Modern Split Layout
+  'minimal-luxury', // Minimal Luxury Card
+  'geometric-conversion', // Geometric Conversion Post
   'photo-overlay', // Photo Overlay Ready (background-image slot, no invented photo)
 ]);
 
-/** Pre-4.5b template names, still accepted and aliased to the new layouts. */
+/**
+ * Older template names, still accepted so drafts saved before Phase 4.6 keep
+ * rendering. Each maps onto its closest current layout.
+ */
 export const LEGACY_IMAGE_TEMPLATE_ALIASES = Object.freeze({
-  minimal: 'editorial',
-  bold: 'bold-service',
-  professional: 'professional-local',
+  // Phase 4.5b names.
+  editorial: 'editorial-premium',
+  'bold-service': 'bold-service-promo',
+  'professional-local': 'local-authority',
+  // Phase 4 names.
+  minimal: 'minimal-luxury',
+  bold: 'bold-service-promo',
+  professional: 'local-authority',
 });
 
 /** Everything the API accepts (new + legacy aliases). */

@@ -3,10 +3,13 @@
 A web-based platform to **generate**, **schedule**, and **automatically publish**
 social media content — captions and images — to your connected accounts.
 
+> **Status: Phase 4.6 — premium branded post design.** Rebuilds the image
+> templates as a real design system: a derived brand palette, a length-aware
+> type scale, and **seven** composed layouts.
+>
 > **Status: Phase 4.5b — multi-page UX + branded images.** Replaces the single
 > dashboard page with a multi-page app (15 directly-loadable routes), a shared
-> design system, a three-step onboarding wizard, and four branded image
-> templates driven by the business profile.
+> design system, and a three-step onboarding wizard.
 >
 > **Status: Phase 4.5a — business onboarding backend.** Adds the business
 > profile model, an SSRF-hardened website analyzer, brand extraction, and the
@@ -73,37 +76,96 @@ Enforced by `tests/appShell.test.js`, which scans every frontend module:
   show safe, already-classified messages only.
 - Nothing from an analyzed website is loaded as script, SVG, HTML, or a font.
 
-### Branded image templates
+## Phase 4.6 — premium branded post design
 
-Four server-owned layouts (`src/templates/socialImageTemplates.js`) replace the
-plain text designs. Each uses the business profile's logo, primary/secondary/
-accent colours, heading/body font names, brand name, generated headline and
-subheadline, plus an optional CTA, website, and phone:
+### How the templates are organised
 
-| Template | Layout |
+```
+src/templates/
+├── brandKit.js               # the design system: palette, fonts, type scale, validation
+├── baseStyles.js             # shared stylesheet (type roles, CTA, footer, shapes)
+├── parts.js                  # shared HTML fragments (logo, CTA, footer lockup, tag)
+├── socialImageTemplates.js   # orchestrator: validate → derive → render
+└── layouts/                  # one module per template + a registry
+```
+
+Adding a template means adding a module under `layouts/` and its slug to
+`IMAGE_TEMPLATES` — nothing else in the pipeline changes.
+
+### The seven layouts
+
+Each is a distinct composition built from the same business data, so they read
+as one system rather than seven unrelated designs. Square (1080×1080) is the
+reference canvas; portrait and landscape scale the type from it.
+
+| Template | Composition |
 | --- | --- |
-| `editorial` | Clean Editorial — centred headline, rule, quiet accent blob |
-| `bold-service` | Bold Service — oversized uppercase headline, strong CTA |
-| `professional-local` | Professional Local Business — accent bar, contact footer |
+| `editorial-premium` | Clean Editorial Premium — full-height brand rule, asymmetric editorial column, logo top-right |
+| `bold-service-promo` | Bold Service Promo — full-bleed brand field cut by a diagonal, oversized uppercase headline |
+| `local-authority` | Local Business Authority — framed card, corner ribbon, service badge, footer rule |
+| `modern-split` | Modern Split Layout — 40/60 vertical split, layered arcs on the brand panel |
+| `minimal-luxury` | Minimal Luxury Card — double frame, centred type, hairline ornament, outlined CTA |
+| `geometric-conversion` | Geometric Conversion Post — arcs sweeping into a high-contrast CTA |
 | `photo-overlay` | Photo Overlay Ready — a real background-image slot + scrim |
 
-The legacy names `minimal`, `bold`, and `professional` are still accepted and
-map onto `editorial`, `bold-service`, and `professional-local`.
+The picker is built from `GET /api/posts/capabilities` (`templates: [{id, label}]`),
+so the UI can never drift from the layouts the renderer actually has.
 
-**No photos are invented.** Visual interest comes from geometric/abstract
-elements built in CSS. `photo-overlay` keeps a dedicated `.photo-slot` element
-for a future image provider; until then it renders a brand-tinted gradient.
+**Backwards compatible.** Every earlier name still renders, so drafts saved
+before this phase keep working: `editorial`, `bold-service`, `professional-local`
+(Phase 4.5b) and `minimal`, `bold`, `professional` (Phase 4) all map onto a
+current layout.
 
-Values are validated before they reach the template:
+### The brand kit
 
-- Colours must match `#rrggbb`, or the preset palette is used.
-- Font names must match `/^[A-Za-z0-9 _-]{1,80}$/`, or a system stack is used.
-- The logo must be an absolute **https** URL, or no `<img>` is rendered at all.
+Business brand colours are arbitrary user input, so they are never used raw:
+
+- **Normalized, not rejected.** Saturation and lightness are clamped into a band
+  that can carry large filled areas. A neon `#00ff00` keeps its hue but loses the
+  glare. An achromatic brand (`#ffffff`, grey) stays achromatic and darkens into
+  a charcoal — forcing a minimum saturation would invent a hue and render a white
+  brand brown.
+- **Tinted neutrals.** Surfaces and text carry a trace of the brand hue instead
+  of being flat grey; nothing is `#fff` or `#000`. That shared tint is what makes
+  the set cohere.
+- **Guaranteed legible fills.** A fill that leaves neither near-black nor white
+  readable is nudged in lightness until it passes WCAG AA (4.5:1) — e.g. a
+  `#ff0088` accent CTA would otherwise ship at 3.98:1.
+- **Hierarchy, not equality.** Primary drives major accents, secondary supports,
+  accent is reserved for small marks (CTA, rules, dots).
+
+Typography maps a brand **font label** to a style category (serif / sans / mono /
+condensed) and renders the closest system stack — no font file is ever
+downloaded, and a serif brand still looks like a serif brand. The headline size,
+leading, and tracking are chosen from the headline's own character count, so
+short headlines are set large and long ones stay balanced instead of overflowing.
+
+### Optional modules
+
+Included only when supplied, and omitted cleanly rather than rendered empty:
+logo, website, phone, CTA, eyebrow (brand name, falling back to category),
+service tag, and the footer lockup. Per-post toggles: `includeLogo` (default on),
+`includeWebsite` (default on, rendered as a bare host), `includePhone` (default
+off). A headline on its own still produces a complete design.
+
+### Security
+
+Unchanged from Phase 4.5b, and asserted per template:
+
+- Colours must match `#rrggbb`; font labels must match `/^[A-Za-z0-9 _-]{1,80}$/`;
+  the logo must be absolute **https** — otherwise a safe default is used and, for
+  a logo, no `<img>` is emitted at all.
 - All user text is HTML-escaped, then the generated HTML is re-sanitized with a
-  strict allow-list (`img` permitted with `src`/`alt` over https only).
-
-Which details appear is per-post: `includeLogo` (default on), `includeWebsite`
-(default on, rendered as a bare host), and `includePhone` (default off).
+  strict allow-list. The allow-list includes the inert sectioning elements the
+  layouts are built from (`header`/`footer`/`aside`/`section`) — a test asserts
+  each layout survives sanitization element-for-element, because a discarded tag
+  would silently flatten a design rather than raise an error.
+- **No `url()` is ever written to CSS**, so a render cannot fetch a stock photo,
+  font, or tracker. The business's own validated https logo is the only remote
+  asset, and it is an `<img>`.
+- **No photos are invented.** Visual interest is CSS geometry. `photo-overlay`
+  keeps a dedicated `.photo-slot` for a future image provider; until then it
+  renders a brand-tinted gradient.
 
 ## Phase 4.5a — business onboarding & website brand extraction
 
@@ -563,7 +625,7 @@ cyflow-social/
 │   ├── repositories/         # user, integration, log, oauthState, socialAccount, post, mediaAsset, apiUsage, dataDeletion
 │   ├── routes/               # health, csrf, auth, integration, oauth, socialAccount, post, media
 │   ├── services/             # encryption, auth, hcti, logging, oauth, openaiContent, socialImage, mediaAsset, post, threadsCallback
-│   ├── templates/            # socialImageTemplates (trusted HTML/CSS)
+│   ├── templates/            # brandKit, baseStyles, parts, layouts/ (trusted HTML/CSS)
 │   ├── validators/           # auth, integration, socialAccount, post, threadsCallback
 │   ├── scheduler/            # runOnce.js (reports queue; does NOT publish)
 │   └── utils/                # errors, redaction, validation, time, session, providerHttp, oauthErrors, signedRequest, asyncHandler, apiResponse

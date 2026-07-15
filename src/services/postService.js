@@ -17,6 +17,10 @@ import {
   USAGE_OPERATIONS,
   EVENT_TYPES,
 } from '../config/constants.js';
+import {
+  DEFAULT_TEMPLATE as DEFAULT_IMAGE_TEMPLATE,
+  listTemplates,
+} from '../templates/socialImageTemplates.js';
 import { ValidationError, NotFoundError, ConflictError, RateLimitError } from '../utils/errors.js';
 import { toMysqlUtc, addSecondsUtc, zonedWallTimeToUtc, isValidTimezone } from '../utils/time.js';
 
@@ -248,7 +252,7 @@ export function createPostService({
           headline,
           subheadline: post.imageSubheadline,
           brandName: params.brandName || profile?.businessName || null,
-          template: post.template || 'editorial',
+          template: post.template || DEFAULT_IMAGE_TEMPLATE,
           aspectRatio: post.aspectRatio || 'square',
           backgroundStyle: post.backgroundStyle || 'light',
           ...brand,
@@ -399,6 +403,9 @@ export function createPostService({
         verified: Boolean(hcti && hcti.verifiedAt),
       },
       generations: { usedToday: used, dailyLimit: config.limits.maxDailyGenerationsPerUser },
+      // The picker is built from this, so the UI can never drift from the
+      // layouts the renderer actually has.
+      templates: listTemplates(),
     };
   }
 
@@ -463,6 +470,12 @@ function brandingFor(profile, params = {}) {
     cta: params.callToAction || profile.defaultCallToAction || null,
     website: toBool(params.includeWebsite, true) ? displayWebsite(profile.websiteUrl) : null,
     phone: toBool(params.includePhone, false) ? profile.phone || null : null,
+    // Optional design modules. The eyebrow falls back to the category when the
+    // business has no brand name; the tag names the first real service.
+    businessCategory: profile.businessCategory || null,
+    serviceTag: Array.isArray(profile.services) && profile.services.length
+      ? String(profile.services[0])
+      : null,
   };
 }
 
