@@ -23,6 +23,8 @@ const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|
 
 const WEEK = stripComments(read('assets/js/pages/plannerWeek.js'));
 const CARD = stripComments(read('assets/js/components/plannerCard.js'));
+const NEW = stripComments(read('assets/js/pages/plannerNew.js'));
+const ICONS = stripComments(read('assets/js/icons.js'));
 
 test('the drawer tracks the open item by id, never by captured object', () => {
   assert.match(WEEK, /let openItemId/, 'the drawer must remember WHICH item, not which snapshot');
@@ -136,4 +138,103 @@ test('the summary names the platforms by prefix match, against a fixed list', ()
   // this checks three known names. An unattributable reason is still shown.
   assert.match(CARD, /PLATFORM_NAMES = Object\.freeze\(\['Facebook', 'Instagram', 'Threads'\]\)/);
   assert.match(CARD, /startsWith\(name\)/);
+});
+
+// --- connected is not selected -----------------------------------------------
+
+test('the wizard ticks a platform only because the user chose it', () => {
+  /*
+   * The live bug's UI half. This read
+   *
+   *   !prefs?.platforms?.length || prefs.platforms.includes(p)
+   *
+   * so a user with no saved default had every connected account pre-ticked.
+   * Someone who wanted Instagram and Threads got Facebook posts, and two of
+   * three failed because the unwanted Facebook copy missed its length band.
+   */
+  const start = NEW.indexOf('const platformHost');
+  const body = NEW.slice(start, NEW.indexOf('const platformCard', start));
+
+  assert.ok(!/!prefs\?\.platforms\?\.length \|\|/.test(body), 'connected accounts must not tick themselves');
+  assert.match(body, /Boolean\(prefs\?\.platforms\?\.includes\(p\)\)/, 'a box is ticked only by a saved choice');
+});
+
+test('the wizard sends exactly the ticked boxes, and nothing else', () => {
+  const start = NEW.indexOf('platforms: [...platformHost');
+  const body = NEW.slice(start, start + 220);
+  assert.match(body, /\.filter\(\(i\) => i\.checked\)/, 'only ticked boxes are sent');
+});
+
+// --- the pre-submit confirmation ---------------------------------------------
+
+test('the wizard confirms what it is about to send, from the payload itself', () => {
+  const start = NEW.indexOf('async function refreshSummary');
+  const body = NEW.slice(start, NEW.indexOf('let summaryDebounce', start));
+
+  // Rendered from `body` — the object about to be POSTed — not from the form,
+  // not from saved preferences, not from what happens to be connected.
+  assert.match(body, /const names = platformNames\(body\.platforms\)/);
+  assert.match(body, /data-confirm-platforms/, 'the platform line must be findable, so it can be checked');
+
+  for (const row of ['Platforms', 'Accounts', 'Dates', 'Times', 'Posts', 'Weekly rhythm']) {
+    assert.ok(body.includes(`'${row}'`), `the confirmation must state ${row}`);
+  }
+});
+
+test('a chosen but unconnected platform is explained, not silently dropped', () => {
+  const start = NEW.indexOf('async function refreshSummary');
+  const body = NEW.slice(start, NEW.indexOf('let summaryDebounce', start));
+  assert.match(body, /summary\.selectedPlatforms \|\| \[\]\)\.filter\(\(p\) => !summary\.platforms\.includes\(p\)\)/);
+});
+
+// --- platform labels ---------------------------------------------------------
+
+test('platform ids and provider ids have separate label maps', () => {
+  // Two of three keys overlap, so PROVIDER_LABELS "worked" on platform ids for
+  // Instagram and Threads and missed on Facebook — printing the raw lowercase
+  // internal id to users on the weekly board.
+  assert.match(ICONS, /PLATFORM_LABELS = Object\.freeze\(\{[\s\S]*?facebook: 'Facebook'/);
+  assert.match(ICONS, /instagram: 'Instagram Professional'/);
+  assert.match(ICONS, /PROVIDER_LABELS = Object\.freeze\(\{[\s\S]*?meta: 'Facebook Pages'/);
+  // `meta` must NOT resolve through the platform map: a provider id arriving
+  // there is a bug and should look like one.
+  const platformMap = ICONS.slice(ICONS.indexOf('PLATFORM_LABELS = Object.freeze('));
+  assert.ok(!/meta:/.test(platformMap.slice(0, platformMap.indexOf('})'))));
+});
+
+test('nothing renders a platform id through the provider label map', () => {
+  // Each of these reads platform ids. Using PROVIDER_LABELS here is the bug.
+  for (const [name, src] of [['plannerCard', CARD], ['plannerWeek', WEEK], ['plannerNew', NEW]]) {
+    assert.ok(!/PROVIDER_LABELS\[/.test(src), `${name} looks up a platform id in the provider map`);
+  }
+  assert.match(CARD, /platformNames\(item\.platformTargets\)/);
+});
+
+// --- a failed plan cannot be approved wholesale ------------------------------
+
+test('Approve all is disabled while a post could not be generated', () => {
+  const start = WEEK.indexOf('function renderBulk');
+  const body = WEEK.slice(start, WEEK.indexOf('async function bulkStatus', start));
+
+  assert.match(body, /const failed = hardFailedItems\(\)/);
+  assert.match(body, /approveSelected\.disabled = blocked/);
+  // A selection containing a failure is blocked too, so the failure cannot be
+  // smuggled through by ticking boxes.
+  assert.match(body, /const selectionHasFailures = failed\.some\(\(i\) => selected\.has\(i\.id\)\)/);
+  assert.match(body, /const blocked = count === 0 \? failed\.length > 0 : selectionHasFailures/);
+  // And the click itself refuses, not just the styling.
+  assert.match(body, /if \(approveSelected\.disabled\) return/);
+});
+
+test('a disabled Approve all says why, next to itself', () => {
+  const start = WEEK.indexOf('function renderBulk');
+  const body = WEEK.slice(start, WEEK.indexOf('async function bulkStatus', start));
+  assert.match(body, /could not be generated, so this plan cannot be approved in one go/);
+  assert.match(body, /can still be approved individually/, 'it must say what the user CAN do');
+});
+
+test('the failed count is grammatical in the singular', () => {
+  const start = WEEK.indexOf('function renderBulk');
+  const body = WEEK.slice(start, WEEK.indexOf('async function bulkStatus', start));
+  assert.match(body, /failed\.length === 1 \? '' : 's'/, '"1 posts" is the tell that nobody read it');
 });

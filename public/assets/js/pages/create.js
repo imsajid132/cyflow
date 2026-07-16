@@ -12,7 +12,7 @@ import {
   el, card, pageHead, badge, notice, toast, field, selectField, val,
   setLoading, setFieldError, clearFieldErrors, emptyState, skeleton,
 } from '../ui.js';
-import { PROVIDER_LABELS } from '../icons.js';
+import { PROVIDER_LABELS, PLATFORM_LABELS } from '../icons.js';
 
 const TONES = ['neutral', 'friendly', 'professional', 'playful', 'bold', 'informative'];
 const HASHTAGS = ['none', 'few', 'moderate', 'many'];
@@ -258,7 +258,8 @@ export async function render(root, ctx) {
     for (const [platform, value] of entries) {
       captionHost.appendChild(card([
         el('div', { className: 'card-head' }, [
-          el('span', { className: 'card-title', text: PROVIDER_LABELS[platform] || platform }),
+          // Keyed by platform, not provider: PROVIDER_LABELS has no `facebook`.
+          el('span', { className: 'card-title', text: PLATFORM_LABELS[platform] || platform }),
           value?.caption ? badge(`${value.caption.length} chars`, 'neutral') : null,
         ]),
         el('p', { attrs: { style: 'white-space:pre-wrap' }, text: value?.caption || '' }),

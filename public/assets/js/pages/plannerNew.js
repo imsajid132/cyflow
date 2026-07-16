@@ -12,8 +12,26 @@ import {
   el, card, pageHead, notice, toast, field, selectField, val,
   setLoading, setFieldError, clearFieldErrors, steps, clear,
 } from '../ui.js';
-import { PROVIDER_LABELS } from '../icons.js';
+import { PLATFORM_LABELS, platformNames } from '../icons.js';
 import { timezonePicker } from '../components/timezonePicker.js';
+
+/**
+ * A connected account's accountType, to the platform it posts to.
+ *
+ * The connections layer speaks in account types and providers; the planner
+ * speaks in platforms. This is the one translation between them on this page.
+ */
+const ACCOUNT_PLATFORM = Object.freeze({
+  facebook_page: 'facebook',
+  instagram_professional: 'instagram',
+  threads_profile: 'threads',
+});
+
+/** "A, B and C" — a list a person would read aloud. */
+function englishList(names) {
+  if (names.length <= 1) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
 
 const PLAN_LENGTHS = [
   ['3', '3 days'], ['5', '5 days'], ['7', '7 days'], ['14', '14 days'],
@@ -59,9 +77,8 @@ export async function render(root, ctx) {
   ]);
   if (accountsRes.unauthorized) { ctx.navigate('/login'); return; }
   const accounts = (api.payload(accountsRes)?.accounts || []).filter((a) => a.status === 'active');
-  const availablePlatforms = [...new Set(accounts.map((a) => ({
-    facebook_page: 'facebook', instagram_professional: 'instagram', threads_profile: 'threads',
-  }[a.accountType])).filter(Boolean))];
+  // Where this user COULD post. Not where they will: that is the tick boxes.
+  const availablePlatforms = [...new Set(accounts.map((a) => ACCOUNT_PLATFORM[a.accountType]).filter(Boolean))];
 
   const tz = prefs?.timezone || (() => {
     try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; }
@@ -185,17 +202,32 @@ export async function render(root, ctx) {
   const syncWeekdays = () => { weekdayField.hidden = cadenceInput.value !== 'selected_weekdays'; };
   cadenceInput.addEventListener('change', syncWeekdays);
 
-  // --- platforms -----------------------------------------------------------
+  /*
+   * --- platforms ----------------------------------------------------------
+   *
+   * A box is ticked ONLY because the user's saved default ticks it.
+   *
+   * This used to read `!prefs?.platforms?.length || prefs.platforms.includes(p)`
+   * — so a user with no saved default had every connected account pre-ticked
+   * for them. Someone who connected a Facebook Page months ago and wanted an
+   * Instagram and Threads week got Facebook posts they never asked for, and
+   * when the Facebook copy failed validation their plan came back "Generation
+   * failed" for a platform they had not chosen. Connecting an account says the
+   * destination EXISTS, not that this plan should go there.
+   *
+   * With no saved default nothing is ticked, and the summary below says so
+   * rather than generating something the user did not ask for.
+   */
   const platformHost = el('div', { className: 'row', attrs: { style: 'gap:.5rem;flex-wrap:wrap' } },
     availablePlatforms.map((p) =>
-      checkbox(`pf-${p}`, PROVIDER_LABELS[p] || p,
-        !prefs?.platforms?.length || prefs.platforms.includes(p),
+      checkbox(`pf-${p}`, PLATFORM_LABELS[p] || p,
+        Boolean(prefs?.platforms?.includes(p)),
         { 'data-platform': p })));
 
   const platformCard = card([
     el('div', { className: 'card-head' }, [el('span', { className: 'card-title', text: '2. Where' })]),
     platformHost,
-    el('p', { className: 'hint', text: 'Only accounts you have connected are listed.' }),
+    el('p', { className: 'hint', text: 'Only accounts you have connected are listed. Posts are written for the platforms you tick here, and no others.' }),
   ]);
 
   // --- approval ------------------------------------------------------------
@@ -258,19 +290,57 @@ export async function render(root, ctx) {
     generateBtn.disabled = !summary.valid;
 
     clear(summaryHost);
-    const platformNames = summary.platforms.map((p) => PROVIDER_LABELS[p] || p);
-    const timeList = summary.timesUsed.join(' and ');
+    /*
+     * The confirmation, rendered from `body` — the exact object about to be
+     * POSTed — and from the server's answer about it. Not from the form, not
+     * from saved preferences, not from what happens to be connected.
+     *
+     * The platform line matters most. A user generated an Instagram and Threads
+     * week and got Facebook posts, and there was nothing on this page that
+     * would have told them before they spent the generations.
+     */
+    const names = platformNames(body.platforms);
+    const timeList = body.times.join(' and ');
+    const accountsFor = accounts.filter((a) => body.platforms.includes(ACCOUNT_PLATFORM[a.accountType]));
 
     summaryHost.appendChild(el('div', { className: 'plan-summary-main' }, [
       el('strong', {
         text: `${summary.activeDays} active day${summary.activeDays === 1 ? '' : 's'} × ${summary.postsPerDay} post${summary.postsPerDay === 1 ? '' : 's'} per day = ${summary.plannedPosts} post${summary.plannedPosts === 1 ? '' : 's'}.`,
       }),
-      platformNames.length
-        ? el('p', {
-            text: `Posts will be created for ${platformNames.join(' and ')} at ${timeList} in ${summary.timezone}.`,
-          })
-        : null,
     ]));
+
+    const rows = [
+      ['Platforms', names.length ? englishList(names) : 'None chosen yet'],
+      [
+        'Accounts',
+        accountsFor.length
+          ? accountsFor.map((a) => `${a.displayName || a.username || 'Account'} (${PLATFORM_LABELS[ACCOUNT_PLATFORM[a.accountType]]})`).join(', ')
+          : 'None',
+      ],
+      ['Dates', `${summary.startDate} to ${summary.endDate}`],
+      ['Times', `${timeList} (${summary.timezone})`],
+      ['Posts', String(summary.totalPosts)],
+      // The server owns the preset names; this page never invents one.
+      ['Weekly rhythm', (rhythm?.presets || []).find((p) => p.key === body.contentRhythmPreset)?.label ?? 'Balanced'],
+    ];
+    summaryHost.appendChild(el('dl', { className: 'plan-confirm' },
+      rows.flatMap(([k, v]) => [
+        el('dt', { text: k }),
+        el('dd', { text: v, attrs: k === 'Platforms' ? { 'data-confirm-platforms': '' } : {} }),
+      ])));
+
+    /*
+     * Chosen but not connected. resolvePlatforms narrows the selection to what
+     * is actually connected, so this would otherwise just vanish from the list
+     * with no explanation.
+     */
+    const dropped = (summary.selectedPlatforms || []).filter((p) => !summary.platforms.includes(p));
+    if (dropped.length) {
+      summaryHost.appendChild(notice(
+        `${englishList(platformNames(dropped))} ${dropped.length === 1 ? 'is' : 'are'} not connected, so nothing will be written for ${dropped.length === 1 ? 'it' : 'them'}.`,
+        'warn',
+      ));
+    }
 
     // The maths and the reality can differ when a slot has already passed.
     if (summary.valid && summary.totalPosts !== summary.plannedPosts) {

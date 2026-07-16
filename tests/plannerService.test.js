@@ -101,13 +101,21 @@ async function seedProfile(businessProfiles) {
   });
 }
 
-/** Generate a standard 7-day plan. */
+/**
+ * Generate a standard 7-day plan.
+ *
+ * `platforms` is stated, because a plan request has to state it. These helpers
+ * used to leave it out and receive ['threads'] anyway — seedAccount connects a
+ * Threads profile, and the planner used to hand back every connected account
+ * when a request named none. That fallback is gone: it is what put Facebook
+ * posts in a plan that never asked for them.
+ */
 async function generate(ctx, options = {}) {
   await seedAccount(ctx.socialAccounts);
   await seedProfile(ctx.businessProfiles);
   return ctx.svc.generatePlan(USER, {
     startDate: '2026-07-14', planLength: 7, cadence: 'every_day',
-    times: ['09:00'], timezone: 'UTC', ...options,
+    times: ['09:00'], timezone: 'UTC', platforms: ['threads'], ...options,
   });
 }
 
@@ -302,13 +310,15 @@ test('the plan summary matches what generation actually creates', async () => {
 
   const options = {
     startDate: '2026-07-14', planLength: 5, cadence: 'every_day',
-    times: ['09:00', '17:00'], postsPerDay: 2, timezone: 'UTC',
+    times: ['09:00', '17:00'], postsPerDay: 2, timezone: 'UTC', platforms: ['threads'],
   };
   const summary = await ctx.svc.summarizePlan(USER, options);
   assert.equal(summary.valid, true, JSON.stringify(summary.errors));
   assert.equal(summary.activeDays, 5);
   assert.equal(summary.postsPerDay, 2);
   assert.equal(summary.plannedPosts, 10);
+  // The summary echoes the SELECTION back, so the wizard can show the user what
+  // is about to be generated rather than what happens to be connected.
   assert.deepEqual(summary.platforms, ['threads']);
 
   // The promise the summary made is kept.
@@ -343,10 +353,15 @@ test('generating with no connected account is refused with a useful message', as
   const ctx = build();
   await seedProfile(ctx.businessProfiles);
   await assert.rejects(
-    () => ctx.svc.generatePlan(USER, { startDate: '2026-07-14', planLength: 3 }),
+    () => ctx.svc.generatePlan(USER, { startDate: '2026-07-14', planLength: 3, platforms: ['threads'] }),
     (err) => {
       assert.equal(err.statusCode, 400);
-      assert.match(err.message, /Connect at least one/);
+      // The message hangs off the `platforms` field so the wizard can put it
+      // next to the control the user has to act on.
+      assert.ok(
+        err.details.some((d) => d.field === 'platforms' && /Connect at least one/.test(d.message)),
+        JSON.stringify(err.details),
+      );
       return true;
     },
   );
@@ -389,7 +404,7 @@ test('the daily generation limit is enforced before any spend', async () => {
   const ctx = build({ apiUsage });
   await seedAccount(ctx.socialAccounts);
   await assert.rejects(
-    () => ctx.svc.generatePlan(USER, { startDate: '2026-07-14', planLength: 7, times: ['09:00'], timezone: 'UTC' }),
+    () => ctx.svc.generatePlan(USER, { startDate: '2026-07-14', planLength: 7, times: ['09:00'], timezone: 'UTC', platforms: ['threads'] }),
     (err) => {
       assert.equal(err.statusCode, 429);
       return true;
@@ -465,7 +480,12 @@ test('generation that repeats itself exactly is a hard failure, not review work'
       'a hard failure must not be approvable',
     );
   }
-  assert.match(plan.run.generationNotes, /could not be generated/i);
+  // This generator really does repeat itself, so BOTH claims are true here and
+  // both are made. The point of the wording change is that the similarity claim
+  // is only made when the duplication data supports it — see
+  // 'a plan whose posts fail on LENGTH is not reported as a similarity problem'.
+  assert.match(plan.run.generationNotes, /2 posts need another rewrite\./);
+  assert.match(plan.run.generationNotes, /2 posts flagged for similarity review\./);
 });
 
 test('a run whose every post hard-failed is marked failed, not review', async () => {
@@ -523,7 +543,7 @@ test('the duplication lookback compares against earlier plans, not just this bat
   // A second plan repeating the first must be caught even though its own batch
   // is empty at that point.
   const second = await ctx.svc.generatePlan(USER, {
-    startDate: '2026-07-21', planLength: 1, times: ['09:00'], timezone: 'UTC',
+    startDate: '2026-07-21', planLength: 1, times: ['09:00'], timezone: 'UTC', platforms: ['threads'],
   });
   assert.ok(second.items[0].duplicationScore > 0);
   assert.match(second.items[0].duplicationNotes, /recent post/);
@@ -1075,7 +1095,7 @@ test('a planned post can be duplicated into a manual draft', async () => {
 test('plan history lists runs newest first with status counts', async () => {
   const ctx = build();
   await generate(ctx, { planLength: 2 });
-  await ctx.svc.generatePlan(USER, { startDate: '2026-07-21', planLength: 2, times: ['09:00'], timezone: 'UTC' });
+  await ctx.svc.generatePlan(USER, { startDate: '2026-07-21', planLength: 2, times: ['09:00'], timezone: 'UTC', platforms: ['threads'] });
 
   const plans = await ctx.svc.listPlans(USER);
   assert.equal(plans.length, 2);

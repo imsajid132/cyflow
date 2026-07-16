@@ -49,6 +49,50 @@ import {
   IMAGE_TEMPLATE_VALUES,
 } from '../config/constants.js';
 
+/**
+ * A platform list reduced to its identity, for COMPARISON only.
+ *
+ * Sorted and deduped, because ["threads","instagram"] and ["instagram","threads"]
+ * are the same selection. Never STORED in this shape: the request's order is
+ * meaningful downstream, since platforms[0] is the primary the post is written
+ * for and the rest are written against it.
+ */
+export const normalizePlatformList = (list) =>
+  [...new Set(Array.isArray(list) ? list : [])].sort().join(',');
+
+/**
+ * The platform contract: what gets generated is exactly what was selected.
+ *
+ * Every layer between the request and the writer has a chance to add a platform
+ * — a default merge, a connected-account lookup, a fallback. One of them did,
+ * and users got Facebook posts they never asked for. This is the one place that
+ * says no.
+ *
+ * It runs BEFORE the run row is written and before any OpenAI or HCTI call, so
+ * a mismatch costs nothing: no plan, no spend, no half-generated week to clean
+ * up after.
+ *
+ * It throws rather than repairing, and that is the point. "Repairing" a
+ * platform mismatch means picking a destination on the user's behalf — which is
+ * precisely what the removed fallback did, and precisely the defect this guards.
+ *
+ * Exported because it is a pure invariant: nothing in normal operation should
+ * ever trip it, so the only way to know it works is to test it directly.
+ *
+ * @throws {ConflictError} when any brief targets a different set than `selected`
+ */
+export function assertPlatformContract(selected, briefs) {
+  const expected = normalizePlatformList(selected);
+  for (const brief of briefs || []) {
+    if (normalizePlatformList(brief.platforms) !== expected) {
+      throw new ConflictError(
+        'This plan could not be generated: the posts were built for different platforms than you selected. '
+        + 'Nothing was generated and nothing was charged. Please try again.',
+      );
+    }
+  }
+}
+
 /** Post states that represent work already sent out — never destroy these. */
 const PUBLISHED_STATUSES = Object.freeze([POST_STATUS.PUBLISHED, POST_STATUS.PARTIAL]);
 /** Post states that are scheduled but not yet out, so they can be cancelled. */
@@ -356,7 +400,11 @@ export function createPlannerService({
    */
   async function summarizePlan(userId, options = {}) {
     const prefs = await getPreferences(userId);
-    const platforms = await resolvePlatforms(userId, options.platforms ?? prefs.platforms);
+    // Resolved the SAME way generatePlan resolves it, from the same input, so
+    // the platform list the wizard shows is the list that will be generated. A
+    // summary computed differently from the thing it summarises is a lie with a
+    // delay on it.
+    const resolved = await resolvePlatforms(userId, options.platforms ?? prefs.platforms);
 
     const summary = summarizeSchedule({
       startDate: options.startDate,
@@ -369,19 +417,17 @@ export function createPlannerService({
       now: now(),
     });
 
-    const errors = [...summary.errors];
-    if (platforms.length === 0) {
-      errors.push({
-        field: 'platforms',
-        message: 'Connect at least one Facebook Page, Instagram Professional account, or Threads profile',
-      });
-    }
+    const errors = [...summary.errors, ...(platformSelectionErrors(resolved) ?? [])];
 
     return {
       ...summary,
       valid: errors.length === 0,
       errors,
-      platforms,
+      platforms: resolved.platforms,
+      // What the user asked for, before it was narrowed to what is connected.
+      // The wizard shows `platforms`; this is here so a chosen-but-disconnected
+      // account can be named rather than silently vanishing from the summary.
+      selectedPlatforms: resolved.selected,
       contentMix: options.contentMix ?? prefs.contentMix,
       approvalMode: options.approvalMode ?? prefs.approvalMode,
       tone: prefs.tone,
@@ -403,13 +449,69 @@ export function createPlannerService({
     }
   }
 
-  /** Platforms the user can actually post to right now. */
+  /**
+   * Where this plan will actually be written for.
+   *
+   * CONNECTED IS NOT SELECTED. This function used to end with:
+   *
+   *   if (!Array.isArray(requested) || requested.length === 0) return available;
+   *
+   * ...so a request that named no platforms silently received every connected
+   * account. A user with a Facebook Page connected but not chosen got Facebook
+   * posts, and when the Facebook copy failed validation their plan was marked
+   * "Generation failed" for a platform they had never asked for. Connected
+   * accounts are the ELIGIBLE destinations; only the request says which are the
+   * ACTUAL ones.
+   *
+   * Nothing is unioned in: not saved defaults, not connected accounts, not the
+   * previous plan, not a fallback provider. The selection is filtered down to
+   * what is connected and never up.
+   *
+   * An empty result is returned as an empty result. The caller decides which
+   * error that is, because "you have connected nothing" and "you chose nothing"
+   * are different problems with different fixes.
+   *
+   * @returns {{ available: string[], selected: string[], platforms: string[] }}
+   *          `selected` is what was asked for (deduped), `platforms` is that
+   *          same list narrowed to what is actually connected. Request order is
+   *          preserved: platforms[0] is the primary the post is written for.
+   */
   async function resolvePlatforms(userId, requested) {
     const accounts = await socialAccounts.listAccountsForUser(userId);
     const active = (accounts || []).filter((a) => a.status === SOCIAL_ACCOUNT_STATUS.ACTIVE);
     const available = [...new Set(active.map((a) => ACCOUNT_TYPE_TO_PLATFORM[a.accountType]).filter(Boolean))];
-    if (!Array.isArray(requested) || requested.length === 0) return available;
-    return requested.filter((p) => available.includes(p));
+    const selected = Array.isArray(requested)
+      ? [...new Set(requested.filter((p) => PLATFORM_VALUES.includes(p)))]
+      : [];
+    return { available, selected, platforms: selected.filter((p) => available.includes(p)) };
+  }
+
+  /**
+   * Turn an empty platform resolution into the RIGHT error.
+   *
+   * Three different situations used to collapse into one silent fallback:
+   * nothing connected, nothing chosen, and chosen-but-not-connected. Each needs
+   * a different action from the user, so each says so.
+   *
+   * @returns {Array|null} validation errors, or null when the selection is fine
+   */
+  function platformSelectionErrors({ available, selected, platforms }) {
+    if (available.length === 0) {
+      return [{
+        field: 'platforms',
+        message: 'Connect at least one Facebook Page, Instagram Professional account, or Threads profile',
+      }];
+    }
+    if (selected.length === 0) {
+      return [{ field: 'platforms', message: 'Choose at least one platform for these posts' }];
+    }
+    if (platforms.length === 0) {
+      return [{
+        field: 'platforms',
+        message: 'None of the platforms you chose are connected. Connect them, or choose a different platform.',
+      }];
+    }
+    return null;
   }
 
   /**
@@ -436,12 +538,16 @@ export function createPlannerService({
     }
     const timezone = requestedTz;
 
-    const platforms = await resolvePlatforms(userId, options.platforms ?? prefs.platforms);
-    if (platforms.length === 0) {
-      throw new ValidationError(
-        'Connect at least one Facebook Page, Instagram Professional account, or Threads profile before generating a plan',
-      );
-    }
+    /*
+     * The platforms for THIS run, and nothing else.
+     *
+     * `options.platforms ?? prefs.platforms` is a fallback, not a union: an
+     * explicit selection in the request wins outright, and the saved default is
+     * only consulted when the request names none at all. `??` and not `||` on
+     * purpose — an empty array is an explicit "none", and it must reach the
+     * error below rather than quietly inherit the saved list.
+     */
+    const resolved = await resolvePlatforms(userId, options.platforms ?? prefs.platforms);
 
     const scheduleInput = {
       startDate: options.startDate,
@@ -458,9 +564,16 @@ export function createPlannerService({
      * The same summary the wizard displays is the gate here, so the count the
      * user was shown is the count they get. Generation cannot start until it
      * validates.
+     *
+     * Schedule and platform problems are reported TOGETHER, in one error, the
+     * same way summarizePlan reports them. Checking platforms first and
+     * returning early would answer "you chose no platforms" to someone whose
+     * dates are also wrong, and send them round the loop twice.
      */
     const summary = summarizeSchedule(scheduleInput);
-    if (!summary.valid) throw new ValidationError('This plan cannot be generated as configured', summary.errors);
+    const setupErrors = [...summary.errors, ...(platformSelectionErrors(resolved) ?? [])];
+    if (setupErrors.length) throw new ValidationError('This plan cannot be generated as configured', setupErrors);
+    const { platforms } = resolved;
 
     const schedule = buildSchedule(scheduleInput);
     if (schedule.slots.length === 0) {
@@ -484,6 +597,17 @@ export function createPlannerService({
     });
 
     const briefs = buildBriefSet({ slots: schedule.slots, preferences: prefs, profile, platforms, rhythm });
+
+    /*
+     * The last gate before anything is written or spent.
+     *
+     * `platforms` is about to be frozen onto the run as its immutable selection
+     * snapshot, and each brief is about to become an item's platform_targets.
+     * If those two ever disagree, the user gets posts for a platform they did
+     * not choose — which is precisely what happened. Checking here means a
+     * mismatch produces no run row and no API call at all.
+     */
+    assertPlatformContract(platforms, briefs);
 
     const run = await runsRepo.createRun({
       userId,
@@ -537,6 +661,8 @@ export function createPlannerService({
     const created = [];
     const notes = [];
     let flagged = 0;
+    // Counted apart from `flagged`, because only THIS one is about similarity.
+    let duplicateFlagged = 0;
     let hardFailed = 0;
 
     for (const brief of briefs) {
@@ -548,6 +674,7 @@ export function createPlannerService({
       created.push(outcome.item);
       batch.push(outcome.fingerprint);
       if (outcome.flagged) flagged += 1;
+      if (outcome.duplicateFlagged) duplicateFlagged += 1;
       if (outcome.hardFailed) hardFailed += 1;
     }
 
@@ -563,8 +690,24 @@ export function createPlannerService({
       throw new ConflictError('The plan could not be generated. Please try again.');
     }
 
-    if (flagged > 0) notes.push(`${flagged} post${flagged === 1 ? '' : 's'} flagged for similarity review.`);
-    if (hardFailed > 0) notes.push(`${hardFailed} post${hardFailed === 1 ? '' : 's'} could not be generated and need a retry.`);
+    /*
+     * Say what actually happened, not what the counter happens to be called.
+     *
+     * `flagged` is true for ANY reason a post was held: a duplicate, a style
+     * rejection, a platform note. The note said "flagged for similarity review"
+     * for all of them, so a plan whose Facebook copy came out the wrong LENGTH
+     * was reported to the user as two similar posts. It sent people looking for
+     * a repetition problem they did not have.
+     *
+     * Similarity is now counted separately and claimed only when the
+     * duplication data says so.
+     */
+    if (duplicateFlagged > 0) {
+      notes.push(`${duplicateFlagged} post${duplicateFlagged === 1 ? '' : 's'} flagged for similarity review.`);
+    }
+    if (hardFailed > 0) {
+      notes.push(`${hardFailed} post${hardFailed === 1 ? ' needs' : 's need'} another rewrite.`);
+    }
     if (schedule.skippedPast > 0) notes.push(`${schedule.skippedPast} past time slot${schedule.skippedPast === 1 ? '' : 's'} skipped.`);
     if (!wantImages) notes.push('Images were not generated because HCTI is not verified.');
 
@@ -830,7 +973,9 @@ export function createPlannerService({
       editedFields: [],
     });
 
-    return { item, fingerprint, flagged, hardFailed };
+    // `duplicateFlagged` is reported separately from `flagged`: the run's note
+    // may only claim a similarity problem when there actually is one.
+    return { item, fingerprint, flagged, duplicateFlagged, hardFailed };
   }
 
   /**
@@ -1299,6 +1444,31 @@ export function createPlannerService({
   const inFlightRegenerations = new Map();
 
   /**
+   * The same contract, on the regeneration side.
+   *
+   * A retry writes for `item.platformTargets`, so a drifted item would spend an
+   * OpenAI call on a platform the run never selected. Checked before the
+   * generator is reached, so a mismatch costs nothing.
+   *
+   * A run with NO platform snapshot is left alone rather than rejected. Those
+   * are runs from before the snapshot existed, their configuration is immutable
+   * by design, and refusing to retry them would be breaking working plans to
+   * enforce a rule written after they were made. There is nothing to compare
+   * against, so nothing is claimed.
+   */
+  async function assertItemMatchesRunPlatforms(userId, item) {
+    const run = await runsRepo.findRunByIdForUser(item.plannerRunId, userId);
+    const snapshot = run?.settings?.platforms;
+    if (!Array.isArray(snapshot) || snapshot.length === 0) return;
+    if (normalizePlatformList(item.platformTargets) !== normalizePlatformList(snapshot)) {
+      throw new ConflictError(
+        'This post targets different platforms than the plan it belongs to, so it was not regenerated. '
+        + 'Nothing was charged. Delete this plan and generate it again.',
+      );
+    }
+  }
+
+  /**
    * Rewrite only the platforms whose copy the validator rejects.
    *
    * Everything not named here is untouched by construction rather than by
@@ -1470,6 +1640,7 @@ export function createPlannerService({
     if (item.approvalStatus === PLANNER_ITEM_STATUS.QUEUED) {
       throw new ConflictError('This post is already queued. Edit it from the queue instead.');
     }
+    await assertItemMatchesRunPlatforms(userId, item);
     const profile = await businessProfiles.findByUserId(userId);
     const edited = new Set(item.editedFields || []);
 
@@ -1991,6 +2162,21 @@ export function createPlannerService({
     const skipped = [];
 
     for (const item of targets) {
+      /*
+       * A post the generator could not write never reaches the queue.
+       *
+       * Reaching here requires approvalStatus APPROVED, and both approval paths
+       * already refuse a hard-failed item — so this is defence in depth rather
+       * than a known hole. It is worth having because the two fields can only
+       * disagree through a bug, and the consequence of that bug would be
+       * queueing invalid copy for a future publishing phase. Gated on
+       * qualityStatus, the engine's RECORD of what happened, because
+       * approvalStatus is a thing the user can move.
+       */
+      if (item.qualityStatus === PLANNER_QUALITY_STATUS.GENERATION_FAILED) {
+        skipped.push({ id: item.id, reason: 'generation failed, needs a retry or an edit' });
+        continue;
+      }
       const accountIds = active
         .filter((a) => item.platformTargets.includes(ACCOUNT_TYPE_TO_PLATFORM[a.accountType]))
         .map((a) => a.id);

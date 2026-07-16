@@ -7,7 +7,7 @@
  */
 
 import { el, badge } from '../ui.js';
-import { PROVIDER_LABELS } from '../icons.js';
+import { platformNames } from '../icons.js';
 
 export const STATUS_LABELS = Object.freeze({
   draft: 'Draft',
@@ -263,9 +263,10 @@ export function plannerCard(item, handlers = {}) {
     }
   }
 
-  const platforms = (item.platformTargets || [])
-    .map((p) => PROVIDER_LABELS[p] || p)
-    .join(', ');
+  // platformTargets holds PLATFORM ids. PROVIDER_LABELS is keyed by provider,
+  // so it resolved Instagram and Threads by coincidence and missed Facebook,
+  // printing the raw lowercase id on the card.
+  const platforms = platformNames(item.platformTargets).join(', ');
 
   return el('article', {
     className: `planner-card${item.approvalStatus === 'rejected' ? ' is-rejected' : ''}`,

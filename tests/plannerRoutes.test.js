@@ -149,7 +149,7 @@ test('POST /api/planner/plans generates a reviewable plan', async () => {
   const { agent, csrf } = await signedInWithAccount(app, overrides);
 
   const res = await agent.post('/api/planner/plans').set('X-CSRF-Token', csrf).send({
-    startDate: '2099-01-05', planLength: 3, cadence: 'every_day', times: ['09:00'], timezone: 'UTC',
+    startDate: '2099-01-05', planLength: 3, cadence: 'every_day', times: ['09:00'], timezone: 'UTC', platforms: ['threads'],
   });
   assert.equal(res.status, 201);
   const plan = res.body.data;
@@ -186,10 +186,15 @@ test('generating without a connected account returns a helpful 400', async () =>
   const { app } = plannerApp();
   const { agent, csrf } = await registerUser(app);
   const res = await agent.post('/api/planner/plans').set('X-CSRF-Token', csrf).send({
-    startDate: '2099-01-05', planLength: 3, times: ['09:00'], timezone: 'UTC',
+    startDate: '2099-01-05', planLength: 3, times: ['09:00'], timezone: 'UTC', platforms: ['threads'],
   });
   assert.equal(res.status, 400);
-  assert.match(res.body.error.message, /Connect at least one/);
+  // The reason rides on the `platforms` field, so the wizard renders it against
+  // the control the user has to act on rather than as a banner.
+  assert.ok(
+    res.body.error.details.some((d) => d.field === 'platforms' && /Connect at least one/.test(d.message)),
+    JSON.stringify(res.body.error.details),
+  );
 });
 
 // --- board actions ----------------------------------------------------------
@@ -199,7 +204,7 @@ test('the full board flow works over HTTP: edit, approve, queue', async () => {
   const { agent, csrf } = await signedInWithAccount(app, overrides);
 
   const gen = await agent.post('/api/planner/plans').set('X-CSRF-Token', csrf).send({
-    startDate: '2099-01-05', planLength: 2, times: ['09:00'], timezone: 'UTC',
+    startDate: '2099-01-05', planLength: 2, times: ['09:00'], timezone: 'UTC', platforms: ['threads'],
   });
   const plan = gen.body.data;
   const runId = plan.run.id;
@@ -235,7 +240,7 @@ test('regenerating an edited caption needs an explicit force', async () => {
   const { app, overrides } = plannerApp();
   const { agent, csrf } = await signedInWithAccount(app, overrides);
   const gen = await agent.post('/api/planner/plans').set('X-CSRF-Token', csrf).send({
-    startDate: '2099-01-05', planLength: 1, times: ['09:00'], timezone: 'UTC',
+    startDate: '2099-01-05', planLength: 1, times: ['09:00'], timezone: 'UTC', platforms: ['threads'],
   });
   const itemId = gen.body.data.items[0].id;
 
@@ -255,7 +260,7 @@ test('regenerate rejects an unknown target', async () => {
   const { app, overrides } = plannerApp();
   const { agent, csrf } = await signedInWithAccount(app, overrides);
   const gen = await agent.post('/api/planner/plans').set('X-CSRF-Token', csrf).send({
-    startDate: '2099-01-05', planLength: 1, times: ['09:00'], timezone: 'UTC',
+    startDate: '2099-01-05', planLength: 1, times: ['09:00'], timezone: 'UTC', platforms: ['threads'],
   });
   const itemId = gen.body.data.items[0].id;
   const res = await agent.post(`/api/planner/items/${itemId}/regenerate`).set('X-CSRF-Token', csrf)
@@ -267,7 +272,7 @@ test('plan history lists this user plans only', async () => {
   const { app, overrides } = plannerApp();
   const { agent, csrf } = await signedInWithAccount(app, overrides);
   await agent.post('/api/planner/plans').set('X-CSRF-Token', csrf).send({
-    startDate: '2099-01-05', planLength: 1, times: ['09:00'], timezone: 'UTC',
+    startDate: '2099-01-05', planLength: 1, times: ['09:00'], timezone: 'UTC', platforms: ['threads'],
   });
 
   const mine = await agent.get('/api/planner/plans');

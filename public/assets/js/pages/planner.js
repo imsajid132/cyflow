@@ -7,7 +7,7 @@
 
 import * as api from '../api.js';
 import { el, card, pageHead, badge, notice, emptyState, formatDate } from '../ui.js';
-import { PROVIDER_LABELS } from '../icons.js';
+import { platformNames } from '../icons.js';
 import { statusChip } from '../components/plannerCard.js';
 import { deletePlanButton } from '../components/deletePlan.js';
 
@@ -128,9 +128,17 @@ export async function render(root, ctx) {
       badge(`Times: ${(prefs?.times || ['09:00']).join(', ')}`, 'neutral'),
       badge(prefs?.approvalMode === 'auto_queue' ? 'Auto-queue' : 'Approval required', 'info'),
       badge(`Tone: ${prefs?.tone || 'professional'}`, 'neutral'),
+      /*
+       * Saved platform defaults are PLATFORM ids, so they need the platform map.
+       *
+       * The empty case no longer claims "All connected platforms" either: that
+       * was the old fallback describing itself, and it is exactly the promise
+       * that put Facebook posts in plans nobody asked for. With nothing saved,
+       * the wizard now starts with nothing ticked.
+       */
       ...(prefs?.platforms?.length
-        ? prefs.platforms.map((p) => badge(PROVIDER_LABELS[p] || p, 'neutral'))
-        : [badge('All connected platforms', 'neutral')]),
+        ? platformNames(prefs.platforms).map((name) => badge(name, 'neutral'))
+        : [badge('Chosen per plan', 'neutral')]),
     ]),
     prefs?.autopilotEnabled
       ? el('p', { className: 'hint', attrs: { style: 'margin-top:.6rem' },

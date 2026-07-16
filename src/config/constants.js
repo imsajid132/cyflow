@@ -252,6 +252,27 @@ export const PLATFORM_LABELS = Object.freeze({
   threads: 'Threads',
 });
 
+/**
+ * The DESTINATION's full name, for lists of where a post is going.
+ *
+ * Two maps, because they are two different jobs. PLATFORM_LABELS is a sentence
+ * subject ("Instagram has 108 words; the minimum is 120") and wants the short
+ * name. This one names the thing the user connected, and Meta's product is an
+ * Instagram Professional account — which is also the wording on the Connections
+ * page, so a card that says "Instagram Professional" and an account that says
+ * "Instagram Professional" are visibly the same thing.
+ *
+ * Keyed by PLATFORM (facebook/instagram/threads), never by provider
+ * (meta/instagram/threads). Mixing those up is what rendered a raw lowercase
+ * "facebook" on the weekly board: PROVIDER_LABELS has no `facebook` key, so the
+ * lookup missed and the code fell through to the internal id.
+ */
+export const PLATFORM_DESTINATION_LABELS = Object.freeze({
+  facebook: 'Facebook',
+  instagram: 'Instagram Professional',
+  threads: 'Threads',
+});
+
 // Map a connected account_type to its content platform key.
 export const ACCOUNT_TYPE_TO_PLATFORM = Object.freeze({
   facebook_page: PLATFORMS.FACEBOOK,

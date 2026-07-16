@@ -50,10 +50,42 @@ export function providerIcon(provider) {
   return svg;
 }
 
+/**
+ * Labels for a PROVIDER: the thing a user connects on the Connections page.
+ *
+ * Keyed by provider id (`meta`), not platform id (`facebook`). See
+ * PLATFORM_LABELS below — the two vocabularies look interchangeable and are not.
+ */
 export const PROVIDER_LABELS = Object.freeze({
   meta: 'Facebook Pages',
   instagram: 'Instagram Professional',
   threads: 'Threads',
 });
 
-export default { icon, providerIcon, PROVIDER_LABELS };
+/**
+ * Labels for a PLATFORM: where a post is going.
+ *
+ * The planner speaks in platforms (`facebook`, `instagram`, `threads`); the
+ * connections layer speaks in providers (`meta`, `instagram`, `threads`). Two
+ * of the three keys are identical, so PROVIDER_LABELS "worked" on platform ids
+ * for Instagram and Threads and silently missed on Facebook — which is why the
+ * weekly board displayed the raw internal id, in lowercase, to users:
+ *
+ *   PROVIDER_LABELS['facebook'] -> undefined -> `|| p` -> "facebook"
+ *
+ * Use this map for anything keyed by platform. `meta` deliberately has no entry
+ * here: a provider id reaching this map is a bug, and should look like one
+ * rather than quietly resolving.
+ */
+export const PLATFORM_LABELS = Object.freeze({
+  facebook: 'Facebook',
+  instagram: 'Instagram Professional',
+  threads: 'Threads',
+});
+
+/** Platform ids in a human list: "Instagram Professional and Threads". */
+export function platformNames(platforms) {
+  return (platforms || []).map((p) => PLATFORM_LABELS[p] || p);
+}
+
+export default { icon, providerIcon, PROVIDER_LABELS, PLATFORM_LABELS, platformNames };

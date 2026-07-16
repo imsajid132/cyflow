@@ -13,7 +13,7 @@ import {
   el, card, pageHead, badge, notice, toast, emptyState, skeleton,
   field, selectField, val, setLoading, confirmModal, clear,
 } from '../ui.js';
-import { PROVIDER_LABELS } from '../icons.js';
+import { platformNames } from '../icons.js';
 import {
   plannerCard, statusChip, dayKeyOf, dayLabelOf, formatSlot, TEMPLATE_LABELS,
 } from '../components/plannerCard.js';
@@ -114,9 +114,18 @@ export async function render(root, ctx) {
     ]));
   }
 
+  /** Posts the generator could not write. They are not review work. */
+  const hardFailedItems = () => (plan?.items || []).filter(
+    (i) => i.qualityStatus === 'generation_failed' || i.approvalStatus === 'generation_failed',
+  );
+
   function renderBulk() {
     clear(bulkHost);
     const count = selected.size;
+    const failed = hardFailedItems();
+    // Selecting a failed card and pressing Approve is a request the server
+    // refuses item by item. The button should not offer it in the first place.
+    const selectionHasFailures = failed.some((i) => selected.has(i.id));
 
     const selectAll = el('button', {
       className: 'btn btn-ghost btn-sm',
@@ -130,12 +139,38 @@ export async function render(root, ctx) {
       renderBoard();
     });
 
+    /*
+     * "Approve all" over a plan with unwritable posts in it.
+     *
+     * The server has always refused these one by one, so the button "worked":
+     * it approved what it could and quietly skipped the rest. But it was still
+     * offering to approve posts that do not exist as usable copy, and a user
+     * who presses Approve all reasonably believes the plan is now approved.
+     * Nothing about the word "all" was true.
+     *
+     * With a failure outstanding it is disabled and says why. Individual
+     * passing cards still have their own Approve button, so the plan is not
+     * held hostage by one bad post.
+     */
+    const blocked = count === 0 ? failed.length > 0 : selectionHasFailures;
     const approveSelected = el('button', {
       className: 'btn btn-primary btn-sm',
       text: count ? `Approve ${count} selected` : 'Approve all',
       attrs: { type: 'button' },
     });
-    approveSelected.addEventListener('click', () => bulkStatus('approved'));
+    approveSelected.disabled = blocked;
+    if (blocked) {
+      approveSelected.setAttribute(
+        'title',
+        count
+          ? 'Some selected posts could not be generated. Retry, edit or remove them first.'
+          : 'Some posts could not be generated. Retry, edit or remove them first.',
+      );
+    }
+    approveSelected.addEventListener('click', () => {
+      if (approveSelected.disabled) return;
+      bulkStatus('approved');
+    });
 
     const rejectSelected = el('button', { className: 'btn btn-secondary btn-sm', text: 'Reject selected', attrs: { type: 'button' } });
     rejectSelected.disabled = count === 0;
@@ -193,6 +228,17 @@ export async function render(root, ctx) {
       el('span', { className: 'spacer' }),
       queueBtn,
     ]));
+
+    // Say WHY the button is dead, next to the button. A disabled control with
+    // no explanation is just a broken one.
+    if (failed.length) {
+      bulkHost.appendChild(notice(
+        `${failed.length} post${failed.length === 1 ? '' : 's'} could not be generated, so this plan cannot be approved in one go. `
+        + `Retry ${failed.length === 1 ? 'it' : 'them'}, edit ${failed.length === 1 ? 'it' : 'them'} by hand, or reject `
+        + `${failed.length === 1 ? 'it' : 'them'}. The posts that worked can still be approved individually.`,
+        'warn',
+      ));
+    }
   }
 
   async function bulkStatus(status) {
@@ -492,7 +538,7 @@ export async function render(root, ctx) {
       el('div', { className: 'drawer-body' }, [
         preview,
         item.duplicationNotes ? notice(item.duplicationNotes, 'warn') : null,
-        el('p', { className: 'card-sub', text: `${formatSlot(item.scheduledFor)} · ${(item.platformTargets || []).map((p) => PROVIDER_LABELS[p] || p).join(', ')}` }),
+        el('p', { className: 'card-sub', text: `${formatSlot(item.scheduledFor)} · ${platformNames(item.platformTargets).join(', ')}` }),
         field({ id: 'd-caption', label: 'Post copy', type: 'textarea', value: item.caption || '', attrs: { rows: 6 } }),
         field({ id: 'd-headline', label: 'Image headline', value: item.headline || '' }),
         field({ id: 'd-subheadline', label: 'Image subheadline', value: item.subheadline || '' }),

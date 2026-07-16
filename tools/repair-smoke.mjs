@@ -140,6 +140,69 @@ async function main() {
       JSON.stringify(failed.failureReasons),
     );
 
+    /*
+     * --- a plan with an unwritable post in it cannot be approved wholesale ---
+     *
+     * The server has always refused these one by one, so "Approve all" appeared
+     * to work: it approved what it could and quietly skipped the rest. The user
+     * pressed a button labelled "all" and was told nothing.
+     */
+    const bulk = JSON.parse(await browser.evaluate(`(() => {
+      const btn = [...document.querySelectorAll('button')].find((b) => /^Approve all$/.test(b.textContent.trim()));
+      return JSON.stringify({
+        exists: Boolean(btn),
+        disabled: btn ? btn.disabled : null,
+        why: btn?.getAttribute('title') ?? null,
+        explanation: [...document.querySelectorAll('.planner-bulk .notice')].map((n) => n.textContent.trim())[0] ?? null,
+      });
+    })()`));
+    check('Approve all is not actionable while a post could not be generated', bulk.exists && bulk.disabled === true, JSON.stringify(bulk));
+    check('the disabled button says why', /could not be generated/i.test(bulk.why || ''), JSON.stringify(bulk.why));
+    check(
+      'the plan explains what to do about the failure',
+      /could not be generated, so this plan cannot be approved in one go/.test(bulk.explanation || ''),
+      JSON.stringify(bulk.explanation),
+    );
+    check(
+      'it says the working posts can still be approved individually',
+      /can still be approved individually/.test(bulk.explanation || ''),
+    );
+
+    // ...and the server refuses to queue it, whatever the page does.
+    const queueAttempt = JSON.parse(await browser.evaluate(`(async () => {
+      const csrf = (await (await fetch('/api/csrf-token', { headers: { Accept: 'application/json' } })).json()).data.csrfToken;
+      const bulkRes = await fetch('/api/planner/plans/1/bulk-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-Token': csrf },
+        body: JSON.stringify({ itemIds: ['${itemId}'], status: 'approved' }),
+      });
+      const bulkBody = await bulkRes.json();
+      const queueRes = await fetch('/api/planner/plans/1/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-Token': csrf },
+        body: JSON.stringify({ itemIds: ['${itemId}'] }),
+      });
+      const queueBody = await queueRes.json();
+      return JSON.stringify({
+        approved: bulkBody.data?.updated?.length ?? 0,
+        skipped: bulkBody.data?.skipped ?? [],
+        queueStatus: queueRes.status,
+        queued: queueBody.data?.queued?.length ?? 0,
+      });
+    })()`));
+    check(
+      'a failed post cannot be bulk-approved, even by a direct request',
+      queueAttempt.approved === 0 && queueAttempt.skipped.some((s) => /generation failed/.test(s.reason)),
+      JSON.stringify(queueAttempt),
+    );
+    check('a failed post cannot be queued', queueAttempt.queued === 0, JSON.stringify(queueAttempt));
+
+    // The exact detail is still on the card after all that.
+    check(
+      'the exact failure details are still visible',
+      (await browser.evaluate(CARD_STATE(itemId))).failureReasons.includes('Threads has 44 words; the minimum is 45'),
+    );
+
     // --- open the drawer and record what it shows ---
     await browser.evaluate(`(() => {
       const card = document.querySelector('[data-item="${itemId}"]');
