@@ -22,6 +22,8 @@ import { config as defaultConfig } from '../config/env.js';
 import {
   PLANNER_RUN_STATUS,
   PLANNER_ITEM_STATUS,
+  PLANNER_QUALITY_STATUS,
+  HARD_DUPLICATE_SCORE,
   PLANNER_LIMITS,
   PLANNER_APPROVAL_MODES,
   PLANNER_CADENCES,
@@ -29,6 +31,13 @@ import {
   PLANNER_CTA_MODES,
   PLANNER_GOALS,
   PLANNER_CONTENT_TYPES,
+  PLANNER_FORMATS,
+  CONTENT_PILLARS,
+  VISUAL_FAMILY_KEYS,
+  RHYTHM_PRESETS,
+  RHYTHM_CTA_MODES,
+  RHYTHM_PRESET_LABELS,
+  PLANNER_WEEKDAY_LABELS,
   PLATFORM_VALUES,
   ACCOUNT_TYPE_TO_PLATFORM,
   SOCIAL_ACCOUNT_STATUS,
@@ -65,6 +74,7 @@ import { contentUniquenessService as defaultUniqueness } from './contentUniquene
 import { loggingService as defaultLogging } from './loggingService.js';
 import { buildSchedule, summarizeSchedule, nextWeeklyRunAt } from './plannerScheduleService.js';
 import { buildBriefSet, DEFAULT_CONTENT_MIX, DEFAULT_GOALS } from './plannerBriefService.js';
+import { resolveRhythm, describeRhythm } from './weeklyRhythmService.js';
 import { withTransaction as defaultWithTransaction } from '../db/transactions.js';
 
 /** Documented defaults for a user who has never opened planner settings. */
@@ -85,6 +95,10 @@ export const DEFAULT_PREFERENCES = Object.freeze({
   timezone: null,
   autopilotEnabled: false,
   nextPlanGenerationAt: null,
+  // Phase 4.8: the weekly rhythm. Balanced is the documented default, and a
+  // user who never touches this gets exactly the brief's Monday-to-Sunday week.
+  contentRhythmPreset: 'balanced',
+  contentRhythm: null,
 });
 
 /** Fields a human can edit. Editing any of them protects it from regeneration. */
@@ -116,6 +130,31 @@ export function createPlannerService({
     const saved = await prefsRepo.findByUserId(userId);
     if (!saved) return { ...DEFAULT_PREFERENCES, userId: String(userId), isDefault: true };
     return { ...DEFAULT_PREFERENCES, ...stripNulls(saved), isDefault: false };
+  }
+
+  /**
+   * The weekly rhythm, resolved and labelled for display.
+   *
+   * The wizard shows the user which strategy each weekday carries BEFORE they
+   * generate, because a plan whose reasoning is invisible is indistinguishable
+   * from a plan with no reasoning. Accepts an optional preset/custom pair so the
+   * preview reflects what is selected right now rather than what is saved.
+   */
+  async function describeWeeklyRhythm(userId, { preset, customRhythm } = {}) {
+    const prefs = await getPreferences(userId);
+    const rhythm = resolveRhythm({
+      preset: preset ?? prefs.contentRhythmPreset,
+      customRhythm: customRhythm ?? prefs.contentRhythm,
+    });
+    return {
+      preset: rhythm.preset,
+      presetLabel: RHYTHM_PRESET_LABELS[rhythm.preset] || null,
+      presets: RHYTHM_PRESETS.map((key) => ({ key, label: RHYTHM_PRESET_LABELS[key] })),
+      weekdays: describeRhythm(rhythm).map((day) => ({
+        ...day,
+        label: PLANNER_WEEKDAY_LABELS[day.weekday],
+      })),
+    };
   }
 
   function stripNulls(obj) {
@@ -187,6 +226,64 @@ export function createPlannerService({
         }
         if (bad) errors.push({ field: 'contentMix', message: 'Invalid content mix' });
         else out.contentMix = clean;
+      }
+    }
+
+    if (patch.contentRhythmPreset !== undefined) {
+      if (!RHYTHM_PRESETS.includes(patch.contentRhythmPreset)) {
+        errors.push({ field: 'contentRhythmPreset', message: 'Choose a valid weekly rhythm' });
+      } else out.contentRhythmPreset = patch.contentRhythmPreset;
+    }
+
+    /*
+     * A custom rhythm is per-weekday overrides. Everything is bounded and
+     * whitelisted here: an unknown pillar, format, family or CTA mode is a
+     * validation error rather than something that reaches the generator. `null`
+     * is a legitimate value meaning "clear my overrides, use the preset".
+     */
+    if (patch.contentRhythm !== undefined) {
+      if (patch.contentRhythm === null) {
+        out.contentRhythm = null;
+      } else if (typeof patch.contentRhythm !== 'object' || Array.isArray(patch.contentRhythm)) {
+        errors.push({ field: 'contentRhythm', message: 'Invalid weekly rhythm' });
+      } else {
+        const clean = {};
+        let bad = null;
+        for (const [key, value] of Object.entries(patch.contentRhythm)) {
+          const weekday = Number(key);
+          if (!Number.isInteger(weekday) || weekday < 1 || weekday > 7) { bad = 'Weekdays run from 1 (Monday) to 7 (Sunday)'; break; }
+          if (!value || typeof value !== 'object' || Array.isArray(value)) { bad = 'Invalid weekday settings'; break; }
+          const day = {};
+          if (value.enabled !== undefined) day.enabled = value.enabled === true;
+          if (value.locked !== undefined) day.locked = value.locked === true;
+          if (value.pillar !== undefined && value.pillar !== null) {
+            if (!CONTENT_PILLARS.includes(value.pillar)) { bad = 'Unknown content pillar'; break; }
+            day.pillar = value.pillar;
+          }
+          if (value.format !== undefined && value.format !== null) {
+            if (!PLANNER_FORMATS.includes(value.format)) { bad = 'Unknown writing format'; break; }
+            day.format = value.format;
+          }
+          if (value.visualFamily !== undefined && value.visualFamily !== null) {
+            if (!VISUAL_FAMILY_KEYS.includes(value.visualFamily)) { bad = 'Unknown visual family'; break; }
+            day.visualFamily = value.visualFamily;
+          }
+          if (value.ctaMode !== undefined && value.ctaMode !== null) {
+            if (!RHYTHM_CTA_MODES.includes(value.ctaMode)) { bad = 'Unknown call to action mode'; break; }
+            day.ctaMode = value.ctaMode;
+          }
+          if (Array.isArray(value.services)) {
+            // Eligible services for this weekday. Bounded, trimmed, and stored
+            // as plain strings; nothing here is interpolated anywhere.
+            day.services = value.services
+              .filter((s) => typeof s === 'string' && s.trim())
+              .slice(0, 12)
+              .map((s) => s.trim().slice(0, 80));
+          }
+          clean[weekday] = day;
+        }
+        if (bad) errors.push({ field: 'contentRhythm', message: bad });
+        else out.contentRhythm = Object.keys(clean).length ? clean : null;
       }
     }
     if (patch.tone !== undefined) {
@@ -367,7 +464,18 @@ export function createPlannerService({
     // One OpenAI call per post; images are one HCTI call each when enabled.
     await assertUnderDailyLimit(userId, schedule.slots.length);
 
-    const briefs = buildBriefSet({ slots: schedule.slots, preferences: prefs, profile, platforms });
+    /*
+     * Resolve the weekly rhythm ONCE, here, and freeze it onto the run. Explicit
+     * run options win over saved preferences (input fidelity); the frozen
+     * snapshot is what the brief builder reads, so a later change to the user's
+     * saved rhythm can never rewrite this plan.
+     */
+    const rhythm = resolveRhythm({
+      preset: options.contentRhythmPreset ?? prefs.contentRhythmPreset,
+      customRhythm: options.customRhythm ?? prefs.contentRhythm,
+    });
+
+    const briefs = buildBriefSet({ slots: schedule.slots, preferences: prefs, profile, platforms, rhythm });
 
     const run = await runsRepo.createRun({
       userId,
@@ -379,6 +487,9 @@ export function createPlannerService({
       timezone: schedule.timezone,
       planLength: options.planLength ?? prefs.defaultPlanLength,
       postsPerDay: schedule.postsPerDay,
+      // The immutable generation-configuration snapshot. Written once; never
+      // recomputed. Explicit options that were resolved above are what get
+      // recorded, so the run reflects exactly what was requested.
       settings: {
         cadence: schedule.cadence,
         times: schedule.timesUsed,
@@ -386,12 +497,17 @@ export function createPlannerService({
         postsPerDay: schedule.postsPerDay,
         activeDays: schedule.activeDays,
         platforms,
+        timezone: schedule.timezone,
+        startDate: schedule.startDate,
+        endDate: schedule.endDate,
         goals: prefs.goals,
         contentMix: prefs.contentMix,
         tone: prefs.tone,
         ctaMode: prefs.ctaMode,
+        rhythmPreset: rhythm.preset,
         approvalMode: options.approvalMode ?? prefs.approvalMode,
       },
+      resolvedRhythm: rhythm,
     });
 
     await logging.record(EVENT_TYPES.PLANNER_RUN_STARTED, {
@@ -413,6 +529,7 @@ export function createPlannerService({
     const created = [];
     const notes = [];
     let flagged = 0;
+    let hardFailed = 0;
 
     for (const brief of briefs) {
       // eslint-disable-next-line no-await-in-loop
@@ -423,6 +540,7 @@ export function createPlannerService({
       created.push(outcome.item);
       batch.push(outcome.fingerprint);
       if (outcome.flagged) flagged += 1;
+      if (outcome.hardFailed) hardFailed += 1;
     }
 
     if (created.length === 0) {
@@ -438,17 +556,39 @@ export function createPlannerService({
     }
 
     if (flagged > 0) notes.push(`${flagged} post${flagged === 1 ? '' : 's'} flagged for similarity review.`);
+    if (hardFailed > 0) notes.push(`${hardFailed} post${hardFailed === 1 ? '' : 's'} could not be generated and need a retry.`);
     if (schedule.skippedPast > 0) notes.push(`${schedule.skippedPast} past time slot${schedule.skippedPast === 1 ? '' : 's'} skipped.`);
     if (!wantImages) notes.push('Images were not generated because HCTI is not verified.');
 
+    /*
+     * A plan where EVERY post hard-failed is a failed plan, and says so. Saying
+     * "review" over a run with nothing reviewable in it is the dishonesty this
+     * avoids. A partial failure stays reviewable: the posts that worked are
+     * real work, and the ones that did not carry their own status.
+     */
+    const allFailed = hardFailed > 0 && hardFailed === created.length;
+    const runQuality = allFailed
+      ? PLANNER_QUALITY_STATUS.GENERATION_FAILED
+      : hardFailed > 0 || flagged > 0
+        ? PLANNER_QUALITY_STATUS.NEEDS_REVIEW
+        : PLANNER_QUALITY_STATUS.PASSED;
+
     const updated = await runsRepo.updateRun(run.id, userId, {
-      status: autoQueue ? PLANNER_RUN_STATUS.QUEUED : PLANNER_RUN_STATUS.REVIEW,
+      status: allFailed
+        ? PLANNER_RUN_STATUS.FAILED
+        : autoQueue ? PLANNER_RUN_STATUS.QUEUED : PLANNER_RUN_STATUS.REVIEW,
+      qualityStatus: runQuality,
+      qualityFailures: hardFailed > 0
+        ? created.filter((i) => i.qualityStatus === PLANNER_QUALITY_STATUS.GENERATION_FAILED)
+          .map((i) => ({ itemId: i.id, reasons: i.qualityFailures || [] }))
+          .slice(0, 28)
+        : null,
       generationNotes: notes.join(' ').slice(0, PLANNER_LIMITS.NOTES_MAX) || null,
     });
 
     await logging.record(EVENT_TYPES.PLANNER_RUN_COMPLETED, {
       req, userId, message: 'Plan generated',
-      context: { runId: run.id, items: created.length, flagged },
+      context: { runId: run.id, items: created.length, flagged, hardFailed },
     });
 
     return getPlan(userId, run.id);
@@ -568,7 +708,7 @@ export function createPlannerService({
      * against the copy that actually ships rather than against an attempt that
      * was later discarded.
      */
-    const { platformCaptions, platformNotes } = await generatePlatformCopy({
+    const { platformCaptions, platformNotes, platformIdenticalNotes } = await generatePlatformCopy({
       userId, brief, profile, primaryPlatform, primary: content,
     });
 
@@ -594,6 +734,28 @@ export function createPlannerService({
     const styleFlagged = styleRejections.length > 0;
     const platformFlagged = platformNotes.length > 0;
     const flagged = duplicateFlagged || styleFlagged || platformFlagged;
+
+    /*
+     * HARD failures versus soft ones.
+     *
+     * A style rejection that SURVIVED every retry is not "worth a look": the
+     * copy is the wrong length, carries a banned phrase, or states a claim the
+     * business never made, and three attempts could not fix it. Calling that
+     * "Needs review" would put an unusable post in front of a human wearing the
+     * same badge as a merely-repetitive one. It gets its own status and cannot
+     * be approved.
+     *
+     * Repetition stays soft: a near-duplicate is a judgement call a human can
+     * genuinely make, so it is reviewable. Only a near-identical post is hard.
+     */
+    const hardFailures = [];
+    for (const reason of styleRejections) hardFailures.push(reason);
+    if (evaluation && evaluation.score >= HARD_DUPLICATE_SCORE) {
+      hardFailures.push('this post is a near-duplicate of another one');
+    }
+    for (const note of platformIdenticalNotes) hardFailures.push(note);
+    const hardFailed = hardFailures.length > 0;
+
     const notes = [];
     if (duplicateFlagged) notes.push(uniqueness.describe(evaluation));
     if (styleFlagged) notes.push(`Needs rewrite: ${styleRejections.join('; ')}.`);
@@ -615,6 +777,21 @@ export function createPlannerService({
       scheduledFor: brief.slot.scheduledForUtc,
       originalTimezone: run.timezone,
       contentType: brief.contentType,
+      // Phase 4.8 strategy metadata: what this post is for, and why it looks
+      // the way it does. Persisted so the board can show it and the duplicate
+      // memory can compare against it later.
+      contentPillar: brief.pillar ?? null,
+      contentFormat: brief.format ?? null,
+      audienceProblem: brief.audienceProblem ?? null,
+      topicAngle: brief.angle ?? null,
+      ctaStrategy: brief.ctaStrategy ?? null,
+      visualFamily: brief.visualFamily ?? null,
+      qualityStatus: hardFailed
+        ? PLANNER_QUALITY_STATUS.GENERATION_FAILED
+        : flagged
+          ? PLANNER_QUALITY_STATUS.NEEDS_REVIEW
+          : PLANNER_QUALITY_STATUS.PASSED,
+      qualityFailures: hardFailed ? hardFailures.slice(0, 8) : null,
       goal: brief.goal,
       platformTargets: brief.platforms,
       templateKey: brief.templateKey,
@@ -629,11 +806,17 @@ export function createPlannerService({
       altText: content.imageAltText,
       brief: brief.brief,
       mediaAssetId,
-      // Auto-queue mode still holds flagged posts for review rather than
-      // approving something the engine already believes is repetitive.
-      approvalStatus: autoQueue && !flagged
-        ? PLANNER_ITEM_STATUS.APPROVED
-        : PLANNER_ITEM_STATUS.NEEDS_REVIEW,
+      /*
+       * A hard failure gets its own status, never "needs review": it cannot be
+       * approved, only retried, edited or deleted. Auto-queue still holds merely
+       * flagged posts for a human rather than approving something the engine
+       * already believes is repetitive.
+       */
+      approvalStatus: hardFailed
+        ? PLANNER_ITEM_STATUS.GENERATION_FAILED
+        : autoQueue && !flagged
+          ? PLANNER_ITEM_STATUS.APPROVED
+          : PLANNER_ITEM_STATUS.NEEDS_REVIEW,
       duplicationScore: evaluation?.score ?? 0,
       duplicationNotes,
       regenerationCount: Math.max(0, attempts.length - 1),
@@ -641,7 +824,7 @@ export function createPlannerService({
       editedFields: [],
     });
 
-    return { item, fingerprint, flagged };
+    return { item, fingerprint, flagged, hardFailed };
   }
 
   /**
@@ -657,17 +840,24 @@ export function createPlannerService({
    * badly, falls back to the primary copy and says so in a note: a plan with one
    * reused post is a worse plan, but a plan that failed to save is not a plan.
    *
-   * @returns {{ platformCaptions: object|null, platformNotes: string[] }}
+   * @returns {{ platformCaptions: object|null, platformNotes: string[],
+   *             platformIdenticalNotes: string[] }}
+   *          `platformNotes` are soft (reviewable); `platformIdenticalNotes` are
+   *          hard: two platforms ended up with the same post, which is the exact
+   *          defect per-platform generation exists to prevent.
    */
   async function generatePlatformCopy({ userId, brief, profile, primaryPlatform, primary }) {
     const platformCaptions = {
       [primaryPlatform]: { caption: primary.caption, hashtags: primary.hashtags },
     };
     const notes = [];
+    const identical = [];
     const others = brief.platforms.filter((p) => p !== primaryPlatform);
     // A single-platform plan has nothing to differentiate; leave the column NULL
     // and let the reader fall back to `caption`.
-    if (others.length === 0) return { platformCaptions: null, platformNotes: notes };
+    if (others.length === 0) {
+      return { platformCaptions: null, platformNotes: notes, platformIdenticalNotes: identical };
+    }
 
     for (const platform of others) {
       let variant = null;
@@ -706,8 +896,11 @@ export function createPlannerService({
       }
 
       if (!variant?.caption) {
+        // Falling back to the primary copy keeps the plan usable, but it IS the
+        // "one post pasted twice" defect, so it is reported as hard rather than
+        // hidden behind a soft note.
         platformCaptions[platform] = { caption: primary.caption, hashtags: primary.hashtags };
-        notes.push(`The ${platform} post could not be written separately and reuses the ${primaryPlatform} copy.`);
+        identical.push(`the ${platform} post could not be written separately and repeats the ${primaryPlatform} post`);
         // eslint-disable-next-line no-continue
         continue;
       }
@@ -715,14 +908,19 @@ export function createPlannerService({
       platformCaptions[platform] = { caption: variant.caption, hashtags: variant.hashtags };
       const rejections = variant._style?.rejections ?? [];
       if (rejections.length) {
-        notes.push(`The ${platform} post needs a rewrite: ${rejections.join('; ')}.`);
+        // The variant survived its own retries and is still invalid: hard.
+        identical.push(`the ${platform} post could not be written to a valid length or shape`);
       }
       if (uniqueness.platformCopyTooSimilar(primary.caption, variant.caption)) {
-        notes.push(`The ${platform} post is too close to the ${primaryPlatform} post.`);
+        identical.push(`the ${platform} post is the same post as the ${primaryPlatform} one`);
       }
     }
 
-    return { platformCaptions, platformNotes: notes.slice(0, 4) };
+    return {
+      platformCaptions,
+      platformNotes: notes.slice(0, 4),
+      platformIdenticalNotes: identical.slice(0, 4),
+    };
   }
 
   /**
@@ -760,6 +958,9 @@ export function createPlannerService({
     if (content.badge) extras.badge = content.badge;
     else if (brief?.formatLabel) extras.badge = brief.formatLabel;
     if (brief?.location) extras.locationLabel = brief.location;
+    // Persisted so a later image regeneration can rebuild the FAQ card with its
+    // real answer instead of silently falling back to the truncated subheadline.
+    if (content.answerSummary) extras.answerSummary = content.answerSummary;
     return Object.keys(extras).length ? extras : null;
   }
 
@@ -789,6 +990,12 @@ export function createPlannerService({
       // The design families' category badge and place label.
       badge: overrides.badge ?? content.badge ?? brief.formatLabel ?? null,
       locationLabel: overrides.locationLabel ?? brief.location ?? null,
+      /*
+       * The FAQ answer. Without this hop the faq-editorial layout falls back to
+       * the subheadline, which is clamped to 140 characters, so a real answer
+       * renders truncated mid-word.
+       */
+      answerSummary: overrides.answerSummary ?? content.answerSummary ?? null,
     });
 
     const asset = await mediaAssetService.createReadyImageAsset({
@@ -933,6 +1140,17 @@ export function createPlannerService({
     if (item.approvalStatus === PLANNER_ITEM_STATUS.NEEDS_REVIEW) {
       fields.approvalStatus = PLANNER_ITEM_STATUS.DRAFT;
     }
+    /*
+     * Editing a hard failure clears it. The generator could not write a valid
+     * post, but a person just did, and holding their work hostage to the
+     * machine's verdict would be absurd. The quality record is cleared with it,
+     * because it no longer describes what is there.
+     */
+    if (item.approvalStatus === PLANNER_ITEM_STATUS.GENERATION_FAILED && edited.has('caption')) {
+      fields.approvalStatus = PLANNER_ITEM_STATUS.DRAFT;
+      fields.qualityStatus = PLANNER_QUALITY_STATUS.NEEDS_REVIEW;
+      fields.qualityFailures = null;
+    }
 
     const updated = await runsRepo.updateItem(itemId, userId, fields);
     await logging.record(EVENT_TYPES.PLANNER_ITEM_UPDATED, {
@@ -999,6 +1217,19 @@ export function createPlannerService({
         { batch: [], recent },
       );
 
+      /*
+       * A retry RE-VALIDATES. It does not launder.
+       *
+       * This previously set NEEDS_REVIEW unconditionally and never looked at the
+       * new copy's style verdict, so "Retry" — the very action the failure
+       * message tells the user to take — cleared a hard failure even when the
+       * regenerated copy was just as invalid. The retry now earns its status:
+       * still-rejected copy stays failed, valid copy is released for review.
+       */
+      const retryRejections = content._style?.rejections ?? [];
+      const stillFailing = retryRejections.length > 0
+        || evaluation.score >= HARD_DUPLICATE_SCORE;
+
       const fields = {
         caption: content.caption,
         hashtags: content.hashtags,
@@ -1006,7 +1237,13 @@ export function createPlannerService({
         regenerationCount: item.regenerationCount + 1,
         duplicationScore: evaluation.score,
         duplicationNotes: evaluation.verdict === 'unique' ? null : uniqueness.describe(evaluation),
-        approvalStatus: PLANNER_ITEM_STATUS.NEEDS_REVIEW,
+        qualityStatus: stillFailing
+          ? PLANNER_QUALITY_STATUS.GENERATION_FAILED
+          : PLANNER_QUALITY_STATUS.NEEDS_REVIEW,
+        qualityFailures: stillFailing ? retryRejections.slice(0, 8) : null,
+        approvalStatus: stillFailing
+          ? PLANNER_ITEM_STATUS.GENERATION_FAILED
+          : PLANNER_ITEM_STATUS.NEEDS_REVIEW,
       };
       // Headline/subheadline are only replaced when the user has not written
       // their own — this is what "regenerate one field" has to mean.
@@ -1049,6 +1286,7 @@ export function createPlannerService({
           stat: extras.stat ?? null,
           comparison: extras.comparison ?? null,
           badge: extras.badge ?? null,
+          answerSummary: extras.answerSummary ?? null,
         },
         overrides: {
           templateKey: item.templateKey,
@@ -1082,9 +1320,30 @@ export function createPlannerService({
       throw new ValidationError('Invalid status', [{ field: 'status', message: 'Choose approve or reject' }]);
     }
     if (status === PLANNER_ITEM_STATUS.APPROVED && (!item.caption || !item.caption.trim())) {
-      throw new ValidationError('This post has no caption to approve', [
-        { field: 'caption', message: 'Add a caption before approving' },
+      throw new ValidationError('This post has no post copy to approve', [
+        { field: 'caption', message: 'Add post copy before approving' },
       ]);
+    }
+    /*
+     * A hard failure cannot be approved into the queue.
+     *
+     * The gate is on `qualityStatus`, the engine's RECORD of what happened, not
+     * on `approvalStatus`, which the user can move. Gating on approvalStatus was
+     * bypassable in two calls: set the item to `draft` (a legitimate status the
+     * validator accepts), which clears `generation_failed` from approvalStatus,
+     * then approve it. The failure record survived and the post queued anyway,
+     * which made "Generation failed" exactly the cosmetic label this was meant
+     * to prevent.
+     *
+     * qualityStatus is only cleared by a human editing the copy (updateItem) or
+     * by a regeneration that actually passes. Those are the two ways someone
+     * takes responsibility for the post.
+     */
+    if (status === PLANNER_ITEM_STATUS.APPROVED
+      && item.qualityStatus === PLANNER_QUALITY_STATUS.GENERATION_FAILED) {
+      throw new ConflictError(
+        'This post could not be generated. Retry it or edit it before approving.',
+      );
     }
     const updated = await runsRepo.updateItem(itemId, userId, { approvalStatus: status });
     await logging.record(
@@ -1110,7 +1369,15 @@ export function createPlannerService({
         continue;
       }
       if (status === PLANNER_ITEM_STATUS.APPROVED && !item.caption?.trim()) {
-        results.skipped.push({ id: item.id, reason: 'no caption' });
+        results.skipped.push({ id: item.id, reason: 'no post copy' });
+        continue;
+      }
+      // Approve-all must never sweep a hard failure into the queue. Keyed on the
+      // engine's record, not the movable approval status, for the same reason as
+      // setItemStatus above.
+      if (status === PLANNER_ITEM_STATUS.APPROVED
+        && item.qualityStatus === PLANNER_QUALITY_STATUS.GENERATION_FAILED) {
+        results.skipped.push({ id: item.id, reason: 'generation failed, needs a retry or an edit' });
         continue;
       }
       // eslint-disable-next-line no-await-in-loop
@@ -1378,10 +1645,18 @@ export function createPlannerService({
     }
 
     const counts = await runsRepo.countItemsByStatus(runId, userId);
+    /*
+     * "Queued" means there is nothing left to do. An outstanding hard failure is
+     * something left to do, so it counts as unfinished exactly like a draft or a
+     * pending review. (A REJECTED item does not: the user decided about it.)
+     * Without this a run with five queued posts and two failures reported itself
+     * as fully queued and the failures fell out of sight.
+     */
     const allQueued = counts[PLANNER_ITEM_STATUS.QUEUED] > 0
       && counts[PLANNER_ITEM_STATUS.APPROVED] === 0
       && counts[PLANNER_ITEM_STATUS.NEEDS_REVIEW] === 0
-      && counts[PLANNER_ITEM_STATUS.DRAFT] === 0;
+      && counts[PLANNER_ITEM_STATUS.DRAFT] === 0
+      && (counts[PLANNER_ITEM_STATUS.GENERATION_FAILED] || 0) === 0;
     await runsRepo.updateRun(runId, userId, {
       status: allQueued ? PLANNER_RUN_STATUS.QUEUED : PLANNER_RUN_STATUS.PARTIALLY_QUEUED,
     });
@@ -1445,6 +1720,7 @@ export function createPlannerService({
 
   return {
     getPreferences,
+    describeWeeklyRhythm,
     savePreferences,
     summarizePlan,
     describeDeletion,

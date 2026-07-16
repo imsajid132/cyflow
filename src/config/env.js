@@ -168,10 +168,20 @@ export function buildConfig(raw = process.env) {
   if (openaiEnabled && openaiModel === '' && IS_PROD) {
     errors.push('OPENAI_TEXT_MODEL is required when OPENAI_API_KEY is set');
   }
+  /*
+   * OPENAI_PLANNER_MODEL is optional. Planner generation and the critic review
+   * are a harder job than a one-off caption, so they may warrant a different
+   * model; when it is not set they use OPENAI_TEXT_MODEL. Like the text model it
+   * is never hardcoded and never defaulted to an invented name, and it is never
+   * exposed to a normal user.
+   */
+  const openaiPlannerModel = optionalString('OPENAI_PLANNER_MODEL');
   const openai = {
     apiKey: openaiKey,
     // No invented default — empty string until configured.
     textModel: openaiModel,
+    // Falls back to the text model rather than to a guess.
+    plannerModel: openaiPlannerModel || openaiModel,
     available: openaiKey !== '' && openaiModel !== '',
     requestTimeoutMs: toNumber('OPENAI_REQUEST_TIMEOUT_MS', {
       required: false,

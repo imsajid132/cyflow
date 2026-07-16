@@ -117,6 +117,13 @@ export async function plannerPreferences() {
   return payload(res)?.preferences ?? null;
 }
 
+/** The weekly rhythm, resolved and labelled, for the wizard's strategy preview. */
+export async function plannerRhythm({ preset } = {}) {
+  const query = preset ? `?preset=${encodeURIComponent(preset)}` : '';
+  const res = await apiRequest(`/api/planner/rhythm${query}`);
+  return payload(res)?.rhythm ?? null;
+}
+
 export async function plannerPlans({ limit = 20 } = {}) {
   const res = await apiRequest(`/api/planner/plans?limit=${encodeURIComponent(limit)}`);
   return payload(res)?.plans ?? [];

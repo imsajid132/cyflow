@@ -21,6 +21,7 @@ import {
   IMAGE_TEMPLATE_VALUES,
   ASPECT_RATIO_VALUES,
   BACKGROUND_STYLES,
+  RHYTHM_PRESETS,
 } from '../config/constants.js';
 
 const idPattern = /^\d{1,20}$/;
@@ -36,6 +37,11 @@ export const preferencesValidator = [
   body('goals').optional({ nullable: true }).isArray({ max: 7 }).withMessage('Invalid goals'),
   body('goals.*').optional().isIn(PLANNER_GOALS).withMessage('Invalid goal'),
   body('contentMix').optional({ nullable: true }).isObject().withMessage('Invalid content mix'),
+  // The weekly rhythm. The shape is checked here; the SEMANTICS (real pillars,
+  // formats, families, weekday keys) are validated in the service, which owns
+  // the vocabulary and returns field-level errors the form can attach.
+  body('contentRhythmPreset').optional({ nullable: true }).isIn(RHYTHM_PRESETS).withMessage('Invalid weekly rhythm'),
+  body('contentRhythm').optional({ nullable: true }).isObject().withMessage('Invalid weekly rhythm'),
   body('tone').optional({ nullable: true }).isIn(PLANNER_TONES).withMessage('Invalid tone'),
   body('ctaMode').optional({ nullable: true }).isIn(PLANNER_CTA_MODES).withMessage('Invalid CTA mode'),
   body('approvalMode').optional({ nullable: true }).isIn(PLANNER_APPROVAL_MODES).withMessage('Invalid approval mode'),
@@ -71,6 +77,11 @@ export const generatePlanValidator = [
   body('platforms.*').optional().isIn(PLATFORM_VALUES).withMessage('Unsupported platform'),
   body('timezone').optional({ nullable: true }).isString().isLength({ max: 64 }).withMessage('Invalid timezone'),
   body('approvalMode').optional({ nullable: true }).isIn(PLANNER_APPROVAL_MODES).withMessage('Invalid approval mode'),
+  // A run may name its own rhythm. Without this the wizard's choice could not
+  // reach the run and the saved default would silently win, which is exactly
+  // the input-fidelity failure this phase exists to close.
+  body('contentRhythmPreset').optional({ nullable: true }).isIn(RHYTHM_PRESETS).withMessage('Invalid weekly rhythm'),
+  body('customRhythm').optional({ nullable: true }).isObject().withMessage('Invalid weekly rhythm'),
 ];
 
 export const runIdParamValidator = [

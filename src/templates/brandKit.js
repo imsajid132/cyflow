@@ -453,6 +453,10 @@ export function eyebrowFrom({ brandName, businessCategory }) {
 export const TEXT_LIMITS = Object.freeze({
   HEADLINE: IMAGE_TEXT_LIMITS.HEADLINE_MAX,
   SUBHEADLINE: IMAGE_TEXT_LIMITS.SUBHEADLINE_MAX,
+  // The FAQ answer panel is sized for a short paragraph, not a support line.
+  // Measured against the rendered card: 260 fills the panel without overflowing
+  // it at the smallest supported answer type size.
+  ANSWER: 260,
   CTA: 40,
   WEBSITE: 60,
   PHONE: 32,

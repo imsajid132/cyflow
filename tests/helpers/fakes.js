@@ -8,6 +8,7 @@ import { sanitizeUser } from '../../src/repositories/userRepository.js';
 import { sanitizeAccount } from '../../src/repositories/socialAccountRepository.js';
 import { sanitizePost } from '../../src/repositories/postRepository.js';
 import { evaluateStateRow } from '../../src/repositories/oauthStateRepository.js';
+import { PLANNER_ITEM_STATUS } from '../../src/config/constants.js';
 import { normalizeEmail } from '../../src/utils/validation.js';
 import { OAuthError, OAUTH_ERROR_CODES } from '../../src/utils/oauthErrors.js';
 import { createMediaAssetService } from '../../src/services/mediaAssetService.js';
@@ -942,6 +943,8 @@ export function createFakePlannerPreferenceRepository() {
         platforms: [],
         goals: [],
         contentMix: {},
+        contentRhythmPreset: 'balanced',
+        contentRhythm: null,
         tone: 'professional',
         ctaMode: 'some',
         approvalMode: 'require_approval',
@@ -994,6 +997,9 @@ export function createFakePlannerRunRepository() {
         planLength: input.planLength ?? 7,
         postsPerDay: input.postsPerDay ?? 1,
         settings: input.settings ?? {},
+        resolvedRhythm: input.resolvedRhythm ?? null,
+        qualityStatus: input.qualityStatus ?? null,
+        qualityFailures: input.qualityFailures ?? null,
         generationNotes: input.generationNotes ?? null,
         archivedAt: null,
         createdAt: '2026-07-13 06:00:00',
@@ -1041,6 +1047,14 @@ export function createFakePlannerRunRepository() {
         scheduledFor: input.scheduledFor ?? null,
         originalTimezone: input.originalTimezone ?? null,
         contentType: input.contentType ?? 'educational',
+        contentPillar: input.contentPillar ?? null,
+        contentFormat: input.contentFormat ?? null,
+        audienceProblem: input.audienceProblem ?? null,
+        topicAngle: input.topicAngle ?? null,
+        ctaStrategy: input.ctaStrategy ?? null,
+        visualFamily: input.visualFamily ?? null,
+        qualityStatus: input.qualityStatus ?? null,
+        qualityFailures: input.qualityFailures ?? null,
         goal: input.goal ?? null,
         platformTargets: input.platformTargets ?? [],
         templateKey: input.templateKey ?? null,
@@ -1092,16 +1106,28 @@ export function createFakePlannerRunRepository() {
       items.delete(String(itemId));
       return { deleted: true };
     },
-    async listRecentFingerprintsForUser(userId, { limit = 60, excludeRunId = null } = {}) {
+    async listRecentFingerprintsForUser(userId, { limit = 60, sinceUtc = null, excludeRunId = null } = {}) {
       return [...items.values()]
         .filter((i) => i.userId === String(userId) && i.fingerprint)
         .filter((i) => (excludeRunId ? i.plannerRunId !== String(excludeRunId) : true))
+        // The real repository applies `AND created_at >= ?`. The fake ignored
+        // sinceUtc entirely, so its duplication lookback was unbounded in time
+        // and a test could never catch a broken cutoff.
+        .filter((i) => (sinceUtc ? String(i.createdAt ?? '') >= String(sinceUtc) : true))
         .sort((a, b) => Number(b.id) - Number(a.id))
         .slice(0, limit)
         .map((i) => ({ id: i.id, plannerRunId: i.plannerRunId, ...i.fingerprint }));
     },
     async countItemsByStatus(runId, userId) {
-      const counts = { draft: 0, needs_review: 0, approved: 0, queued: 0, rejected: 0 };
+      /*
+       * Zero-fill from the SAME constant the real repository uses, rather than
+       * a hand-written key list. The literal here fell behind when
+       * `generation_failed` was added, so the fake returned `undefined` where
+       * MySQL returns 0 — a test could pass against one and fail against the
+       * other, which is the whole point of a fake being faithful.
+       */
+      const counts = {};
+      for (const status of Object.values(PLANNER_ITEM_STATUS)) counts[status] = 0;
       for (const item of items.values()) {
         if (item.plannerRunId !== String(runId) || item.userId !== String(userId)) continue;
         counts[item.approvalStatus] = (counts[item.approvalStatus] || 0) + 1;

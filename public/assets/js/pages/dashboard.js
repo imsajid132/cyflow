@@ -47,7 +47,7 @@ export async function render(root, ctx) {
     const alert = el('div', { className: 'notice notice-info' }, [
       el('div', {}, [
         el('strong', { text: 'Complete your business setup' }),
-        el('p', { text: 'Add your business details so captions and images match your brand. It takes about a minute.' }),
+        el('p', { text: 'Add your business details so post copy and images match your brand. It takes about a minute.' }),
       ]),
       el('span', { className: 'spacer' }),
       el('a', { className: 'btn btn-primary btn-sm', text: 'Complete setup', attrs: { href: '/onboarding/business', 'data-link': '' } }),
@@ -118,7 +118,7 @@ export async function render(root, ctx) {
             el('span', { className: 'card-sub', text: `${formatDate(p.scheduledAtUtc)}${p.originalTimezone ? ` · ${p.originalTimezone}` : ''}` }),
           ]),
         ))
-      : emptyState({ title: 'Nothing scheduled yet', subtitle: 'Create a post and schedule it — publishing to providers arrives in a later phase.' }),
+      : emptyState({ title: 'Nothing scheduled yet', subtitle: 'Create a post and schedule it. Publishing to providers arrives in a later phase.' }),
   ]));
 
   // Recent activity = the user's most recent real posts.
@@ -137,7 +137,7 @@ export async function render(root, ctx) {
       : el('p', { className: 'hint', text: 'No activity yet.' }),
   ]));
 
-  page.appendChild(notice('Scheduled posts are saved for a future publishing phase — Cyflow does not publish to providers yet.', 'info'));
+  page.appendChild(notice('Scheduled posts are saved for a future publishing phase. Cyflow does not publish to providers yet.', 'info'));
 
   root.appendChild(page);
 }

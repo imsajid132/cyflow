@@ -169,6 +169,18 @@ export function buildTemplate(input = {}) {
     // Design-family extras: the category badge and the place label.
     badge: escapeHtml(clampText(input.badge, V.BADGE_MAX)),
     locationLabel: escapeHtml(clampText(input.locationLabel, V.LOCATION_MAX)),
+    /*
+     * Phase 4.8 structured fields. Each is optional; a layout that wants one
+     * falls back to headline/subheadline/bullets when it is absent.
+     *
+     * The FAQ answer gets its OWN limit rather than borrowing the subheadline's.
+     * A subheadline is one supporting line under a headline; an answer is the
+     * whole point of the card and sits in a panel sized for a paragraph. At 140
+     * characters a real answer was being cut mid-word with an ellipsis, which
+     * looked like a rendering fault and made the card useless.
+     */
+    answerSummary: escapeHtml(clampText(input.answerSummary, TEXT_LIMITS.ANSWER)),
+    emphasisPhrase: escapeHtml(clampText(input.emphasisPhrase, 40)),
   };
 
   const logoUrl = escapeHtml(safeImageUrl(input.logoUrl));

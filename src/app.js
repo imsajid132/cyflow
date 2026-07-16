@@ -103,17 +103,36 @@ export function createApp(overrides = {}) {
   }
   app.disable('x-powered-by');
 
-  // --- Security headers (CSP compatible with the Tailwind Play CDN) ---------
+  /*
+   * --- Security headers -----------------------------------------------------
+   *
+   * Phase 4.8 TIGHTENED this. The policy used to allow
+   * https://cdn.tailwindcss.com as a script and style host, plus 'unsafe-eval',
+   * because 404.html pulled the Tailwind Play CDN (which JIT-compiles in the
+   * browser and therefore needs eval). That page now uses the local design
+   * system, and it was the only Tailwind consumer in the app, so those
+   * permissions were purely dead surface: a third-party script origin and
+   * arbitrary code evaluation, allowed for a page that no longer wants them.
+   *
+   * The frontend is vanilla ES modules with one local stylesheet, so 'self' is
+   * all it needs. No inline SCRIPT is permitted, and there is none.
+   *
+   * 'unsafe-inline' remains for STYLE only, and its real consumers are a handful
+   * of `style=` attributes in the shell and the page modules (the noscript
+   * notice, a few one-off flex gaps). It is not needed by the image layouts:
+   * those emit no style attributes, and they render at HCTI rather than being
+   * served by this app, so this policy never applies to them. Moving those few
+   * declarations into design-system.css would let 'unsafe-inline' go entirely.
+   */
   app.use(
     helmet({
       contentSecurityPolicy: {
         useDefaults: true,
         directives: {
           'default-src': ["'self'"],
-          // Tailwind Play CDN ships a script that JIT-compiles in the browser.
-          'script-src': ["'self'", 'https://cdn.tailwindcss.com', "'unsafe-eval'"],
-          // Tailwind injects a <style> element at runtime.
-          'style-src': ["'self'", "'unsafe-inline'", 'https://cdn.tailwindcss.com'],
+          'script-src': ["'self'"],
+          'style-src': ["'self'", "'unsafe-inline'"],
+          // https: covers a business's own logo and generated image previews.
           'img-src': ["'self'", 'data:', 'https:'],
           'font-src': ["'self'", 'data:'],
           'connect-src': ["'self'"],

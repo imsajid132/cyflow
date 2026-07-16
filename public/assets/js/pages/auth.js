@@ -20,18 +20,68 @@ function detectedTimezone() {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; }
 }
 
-function shell(title, subtitle, form, footer) {
-  return el('div', { className: 'auth-card' }, [
-    card([
-      el('div', { className: 'stack' }, [
-        el('div', { className: 'row', attrs: { style: 'gap:.6rem' } }, [
-          el('img', { attrs: { src: '/assets/favicon.svg', alt: '', width: 28, height: 28, style: 'border-radius:6px' } }),
-          el('span', { text: 'Cyflow Social', attrs: { style: 'font-weight:700' } }),
+/**
+ * What the product actually does, in the user's terms.
+ *
+ * Every line here is a real, implemented capability. There are no customer
+ * counts, no testimonials and no statistics, because we have none: inventing
+ * social proof on a sign-in page is the same dishonesty the content engine
+ * refuses to commit on a customer's behalf.
+ */
+const VALUE_POINTS = Object.freeze([
+  { title: 'A week of posts, planned by weekday', body: 'Monday teaches, Friday gives practical tips, Sunday recaps. You can change any day.' },
+  { title: 'Written per platform, not copy-pasted', body: 'Your Facebook, Instagram and Threads posts are written separately, from the same brief.' },
+  { title: 'Your brand, on every image', body: 'Your saved colours, your logo, your fonts. Rendered at 1080 and ready to review.' },
+]);
+
+/**
+ * The brand panel beside the form.
+ *
+ * A restrained field with a faint grid, the app mark, and three honest points.
+ * The composition is CSS: no illustration is fetched, nothing animates, and it
+ * collapses away entirely on mobile so a phone shows the form, not decoration.
+ */
+function brandPanel() {
+  return el('aside', { className: 'auth-brand', attrs: { 'aria-hidden': 'true' } }, [
+    el('div', { className: 'auth-brand-grid' }),
+    el('div', { className: 'auth-brand-inner' }, [
+      el('div', { className: 'auth-brand-lockup' }, [
+        el('img', { attrs: { src: '/assets/brand/cyflow-mark-192.png', alt: '', width: 40, height: 40 } }),
+        el('span', { text: 'Cyflow Social' }),
+      ]),
+      el('p', { className: 'auth-brand-lede', text: 'Plan a week of social posts that sound like your business wrote them.' }),
+      el('ul', { className: 'auth-points' }, VALUE_POINTS.map((point) => el('li', {}, [
+        el('span', { className: 'auth-point-tick', attrs: { 'aria-hidden': 'true' } }),
+        el('div', {}, [
+          el('span', { className: 'auth-point-title', text: point.title }),
+          el('span', { className: 'auth-point-body', text: point.body }),
         ]),
-        el('div', {}, [el('h1', { text: title }), el('p', { className: 'sub', text: subtitle })]),
-        el('div', { className: 'field-error', attrs: { id: 'form-error', role: 'alert', hidden: true } }),
-        form,
-        footer,
+      ]))),
+    ]),
+  ]);
+}
+
+function shell(title, subtitle, form, footer) {
+  return el('div', { className: 'auth-split' }, [
+    brandPanel(),
+    el('div', { className: 'auth-card' }, [
+      card([
+        el('div', { className: 'stack' }, [
+          // The Cyflow APPLICATION mark. Correct here: this is app chrome.
+          // On mobile the brand panel is gone, so this is the only mark shown.
+          el('div', { className: 'row auth-mark', attrs: { style: 'gap:.6rem' } }, [
+            el('img', { attrs: { src: '/assets/brand/cyflow-mark-64.png', alt: '', width: 28, height: 28 } }),
+            el('span', { text: 'Cyflow Social', attrs: { style: 'font-weight:700' } }),
+          ]),
+          el('div', {}, [el('h1', { text: title }), el('p', { className: 'sub', text: subtitle })]),
+          el('div', { className: 'field-error', attrs: { id: 'form-error', role: 'alert', hidden: true } }),
+          form,
+          footer,
+          el('p', {
+            className: 'auth-reassure',
+            text: 'Your password is hashed and your session stays on this device. Cyflow never posts anything without your say-so.',
+          }),
+        ]),
       ]),
     ]),
   ]);

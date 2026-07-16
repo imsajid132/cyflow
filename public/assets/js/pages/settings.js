@@ -254,7 +254,7 @@ export async function render(root, ctx) {
       typeof caps.generations?.usedToday === 'number'
         ? el('p', { text: `${caps.generations.usedToday} of ${caps.generations.dailyLimit} generations used in the last 24 hours.` })
         : el('p', { className: 'hint', text: 'Usage is unavailable right now.' }),
-      el('p', { className: 'hint', text: 'Caption and image generations each count towards this limit.' }),
+      el('p', { className: 'hint', text: 'Post copy and image generations each count towards this limit.' }),
     ]),
 
     card([

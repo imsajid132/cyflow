@@ -79,19 +79,27 @@ test('a one-sentence advert is rejected for every platform', () => {
   }
 });
 
-test('facebook and instagram require 100 to 180 words in 2 to 4 paragraphs', () => {
-  for (const platform of ['facebook', 'instagram']) {
-    const rules = POST_COPY_RULES[platform];
-    assert.equal(rules.MIN_WORDS, 100);
-    assert.equal(rules.MAX_WORDS, 180);
-    assert.equal(rules.MIN_PARAGRAPHS, 2);
-    assert.equal(rules.MAX_PARAGRAPHS, 4);
-  }
+// Phase 4.8 widened the long-form bands (was 100-180 for both). The wider room
+// is what stops Facebook and Instagram copy reading as clipped.
+test('facebook requires 130 to 220 words in 2 to 4 paragraphs', () => {
+  const rules = POST_COPY_RULES.facebook;
+  assert.equal(rules.MIN_WORDS, 130);
+  assert.equal(rules.MAX_WORDS, 220);
+  assert.equal(rules.MIN_PARAGRAPHS, 2);
+  assert.equal(rules.MAX_PARAGRAPHS, 4);
 });
 
-test('threads requires 40 to 100 words in 1 to 3 paragraphs', () => {
+test('instagram requires 120 to 200 words in 2 to 4 paragraphs', () => {
+  const rules = POST_COPY_RULES.instagram;
+  assert.equal(rules.MIN_WORDS, 120);
+  assert.equal(rules.MAX_WORDS, 200);
+  assert.equal(rules.MIN_PARAGRAPHS, 2);
+  assert.equal(rules.MAX_PARAGRAPHS, 4);
+});
+
+test('threads requires 45 to 100 words in 1 to 3 paragraphs', () => {
   const rules = POST_COPY_RULES.threads;
-  assert.equal(rules.MIN_WORDS, 40);
+  assert.equal(rules.MIN_WORDS, 45);
   assert.equal(rules.MAX_WORDS, 100);
   assert.equal(rules.MIN_PARAGRAPHS, 1);
   assert.equal(rules.MAX_PARAGRAPHS, 3);
@@ -117,8 +125,10 @@ test('post copy that is too short for its platform is rejected', () => {
 });
 
 test('post copy that is too long for its platform is rejected', () => {
-  const word = 'roof ';
-  const long = [word.repeat(60).trim(), word.repeat(60).trim(), word.repeat(80).trim()].join('\n\n');
+  // Four 60-word paragraphs = 240 words, over Facebook's 220 ceiling, and each
+  // paragraph stays under the wall-of-text limit so it is length that fails.
+  const para = 'roof '.repeat(60).trim();
+  const long = [para, para, para, para].join('\n\n');
   const issues = postCopyIssues(long, 'facebook');
   assert.ok(issues.some((i) => /too long/.test(i)), JSON.stringify(issues));
 });
@@ -145,7 +155,7 @@ test('one enormous paragraph is rejected even when the paragraph count passes', 
 });
 
 test('hashtags inside the post copy are rejected', () => {
-  const withTags = PLAN[0].facebook.replace('Resize the image', 'Resize the #image');
+  const withTags = `${PLAN[0].facebook}\n\nFollow along #seo #localseo`;
   const issues = postCopyIssues(withTags, 'facebook');
   assert.ok(issues.some((i) => /hashtags are inside/.test(i)), JSON.stringify(issues));
 });

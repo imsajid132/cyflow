@@ -50,7 +50,7 @@ export async function render(root, ctx) {
   let post = null; // the server's draft — the single source of truth on this page
 
   const page = el('div', { className: 'page' }, [
-    pageHead('Create post', 'Write a brief, generate captions and a branded image, then schedule it.'),
+    pageHead('Create post', 'Write a brief, generate post copy and a branded image, then schedule it.'),
   ]);
 
   if (!capabilities.openai?.available) {
@@ -107,7 +107,7 @@ export async function render(root, ctx) {
   } else {
     accountHost.appendChild(emptyState({
       title: 'No connected accounts',
-      subtitle: 'Connect an account before generating captions — captions are written per platform.',
+      subtitle: 'Connect an account before generating post copy. Each platform is written separately.',
       action: el('a', { className: 'btn btn-primary btn-sm', text: 'Connect an account', attrs: { href: '/connections', 'data-link': '' } }),
     }));
   }
@@ -118,15 +118,15 @@ export async function render(root, ctx) {
 
   // --- Step 3: captions ----------------------------------------------------
   const captionHost = el('div', {});
-  const generateBtn = el('button', { className: 'btn btn-primary', text: 'Generate captions', attrs: { type: 'button' } });
+  const generateBtn = el('button', { className: 'btn btn-primary', text: 'Generate post copy', attrs: { type: 'button' } });
   const captionsCard = card([
     el('div', { className: 'card-head' }, [
-      el('span', { className: 'card-title', text: '3. Captions' }),
+      el('span', { className: 'card-title', text: '3. Post copy' }),
       generateBtn,
     ]),
     captionHost,
   ]);
-  captionHost.appendChild(el('p', { className: 'hint', text: 'Captions appear here once generated.' }));
+  captionHost.appendChild(el('p', { className: 'hint', text: 'Post copy appears here once generated.' }));
 
   // --- Step 4: image -------------------------------------------------------
   const imageHost = el('div', {});
@@ -252,7 +252,7 @@ export async function render(root, ctx) {
     const captions = post?.platformCaptions || {};
     const entries = Object.entries(captions);
     if (!entries.length) {
-      captionHost.appendChild(el('p', { className: 'hint', text: 'Captions appear here once generated.' }));
+      captionHost.appendChild(el('p', { className: 'hint', text: 'Post copy appears here once generated.' }));
       return;
     }
     for (const [platform, value] of entries) {
@@ -346,7 +346,7 @@ export async function render(root, ctx) {
       }
       post = api.payload(res)?.post || post;
       renderCaptions();
-      toast('Captions generated.', 'ok');
+      toast('Post copy generated.', 'ok');
     } finally {
       setLoading(generateBtn, false);
     }
@@ -383,7 +383,7 @@ export async function render(root, ctx) {
     setLoading(scheduleBtn, true, 'Scheduling…');
     try {
       if (!post) {
-        scheduleHost.appendChild(notice('Generate captions first so there is something to schedule.', 'warn'));
+        scheduleHost.appendChild(notice('Generate post copy first so there is something to schedule.', 'warn'));
         return;
       }
       if (!(await syncTargets())) return;

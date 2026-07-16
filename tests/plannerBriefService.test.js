@@ -120,7 +120,10 @@ test('goals, services and angles all rotate across the week', () => {
 
 test('the layout follows the content format, per the spec mapping', () => {
   assert.equal(templateForContentType('checklist', 0), 'checklist-guide');
-  assert.equal(templateForContentType('process', 0), 'checklist-guide');
+  // Phase 4.8: a process is an ordered sequence, so it leads with the numbered
+  // layout (checklist-guide remains its fallback). Ticks imply "done"; steps
+  // imply "in order", and a process means the second.
+  assert.equal(templateForContentType('process', 0), 'numbered-steps');
   assert.equal(templateForContentType('comparison', 0), 'comparison-cards');
   assert.equal(templateForContentType('educational_insight', 0), 'editorial-insight');
   assert.equal(templateForContentType('service_benefit', 0), 'service-authority');

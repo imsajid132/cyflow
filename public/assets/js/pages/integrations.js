@@ -139,10 +139,10 @@ export async function render(root, ctx) {
     ]),
     card([
       el('div', { className: 'card-head' }, [
-        el('span', { className: 'card-title', text: 'Caption generation' }),
+        el('span', { className: 'card-title', text: 'Post copy generation' }),
         badge(caps.openai?.available ? 'Available' : 'Unavailable', caps.openai?.available ? 'ok' : 'warn'),
       ]),
-      el('p', { className: 'card-sub', text: 'Captions are generated using Cyflow’s own managed provider account. There is nothing for you to configure, and Cyflow never asks you for an AI provider key.' }),
+      el('p', { className: 'card-sub', text: 'Post copy is generated using Cyflow’s own managed provider account. There is nothing for you to configure, and Cyflow never asks you for an AI provider key.' }),
       typeof caps.generations?.usedToday === 'number'
         ? el('p', { className: 'hint', text: `Generations used today: ${caps.generations.usedToday} of ${caps.generations.dailyLimit}.` })
         : null,

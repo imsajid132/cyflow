@@ -10,8 +10,17 @@ import { el, card, pageHead, notice, toast, setLoading, setFieldError, clearFiel
 import { buildBrandForm } from '../components/brandForm.js';
 
 function preview(profile) {
-  const primary = profile.primaryColor || '#4f46e5';
-  const accent = profile.accentColor || '#0ea5e9';
+  /*
+   * Neutral fallbacks, never invented brand hues.
+   *
+   * This preview used to fall back to #4f46e5 and #0ea5e9 (the app's old indigo
+   * and a sky blue), so a business that had saved no colours was shown a
+   * purple-to-blue gradient labelled as THEIR brand. That is the opposite of
+   * what this page is for, and blue and purple are exactly the hues the creative
+   * rules forbid introducing.
+   */
+  const primary = profile.primaryColor || '#111827';
+  const accent = profile.accentColor || '#374151';
   return el('div', { className: 'brand-preview' }, [
     el('div', {
       className: 'brand-preview-head',

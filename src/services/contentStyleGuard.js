@@ -24,7 +24,12 @@ import {
   HEADLINE_RULES,
   POST_COPY_RULES,
   PARAGRAPH_MAX_WORDS,
+  UNSUPPORTED_CLAIM_PHRASES,
+  UNSUPPORTED_CLAIM_PATTERNS,
 } from '../config/constants.js';
+
+/* Compiled once. Each pattern matches a figure attached to a claim context. */
+const CLAIM_REGEXPS = UNSUPPORTED_CLAIM_PATTERNS.map((src) => new RegExp(src, 'i'));
 
 const DASH_CLASS = `[${BANNED_DASHES.join('')}]`;
 /*
@@ -109,6 +114,34 @@ export function findBannedPhrases(value) {
   if (typeof value !== 'string' || !value) return [];
   const haystack = value.toLowerCase();
   return BANNED_PHRASES.filter((phrase) => haystack.includes(phrase));
+}
+
+/**
+ * Unsupported claims in a string: invented experience, results, counts, or
+ * reputation. Returns short reasons, not the matched text, so nothing sensitive
+ * or misleading is echoed back.
+ *
+ * A number is only a claim in a claim CONTEXT. "Check the joints each spring"
+ * and "resize to 800px" carry numbers and are fine; "helped over 500 clients"
+ * and "a 50% increase" are not.
+ */
+export function findUnsupportedClaims(value) {
+  if (typeof value !== 'string' || !value) return [];
+  const haystack = value.toLowerCase();
+  const reasons = [];
+  for (const phrase of UNSUPPORTED_CLAIM_PHRASES) {
+    if (haystack.includes(phrase)) {
+      reasons.push('claims experience or results the business did not provide');
+      break;
+    }
+  }
+  for (const re of CLAIM_REGEXPS) {
+    if (re.test(value)) {
+      reasons.push('states a number (a count, a result, or a rating) that is not a verified fact');
+      break;
+    }
+  }
+  return reasons;
 }
 
 /** Word count of a headline, ignoring punctuation. */
@@ -269,6 +302,15 @@ export function applyStyleGuard(content, { platform } = {}) {
     rejections.push(`generic marketing phrasing: ${[...phraseHits].slice(0, 3).join(', ')}`);
   }
 
+  // Unsupported claims: invented experience, results, counts, or reputation.
+  // Not repairable either — the sentence has to be rewritten around a real
+  // point, so this forces a regeneration.
+  const claimHits = new Set();
+  for (const field of ['caption', 'headline', 'subheadline']) {
+    for (const reason of findUnsupportedClaims(out[field])) claimHits.add(reason);
+  }
+  for (const reason of claimHits) rejections.push(`unsupported claim: ${reason}`);
+
   for (const issue of headlineIssues(out.headline)) rejections.push(issue);
 
   /*
@@ -293,6 +335,7 @@ export default {
   stripDashes,
   hasBannedDash,
   findBannedPhrases,
+  findUnsupportedClaims,
   headlineIssues,
   postCopyIssues,
   paragraphsOf,

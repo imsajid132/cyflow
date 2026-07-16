@@ -19,6 +19,7 @@ export function render(ctx) {
   const html = `
     <div class="canvas tpl-${id}">
       <div class="layer"><div class="field"></div><div class="accent-edge"></div></div>
+      <div class="grid-field${c.canvasIsDark ? ' grid-field-on-brand' : ''}"></div>
       <div class="content">
         <header class="head">
           ${logo(logoUrl)}

@@ -59,7 +59,7 @@ export async function render(root, ctx) {
     summaryHost,
     bulkHost,
     boardHost,
-    notice('Queued posts are stored for a future publishing phase — Cyflow does not post to providers yet.', 'info'),
+    notice('Queued posts are stored for a future publishing phase. Cyflow does not post to providers yet.', 'info'),
   ]);
   root.appendChild(page);
   root.appendChild(drawer);
@@ -160,7 +160,7 @@ export async function render(root, ctx) {
       const n = plan.counts.approved;
       const ok = await confirmModal({
         title: `Queue ${n} approved post${n === 1 ? '' : 's'}?`,
-        message: 'They move into your queue at their scheduled times. Cyflow does not publish to providers yet — this stores them for a later phase.',
+        message: 'They move into your queue at their scheduled times. Cyflow does not publish to providers yet. This stores them for a later phase.',
         confirmText: 'Queue them',
       });
       if (!ok) return;
@@ -241,9 +241,38 @@ export async function render(root, ctx) {
             onOpen: openDrawer,
             onApprove: (i) => setStatus(i, 'approved'),
             onReject: (i) => setStatus(i, 'rejected'),
+            // A hard-failed card offers Retry instead of Approve. The retry
+            // re-validates server-side: if the new copy is still invalid the
+            // card stays failed rather than being quietly released.
+            onRetry: (i) => retryGeneration(i),
           }))),
       ]));
     }
+  }
+
+  /**
+   * Retry a post the generator could not write.
+   *
+   * `force: true` because a hard-failed post has nothing worth protecting: the
+   * copy is invalid by definition, so there is no user edit to discard. The
+   * server re-validates the result, so a retry that fails again stays failed.
+   */
+  async function retryGeneration(item) {
+    const res = await api.apiRequest(
+      `/api/planner/items/${encodeURIComponent(item.id)}/regenerate`,
+      { method: 'POST', body: { target: 'caption', force: true } },
+    );
+    if (!res.ok) {
+      toast(api.errorMessage(res, 'That retry did not work. Try again shortly.'), 'err');
+      return;
+    }
+    const updated = api.payload(res)?.item;
+    if (updated?.qualityStatus === 'generation_failed') {
+      toast('The retry still could not produce a usable post. Try editing it instead.', 'warn');
+    } else {
+      toast('Post copy regenerated.', 'ok');
+    }
+    await load();
   }
 
   async function setStatus(item, status) {
@@ -284,7 +313,7 @@ export async function render(root, ctx) {
         ]);
 
     const saveBtn = el('button', { className: 'btn btn-primary', text: 'Save changes', attrs: { type: 'button' } });
-    const regenCaptionBtn = el('button', { className: 'btn btn-secondary btn-sm', text: 'Regenerate caption', attrs: { type: 'button' } });
+    const regenCaptionBtn = el('button', { className: 'btn btn-secondary btn-sm', text: 'Regenerate post copy', attrs: { type: 'button' } });
     const regenImageBtn = el('button', { className: 'btn btn-secondary btn-sm', text: 'Regenerate image', attrs: { type: 'button' } });
     const duplicateBtn = el('button', { className: 'btn btn-ghost btn-sm', text: 'Copy to manual draft', attrs: { type: 'button' } });
     const deleteBtn = el('button', { className: 'btn btn-danger btn-sm', text: 'Delete', attrs: { type: 'button' } });
@@ -323,7 +352,7 @@ export async function render(root, ctx) {
         let res = await doRegen(false);
         if (res.status === 409) {
           const ok = await confirmModal({
-            title: 'Discard your caption?',
+            title: 'Discard your post copy?',
             message: api.errorMessage(res, 'You have edited this caption. Regenerating replaces it.'),
             confirmText: 'Regenerate anyway',
             danger: true,
@@ -332,7 +361,7 @@ export async function render(root, ctx) {
           res = await doRegen(true);
         }
         if (!res.ok) { toast(api.errorMessage(res, 'The caption could not be regenerated.'), 'err'); return; }
-        toast('Caption regenerated.', 'ok');
+        toast('Post copy regenerated.', 'ok');
         closeDrawer();
         await load();
       } finally {
@@ -396,7 +425,7 @@ export async function render(root, ctx) {
         preview,
         item.duplicationNotes ? notice(item.duplicationNotes, 'warn') : null,
         el('p', { className: 'card-sub', text: `${formatSlot(item.scheduledFor)} · ${(item.platformTargets || []).map((p) => PROVIDER_LABELS[p] || p).join(', ')}` }),
-        field({ id: 'd-caption', label: 'Caption', type: 'textarea', value: item.caption || '', attrs: { rows: 6 } }),
+        field({ id: 'd-caption', label: 'Post copy', type: 'textarea', value: item.caption || '', attrs: { rows: 6 } }),
         field({ id: 'd-headline', label: 'Image headline', value: item.headline || '' }),
         field({ id: 'd-subheadline', label: 'Image subheadline', value: item.subheadline || '' }),
         field({ id: 'd-alt', label: 'Image alt text', value: item.altText || '' }),

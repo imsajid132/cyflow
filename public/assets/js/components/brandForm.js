@@ -56,9 +56,21 @@ function chipList({ id, label, values, placeholder }) {
   return { node, get: () => [...state] };
 }
 
+/*
+ * A colour input needs SOME value, and that value must not be a brand colour
+ * nobody chose. It used to default to #4f46e5: the app's old indigo, seeded into
+ * the customer's palette on the page where they define their brand, from where
+ * it would follow them onto every generated post.
+ *
+ * A neutral near-black is the honest default. It is not a hue the business did
+ * not pick, it is the absence of one, and it matches what the creative engine
+ * already treats as always-permissible ink.
+ */
+const NEUTRAL_SWATCH = '#111827';
+
 function colorField({ id, label, value, extracted }) {
-  const picker = el('input', { attrs: { type: 'color', id: `${id}-picker`, value: value || '#4f46e5', 'aria-label': `${label} picker` } });
-  const text = el('input', { className: 'input', attrs: { id, type: 'text', placeholder: '#4f46e5', maxlength: 7 } });
+  const picker = el('input', { attrs: { type: 'color', id: `${id}-picker`, value: value || NEUTRAL_SWATCH, 'aria-label': `${label} picker` } });
+  const text = el('input', { className: 'input', attrs: { id, type: 'text', placeholder: NEUTRAL_SWATCH, maxlength: 7 } });
   text.value = value || '';
   picker.addEventListener('input', () => { text.value = picker.value; });
   text.addEventListener('input', () => { if (/^#[0-9a-fA-F]{6}$/.test(text.value)) picker.value = text.value; });
@@ -101,15 +113,53 @@ export function buildBrandForm({ profile = {}, suggestions = null } = {}) {
   const logoUrl = v('logoUrl');
   const faviconUrl = v('faviconUrl');
 
+  /*
+   * The business logo slot must NEVER fall back to the Cyflow mark.
+   *
+   * It used to show /assets/favicon.svg when a business had no logo, which put
+   * the Cyflow application logo in the place reserved for the CUSTOMER's brand,
+   * on the very page where they review that brand. The two brands are separate:
+   * Cyflow's mark is app chrome, the business's logo is content.
+   *
+   * With no logo there is nothing of theirs to show, so the slot shows an empty
+   * state and says so, rather than borrowing somebody else's mark.
+   */
+  const LOGO_EMPTY = 'is-empty';
   const logoImg = el('img', {
     className: 'logo-preview',
-    attrs: { alt: 'Business logo preview', id: 'logo-preview', src: logoUrl || '/assets/favicon.svg' },
+    attrs: { alt: 'Business logo preview', id: 'logo-preview' },
   });
+  const logoEmpty = el('div', {
+    className: 'logo-preview-empty',
+    text: 'No logo yet',
+    attrs: { id: 'logo-preview-empty' },
+  });
+  /*
+   * The <img> is REMOVED when there is no logo, not merely hidden.
+   *
+   * A hidden <img> with no src is still an image element the browser reports as
+   * broken (complete, naturalWidth 0), which is both untidy and a false
+   * positive for any tool auditing for broken images. Either there is a picture
+   * or there is an empty state; there is never a picture element with nothing
+   * in it.
+   */
+  const logoSlot = el('div', { className: 'logo-slot' }, [logoEmpty]);
+  const showLogo = (url) => {
+    const usable = typeof url === 'string' && /^https:\/\//.test(url.trim());
+    if (usable) {
+      logoImg.src = url.trim();
+      if (!logoImg.isConnected) logoSlot.prepend(logoImg);
+      logoEmpty.hidden = true;
+    } else {
+      logoImg.remove();
+      logoImg.removeAttribute('src');
+      logoEmpty.hidden = false;
+    }
+  };
+  showLogo(logoUrl);
+
   const logoField = field({ id: 'logoUrl', label: 'Logo URL', value: logoUrl, hint: 'Loaded from your own website. You can replace it with any https image URL.' });
-  logoField.querySelector('#logoUrl').addEventListener('input', (e) => {
-    const value = e.target.value.trim();
-    logoImg.src = /^https:\/\//.test(value) ? value : '/assets/favicon.svg';
-  });
+  logoField.querySelector('#logoUrl').addEventListener('input', (e) => showLogo(e.target.value));
 
   const services = chipList({ id: 'services', label: 'Services', values: profile?.services?.length ? profile.services : suggestions?.services || [], placeholder: 'e.g. Roof Repair' });
   const locations = chipList({ id: 'locations', label: 'Locations', values: profile?.locations?.length ? profile.locations : suggestions?.locations || [], placeholder: 'e.g. Springfield' });
@@ -123,7 +173,7 @@ export function buildBrandForm({ profile = {}, suggestions = null } = {}) {
     // Logo
     card2('Logo & favicon', [
       el('div', { className: 'grid grid-2' }, [
-        el('div', { className: 'stack' }, [logoImg, faviconUrl ? el('p', { className: 'hint', text: `Favicon: ${faviconUrl}` }) : null]),
+        el('div', { className: 'stack' }, [logoSlot, faviconUrl ? el('p', { className: 'hint', text: `Favicon: ${faviconUrl}` }) : null]),
         el('div', { className: 'stack' }, [
           logoField,
           field({ id: 'faviconUrl', label: 'Favicon URL', value: faviconUrl }),

@@ -29,8 +29,9 @@ function safeParseJson(value, fallback) {
 
 const COLUMNS =
   'id, user_id, cadence, weekdays_json, times_json, platforms_json, goals_json, ' +
-  'content_mix_json, tone, cta_mode, approval_mode, default_plan_length, posts_per_day, ' +
-  'timezone, autopilot_enabled, next_plan_generation_at, created_at, updated_at';
+  'content_mix_json, content_rhythm_preset, content_rhythm_json, tone, cta_mode, ' +
+  'approval_mode, default_plan_length, posts_per_day, timezone, autopilot_enabled, ' +
+  'next_plan_generation_at, created_at, updated_at';
 
 /** Map a raw row to the sanitized API shape. */
 export function sanitizePreferences(row) {
@@ -44,6 +45,8 @@ export function sanitizePreferences(row) {
     platforms: safeParseJson(row.platforms_json, []),
     goals: safeParseJson(row.goals_json, []),
     contentMix: safeParseJson(row.content_mix_json, {}),
+    contentRhythmPreset: row.content_rhythm_preset ?? 'balanced',
+    contentRhythm: safeParseJson(row.content_rhythm_json, null),
     tone: row.tone,
     ctaMode: row.cta_mode,
     approvalMode: row.approval_mode,
@@ -60,6 +63,7 @@ export function sanitizePreferences(row) {
 /** Whitelisted column map — prevents mass assignment. */
 const FIELD_COLUMNS = {
   cadence: 'cadence',
+  contentRhythmPreset: 'content_rhythm_preset',
   tone: 'tone',
   ctaMode: 'cta_mode',
   approvalMode: 'approval_mode',
@@ -76,6 +80,7 @@ const JSON_FIELD_COLUMNS = {
   platforms: 'platforms_json',
   goals: 'goals_json',
   contentMix: 'content_mix_json',
+  contentRhythm: 'content_rhythm_json',
 };
 
 export async function findByUserId(userId, connection) {

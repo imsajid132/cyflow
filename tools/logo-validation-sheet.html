@@ -1,0 +1,95 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Cyflow mark validation</title>
+<style>
+  :root { --green: #1f9e5b; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:28px; background:#5b5f66; font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif; color:#fff; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .note { color:#d5d7da; font-size:13px; margin:0 0 22px; }
+  .grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:18px; }
+  .cell { background:#3d4046; border-radius:10px; overflow:hidden; }
+  .cap { padding:8px 12px; font-size:12px; font-weight:600; letter-spacing:.02em; background:#33363b; }
+  .stage { height:220px; display:flex; align-items:center; justify-content:center; }
+  /* The three mandated backgrounds. A halo or a checker remnant is visible on
+     dark and on the green tint even when it is invisible on white. */
+  .on-white { background:#ffffff; }
+  .on-dark  { background:#111827; }
+  .on-green { background:#e8f5ee; }
+  /* A deliberately hostile background: mid-grey shows a light halo AND a dark
+     halo, which neither white nor black can do alone. */
+  .on-mid   { background:#8a8f96; }
+  .on-src   { background:#ffffff; }
+  img { display:block; image-rendering:auto; }
+  .sizes { display:flex; align-items:center; gap:26px; justify-content:center; }
+  .sz { text-align:center; font-size:11px; color:#d5d7da; }
+  .sz img { margin:0 auto 6px; }
+
+  /* Real usage contexts */
+  .sidebar { width:100%; height:220px; background:#0f1115; display:flex; flex-direction:column; }
+  .sb-lock { display:flex; align-items:center; gap:10px; padding:16px 14px; border-bottom:1px solid #23262c; }
+  .sb-lock img { width:28px; height:28px; }
+  .sb-name { font-size:15px; font-weight:650; color:#fff; letter-spacing:-.01em; }
+  .sb-item { display:flex; align-items:center; gap:10px; padding:9px 14px; color:#9aa0a8; font-size:13px; }
+  .sb-item.active { color:#fff; background:#181b21; box-shadow:inset 2px 0 0 var(--green); }
+  .dot { width:14px; height:14px; border-radius:4px; background:#2a2e35; }
+
+  .auth { width:100%; height:220px; background:#fff; display:flex; flex-direction:column;
+          align-items:center; justify-content:center; gap:12px; }
+  .auth img { width:52px; height:52px; }
+  .auth-t { color:#111827; font-size:17px; font-weight:650; }
+  .auth-s { color:#6b7280; font-size:12px; }
+
+  .tab { width:100%; height:220px; background:#c9ccd1; display:flex; align-items:flex-end; justify-content:center; padding-bottom:24px; }
+  .chrome { width:210px; background:#f1f3f5; border-radius:8px 8px 0 0; padding:7px 10px; display:flex; align-items:center; gap:7px; box-shadow:0 -1px 6px rgba(0,0,0,.18); }
+  .chrome img { width:16px; height:16px; }
+  .chrome span { font-size:11px; color:#3c4043; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+</style></head>
+<body>
+  <h1>Cyflow app mark &mdash; production validation</h1>
+  <p class="note">Cleaned mark is pure #1f9e5b at every visible pixel; only alpha varies. Backgrounds below are the review surfaces, not part of the asset.</p>
+
+  <div class="grid">
+    <div class="cell"><div class="cap">1. Original source (baked checkerboard, no alpha)</div>
+      <div class="stage on-src"><img src="../design-references/brand/cyflow-app-mark-source.png" width="200" height="200" alt="source"></div></div>
+
+    <div class="cell"><div class="cap">2. Cleaned on white</div>
+      <div class="stage on-white"><img src="../public/assets/brand/cyflow-mark-512.png" width="180" height="180" alt="on white"></div></div>
+
+    <div class="cell"><div class="cap">3. Cleaned on dark #111827</div>
+      <div class="stage on-dark"><img src="../public/assets/brand/cyflow-mark-512.png" width="180" height="180" alt="on dark"></div></div>
+
+    <div class="cell"><div class="cap">4. Cleaned on green tint #e8f5ee</div>
+      <div class="stage on-green"><img src="../public/assets/brand/cyflow-mark-512.png" width="180" height="180" alt="on green tint"></div></div>
+
+    <div class="cell"><div class="cap">5. Hostile mid-grey (shows any halo)</div>
+      <div class="stage on-mid"><img src="../public/assets/brand/cyflow-mark-512.png" width="180" height="180" alt="on mid grey"></div></div>
+
+    <div class="cell"><div class="cap">6. True 32px / 64px / 192px</div>
+      <div class="stage on-white"><div class="sizes">
+        <div class="sz"><img src="../public/assets/brand/cyflow-mark-32.png" width="32" height="32" alt="32"><br>32</div>
+        <div class="sz"><img src="../public/assets/brand/cyflow-mark-64.png" width="64" height="64" alt="64"><br>64</div>
+        <div class="sz"><img src="../public/assets/brand/cyflow-mark-192.png" width="96" height="96" alt="192"><br>192 @96</div>
+      </div></div></div>
+
+    <div class="cell"><div class="cap">7. Sidebar lockup (real size, dark shell)</div>
+      <div class="sidebar">
+        <div class="sb-lock"><img src="../public/assets/brand/cyflow-mark-64.png" alt="Cyflow"><span class="sb-name">Cyflow Social</span></div>
+        <div class="sb-item active"><span class="dot"></span>Dashboard</div>
+        <div class="sb-item"><span class="dot"></span>Auto Planner</div>
+        <div class="sb-item"><span class="dot"></span>Create Post</div>
+      </div></div>
+
+    <div class="cell"><div class="cap">8. Auth page lockup</div>
+      <div class="auth">
+        <img src="../public/assets/brand/cyflow-mark-192.png" alt="Cyflow">
+        <div class="auth-t">Sign in to Cyflow Social</div>
+        <div class="auth-s">Plan, write and schedule your weekly posts</div>
+      </div></div>
+
+    <div class="cell"><div class="cap">9. Browser tab (favicon-32 at 16px)</div>
+      <div class="tab"><div class="chrome"><img src="../public/assets/brand/favicon-32.png" alt=""><span>Cyflow Social</span></div></div></div>
+
+    <div class="cell"><div class="cap">10. Apple touch icon (180, on dark)</div>
+      <div class="stage on-dark"><img src="../public/assets/brand/apple-touch-icon.png" width="140" height="140" alt="apple touch"></div></div>
+  </div>
+</body></html>

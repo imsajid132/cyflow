@@ -136,7 +136,7 @@ export async function render(root, ctx) {
     ]),
     tabs,
     listHost,
-    notice('Queued posts are stored for a future publishing phase — Cyflow does not post to providers yet.', 'info'),
+    notice('Queued posts are stored for a future publishing phase. Cyflow does not post to providers yet.', 'info'),
   ]));
 
   await load();

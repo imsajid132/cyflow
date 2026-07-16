@@ -6,12 +6,47 @@
    ========================================================================== */
 
 /* --- tokens --------------------------------------------------------------- */
+/*
+ * The application green is SAMPLED FROM THE LOGO, not chosen from memory:
+ * #1f9e5b is the median of 119,696 solid pixels in the supplied mark, recorded
+ * in public/assets/brand/brand-green.json by tools/build-logo.mjs.
+ *
+ * The ramp is one hue (148) at different lightness, because the mark's own green
+ * cannot do every job:
+ *
+ *   #1f9e5b on white is 3.44:1. That passes WCAG 1.4.11 for non-text UI (3:1),
+ *   so it is correct for the mark, active indicators, focus rings and borders.
+ *   It FAILS 1.4.3 for normal text (4.5:1), so a primary button filled with it
+ *   and labelled in white would be inaccessible.
+ *
+ * So `--brand-600` is darkened to L=31% (#1a844c, 4.72:1) for filled controls and
+ * green text, while `--brand-500` stays the true mark green for marks and edges.
+ * Hue is never moved. This mirrors the rule the creative engine already follows
+ * for customer palettes: adjust lightness only, keep the hue, record that it
+ * happened.
+ *
+ * Replaces the previous indigo ramp (#6366f1/#4f46e5/#4338ca), which made the
+ * product read as a generic purple AI startup and matched nothing about Cyflow.
+ */
 :root {
-  --brand-50: #eef2ff;
-  --brand-100: #e0e7ff;
-  --brand-500: #6366f1;
-  --brand-600: #4f46e5;
-  --brand-700: #4338ca;
+  /* Cyflow application brand. NEVER applied to a customer's generated post. */
+  --brand-50: #f5f9f7;   /* subtle green wash    */
+  --brand-100: #ebf5ef;  /* soft green surface   */
+  --brand-200: #c2e1d0;  /* green border         */
+  --brand-500: #1f9e5b;  /* the mark's exact green: marks, indicators, focus */
+  --brand-600: #1a844c;  /* filled controls + green text (AA on white, 4.72) */
+  --brand-700: #177342;  /* hover                */
+  --brand-800: #136238;  /* active               */
+
+  /* Semantic aliases. Components should prefer these over the ramp. */
+  --cyflow-brand: var(--brand-500);
+  --cyflow-brand-hover: var(--brand-700);
+  --cyflow-brand-active: var(--brand-800);
+  --cyflow-brand-soft: var(--brand-100);
+  --cyflow-brand-subtle: var(--brand-50);
+  --cyflow-brand-border: var(--brand-200);
+  --cyflow-brand-on: #ffffff;   /* ink on --brand-600, verified AA */
+  --focus-ring: var(--brand-600);
 
   --ink-900: #0f172a;
   --ink-800: #1e293b;
@@ -119,9 +154,25 @@ img { max-width: 100%; }
   position: sticky; top: 0; height: 100vh; padding: 1rem .75rem;
 }
 .sidebar-head { display: flex; align-items: center; justify-content: space-between; padding: .25rem .5rem 1rem; }
-.drawer-close { display: none; }
+/*
+ * The drawer close button is mobile-only.
+ *
+ * `!important` is deliberate and load-bearing here. The button carries both
+ * .icon-btn and .drawer-close, and .icon-btn's `display:inline-flex` is
+ * declared LATER in this file at equal specificity, so it won. The result was a
+ * stray close control sitting in the desktop sidebar on every authenticated
+ * page. The mobile media query re-shows it explicitly, also with !important, so
+ * the pair stays symmetrical rather than one rule quietly out-ranking the other.
+ */
+.drawer-close { display: none !important; }
 
 .nav-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.nav-sublist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.nav-group-label {
+  font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-400); padding: .85rem .75rem .3rem;
+}
+.nav-list > li:first-child.nav-group-label { padding-top: .15rem; }
 .nav-link {
   display: flex; align-items: center; gap: .65rem;
   padding: .55rem .65rem; border-radius: var(--radius-sm);
@@ -343,7 +394,68 @@ legend { padding: 0; }
   min-height: 100vh; display: flex; align-items: center; justify-content: center;
   padding: 1.5rem; background: var(--ink-50);
 }
-.auth-card { width: min(94vw, 420px); }
+/*
+ * Percentage of the CONTAINER, not of the viewport.
+ *
+ * This was `min(94vw, 420px)`, which overflowed on a phone: .centered adds
+ * 1.5rem of padding each side, and a vw unit knows nothing about it, so at
+ * 390px the card asked for 366px inside a 342px box and hung off the right
+ * edge. width:100% respects the padding at every size.
+ */
+.auth-card { width: 100%; max-width: 420px; }
+
+/* --- auth split ------------------------------------------------------------ */
+/*
+ * Desktop: a restrained brand field beside the form. Mobile: the panel is gone
+ * entirely (display:none, not merely stacked) so a phone shows the form without
+ * scrolling past decoration to reach it.
+ */
+.auth-split { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: 3rem; align-items: center; width: 100%; max-width: 1040px; }
+.auth-split .auth-card { width: 100%; max-width: 420px; justify-self: center; }
+
+.auth-brand {
+  position: relative; overflow: hidden; border-radius: var(--radius-lg);
+  background: linear-gradient(155deg, #10231a 0%, #0b1a13 100%);
+  padding: 2.5rem 2.25rem; min-height: 27rem; display: flex; align-items: center;
+}
+/* The same faint-grid idea the creatives use: it stops a large field reading as
+   an unfinished slab, without adding a decorative shape. */
+.auth-brand-grid {
+  position: absolute; inset: 0; pointer-events: none; color: #fff; opacity: .05;
+  background-image:
+    repeating-linear-gradient(to right, currentColor 0 1px, transparent 1px 64px),
+    repeating-linear-gradient(to bottom, currentColor 0 1px, transparent 1px 64px);
+}
+.auth-brand-inner { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 1.5rem; }
+.auth-brand-lockup { display: flex; align-items: center; gap: .7rem; color: #fff; font-size: 1.05rem; font-weight: 700; letter-spacing: -.01em; }
+/* The measure is set so this lede breaks to three balanced lines. At a narrower
+   measure it stranded "them." alone on a fourth, which is the one-word-final-
+   line defect the creative rules reject on a card and which looks no better
+   here. text-wrap:balance evens the lines where the browser supports it. */
+.auth-brand-lede {
+  margin: 0; color: #fff; font-size: 1.55rem; line-height: 1.3; font-weight: 700;
+  letter-spacing: -.02em; max-width: 24ch; text-wrap: balance;
+}
+.auth-points { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1rem; }
+.auth-points li { display: flex; gap: .75rem; align-items: flex-start; }
+.auth-points li > div { display: flex; flex-direction: column; gap: .15rem; }
+.auth-point-tick {
+  flex: 0 0 18px; width: 18px; height: 18px; margin-top: .18rem; border-radius: 5px;
+  background: var(--brand-500); position: relative;
+}
+.auth-point-tick::after {
+  content: ""; position: absolute; left: 5px; top: 4px; width: 5px; height: 9px;
+  border-right: 2px solid #0b1a13; border-bottom: 2px solid #0b1a13; transform: rotate(45deg);
+}
+.auth-point-title { color: #fff; font-size: .9rem; font-weight: 650; }
+.auth-point-body { color: rgba(255, 255, 255, .62); font-size: .82rem; line-height: 1.45; }
+.auth-reassure { margin: 0; font-size: .78rem; line-height: 1.5; color: var(--ink-500); }
+
+@media (max-width: 900px) {
+  .auth-split { grid-template-columns: minmax(0, 1fr); max-width: 420px; gap: 0; }
+  /* Not stacked — removed. A phone should see the form, not a hero. */
+  .auth-brand { display: none; }
+}
 .wizard { width: min(96vw, 880px); margin: 0 auto; display: flex; flex-direction: column; gap: 1.25rem; }
 
 /* --- choice cards --------------------------------------------------------- */
@@ -377,6 +489,55 @@ legend { padding: 0; }
   width: 100%; height: 120px; object-fit: contain; background: var(--ink-50);
   border: 1px solid var(--ink-200); border-radius: var(--radius-sm); padding: .5rem;
 }
+/* Shown when a business has no logo. The slot stays the same size so adding a
+   logo does not shift the layout, and it never borrows the Cyflow app mark to
+   fill itself. */
+.logo-preview-empty {
+  width: 100%; height: 120px; display: flex; align-items: center; justify-content: center;
+  background: var(--ink-50); border: 1px dashed var(--ink-300);
+  border-radius: var(--radius-sm); color: var(--ink-500); font-size: 13px;
+}
+
+/* --- weekly rhythm preview ------------------------------------------------ */
+/*
+ * Seven days, side by side, so the shape of the week is legible at a glance.
+ * It wraps rather than scrolls on a phone: a horizontal scroller here would
+ * hide days behind a gesture nobody knows to make.
+ */
+.rhythm-week {
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: .4rem; margin-top: .85rem;
+}
+.rhythm-day {
+  display: flex; flex-direction: column; gap: .3rem; min-width: 0;
+  padding: .6rem .5rem; border-radius: var(--radius-sm);
+  background: var(--brand-50); border: 1px solid var(--brand-200);
+}
+.rhythm-day.is-off { background: var(--ink-50); border-color: var(--ink-200); opacity: .7; }
+.rhythm-day-name {
+  font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--brand-700);
+}
+.rhythm-day.is-off .rhythm-day-name { color: var(--ink-500); }
+.rhythm-day-pillar { font-size: 12px; line-height: 1.35; color: var(--ink-700); font-weight: 500; }
+
+@media (max-width: 900px) {
+  .rhythm-week { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 420px) {
+  .rhythm-week { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* --- 404 ------------------------------------------------------------------ */
+.notfound { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
+.notfound-inner { text-align: center; max-width: 30rem; display: flex; flex-direction: column; align-items: center; gap: .35rem; }
+.notfound-inner img { margin-bottom: .75rem; }
+.notfound-code {
+  font-size: 13px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--brand-600); margin: 0;
+}
+.notfound-inner h1 { margin: .15rem 0 0; font-size: 1.6rem; }
+.notfound-inner .sub { margin: 0 0 1.15rem; }
 
 /* --- tabs ----------------------------------------------------------------- */
 .tabs { display: flex; gap: .25rem; border-bottom: 1px solid var(--ink-200); }
@@ -580,7 +741,7 @@ legend { padding: 0; }
     box-shadow: var(--shadow-lg);
   }
   .sidebar[data-open="true"] { transform: none; }
-  .drawer-close { display: inline-flex; }
+  .drawer-close { display: inline-flex !important; }
   .scrim { display: block; position: fixed; inset: 0; z-index: 40; background: rgba(15, 23, 42, .45); }
   .scrim[hidden] { display: none; }
   .cal-day { min-height: 60px; }

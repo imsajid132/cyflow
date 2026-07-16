@@ -15,20 +15,79 @@ export const STATUS_LABELS = Object.freeze({
   approved: 'Approved',
   queued: 'Queued',
   rejected: 'Rejected',
+  // A hard failure is NOT review work. Without this entry the chip rendered the
+  // raw key "generation_failed" in neutral grey, at the same visual weight as a
+  // draft, which is precisely the mislabelling the status exists to prevent.
+  generation_failed: 'Generation failed',
 });
 
+/**
+ * Labels for what a post IS.
+ *
+ * Phase 4.8 made `contentType` hold a strategic FORMAT (`educational_insight`,
+ * `soft_promo`, …). This map still held only the eight legacy content types, so
+ * a card fell through to the raw key and displayed `educational_insight` to the
+ * user. Both vocabularies are listed: the formats are what new items store, and
+ * the legacy types keep older plans reading correctly.
+ */
 export const CONTENT_TYPE_LABELS = Object.freeze({
+  // Phase 4.8 strategic formats.
+  educational_insight: 'Insight',
+  quick_tip: 'Quick tip',
+  common_mistake: 'Common mistake',
+  myth_fact: 'Myth vs fact',
+  checklist: 'Checklist',
+  comparison: 'Comparison',
+  process: 'Process',
+  service_benefit: 'Service benefit',
+  local_relevance: 'Local',
+  faq_answer: 'FAQ',
+  authority: 'Authority',
+  soft_promo: 'Service',
+  // Pre-4.8 content types, so existing plans still read.
   educational: 'Educational',
   promotional: 'Promotional',
-  authority: 'Authority',
   tips: 'Tips',
   cta: 'Call to action',
   proof: 'Proof',
   local: 'Local',
-  comparison: 'Comparison',
 });
 
+/** The strategic pillar a post serves, for the board's badge. */
+export const PILLAR_LABELS = Object.freeze({
+  educational_insight: 'Educational Insight',
+  service_promotion: 'Service Promotion',
+  trust_authority: 'Trust and Authority',
+  problem_solution: 'Problem and Solution',
+  actionable_tips: 'Actionable Tips',
+  engagement_local: 'Engagement and Local',
+  soft_promo_recap: 'Soft Promotion',
+});
+
+/**
+ * Layout labels.
+ *
+ * This listed only the ten pre-4.7.1 templates and had ZERO overlap with the
+ * layouts the planner actually assigns, so a card showed no layout name and the
+ * edit drawer's layout picker could not even offer the post's own layout:
+ * choosing any option silently switched it to a different structure.
+ *
+ * The current design families come first (they are what the planner selects
+ * from); the earlier layouts stay listed because older drafts still render with
+ * them and their names must resolve.
+ */
 export const TEMPLATE_LABELS = Object.freeze({
+  // Phase 4.7.1 / 4.8 design families.
+  'editorial-insight': 'Editorial Insight',
+  'light-editorial': 'Light Editorial',
+  'checklist-guide': 'Checklist Guide',
+  'comparison-cards': 'Comparison Cards',
+  'stat-highlight': 'Stat Highlight',
+  'service-authority': 'Service Authority',
+  'local-insight': 'Local Insight',
+  'numbered-steps': 'Numbered Steps',
+  'faq-editorial': 'FAQ Editorial',
+  // Earlier layouts, kept so existing drafts still name their design.
   'editorial-premium': 'Clean Editorial Premium',
   'bold-service-promo': 'Bold Service Promo',
   'local-authority': 'Local Business Authority',
@@ -49,6 +108,8 @@ export function statusChip(status) {
     rejected: 'err',
     needs_review: 'warn',
     draft: 'neutral',
+    // Red, like a rejection: this post cannot go out as it is.
+    generation_failed: 'err',
   }[status] || 'neutral';
   return badge(STATUS_LABELS[status] || status, tone);
 }
@@ -115,10 +176,23 @@ export function plannerCard(item, handlers = {}) {
     editBtn.addEventListener('click', () => handlers.onOpen?.(item));
     actions.appendChild(editBtn);
 
-    if (item.approvalStatus !== 'approved') {
+    /*
+     * A hard failure offers no Approve button. The server refuses it anyway, so
+     * showing one only invites a click that produces an error: the card would be
+     * promising something the product will not do. What it needs instead is a
+     * way forward, which is Edit (already above) or Retry.
+     */
+    const hardFailed = item.qualityStatus === 'generation_failed'
+      || item.approvalStatus === 'generation_failed';
+    if (item.approvalStatus !== 'approved' && !hardFailed) {
       const approveBtn = el('button', { className: 'btn btn-primary btn-sm', text: 'Approve', attrs: { type: 'button' } });
       approveBtn.addEventListener('click', () => handlers.onApprove?.(item));
       actions.appendChild(approveBtn);
+    }
+    if (hardFailed && handlers.onRetry) {
+      const retryBtn = el('button', { className: 'btn btn-primary btn-sm', text: 'Retry generation', attrs: { type: 'button' } });
+      retryBtn.addEventListener('click', () => handlers.onRetry?.(item));
+      actions.appendChild(retryBtn);
     }
     if (item.approvalStatus !== 'rejected') {
       const rejectBtn = el('button', { className: 'btn btn-ghost btn-sm', text: 'Reject', attrs: { type: 'button' } });
@@ -145,13 +219,19 @@ export function plannerCard(item, handlers = {}) {
       thumb,
       el('div', { className: 'planner-card-text' }, [
         el('div', { className: 'row', attrs: { style: 'gap:.35rem;flex-wrap:wrap' } }, [
+          // The pillar is WHY this post exists on this weekday. It leads,
+          // because it is the thing a reviewer is really checking. Absent on
+          // pre-4.8 items, which simply show their format as before.
+          item.contentPillar
+            ? badge(PILLAR_LABELS[item.contentPillar] || item.contentPillar, 'info')
+            : null,
           badge(CONTENT_TYPE_LABELS[item.contentType] || item.contentType, 'neutral'),
           item.templateKey
             ? el('span', { className: 'planner-template', text: TEMPLATE_LABELS[item.templateKey] || item.templateKey })
             : null,
         ]),
         el('p', { className: 'planner-headline', text: item.headline || '(no headline)' }),
-        el('p', { className: 'planner-caption', text: truncate(item.caption, 160) || '(no caption)' }),
+        el('p', { className: 'planner-caption', text: truncate(item.caption, 160) || '(no post copy yet)' }),
         el('p', { className: 'planner-meta', text: platforms || 'No platforms' }),
       ]),
     ]),

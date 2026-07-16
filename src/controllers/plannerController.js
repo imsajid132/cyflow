@@ -37,6 +37,19 @@ export function createPlannerController({ plannerService = defaultService } = {}
     return sendSuccess(res, { preferences });
   });
 
+  /**
+   * The weekly rhythm, resolved and labelled. Read-only: a preview of the
+   * strategy a plan WOULD use, so the wizard can show its reasoning before
+   * anything is generated. `preset` lets the preview follow the selector
+   * without saving.
+   */
+  const describeRhythm = asyncHandler(async (req, res) => {
+    const rhythm = await plannerService.describeWeeklyRhythm(req.user.id, {
+      preset: typeof req.query.preset === 'string' ? req.query.preset : undefined,
+    });
+    return sendSuccess(res, { rhythm });
+  });
+
   // --- plans ---------------------------------------------------------------
 
   const listPlans = asyncHandler(async (req, res) => {
@@ -133,6 +146,7 @@ export function createPlannerController({ plannerService = defaultService } = {}
     listTimezones,
     getPreferences,
     savePreferences,
+    describeRhythm,
     listPlans,
     summarizePlan,
     generatePlan,

@@ -1,7 +1,99 @@
 # Cyflow Social
 
-A web-based platform to **generate**, **schedule**, and **automatically publish**
-social media content — captions and images — to your connected accounts.
+A web-based platform to **generate** and **schedule** social media post copy and
+branded images for Facebook Pages, Instagram Professional and Threads.
+
+> **Publishing is not implemented yet.** Posts are generated, reviewed and
+> queued; nothing is sent to a provider. Anywhere the UI says "queued" or
+> "scheduled", it means stored for a future publishing phase.
+
+## Phase 4.8 — weekly content rhythm and the Cyflow SaaS redesign
+
+**Weekly content rhythm.** Strategy follows the real calendar weekday, not the
+position in a list. A plan starting on a Thursday opens with Thursday's
+strategy.
+
+| Weekday | Pillar |
+| --- | --- |
+| Monday | Educational Insight |
+| Tuesday | Service Promotion |
+| Wednesday | Trust and Authority |
+| Thursday | Problem and Solution |
+| Friday | Actionable Tips |
+| Saturday | Engagement and Local Relevance |
+| Sunday | Soft Promotion and Recap |
+
+Six presets (Balanced, Education-Led, Trust-Building, Growth and Promotion,
+Local Business, Custom). Every weekday can be enabled/disabled and can pin a
+pillar, a writing format, a CTA mode, a visual family, and a strategy lock. A
+second or third post on one day steps through *complementary* pillars, so a
+two-post Tuesday is not two service adverts. The planner never invents a posting
+time: asking for more posts per day than selected times is refused.
+
+**Input fidelity.** What you choose for a run is what the run gets. Each plan
+freezes an immutable configuration snapshot (timezone, platforms, dates, times,
+posts per day, rhythm) at generation. Changing your defaults later cannot
+rewrite an existing plan, and a refresh cannot mutate it.
+
+**Post copy, per platform.** Each platform is written independently from the
+same brief, never one post trimmed to fit:
+
+| Platform | Words | Paragraphs | Hashtags |
+| --- | --- | --- | --- |
+| Facebook | 130–220 | 2–4 | 0–3 |
+| Instagram | 120–200 | 2–4 | 3–7 |
+| Threads | 45–100 | 1–3 | 0–2 |
+
+Hashtags are structured data, never pasted into the prose. Em and en dashes are
+repaired without collapsing paragraphs.
+
+**Quality pipeline.** Deterministic validation (length, paragraphs, banned
+phrases, unsupported claims, hashtag separation, headline shape) → uniqueness →
+targeted retries that receive the exact prior failure reasons. Invented
+experience, client counts, results and ratings are rejected: a number only
+counts as a claim in a claim context, so "resize to 800px" is fine and "helped
+over 500 clients" is not.
+
+**Generation failed.** A hard failure that survived every retry gets its own
+status. It cannot be approved, bulk-approve skips it with a reason, a run of
+nothing but failures is marked failed, and a run with outstanding failures is
+never reported as fully queued. Only a human edit or a retry that actually
+passes clears it. Hard failures are never dressed as "Needs review".
+
+**Design.** The application brand is the green `cf` mark; the app green
+(`#1f9e5b`) is sampled from the mark itself. A customer's generated post always
+uses *their* logo, colours and fonts — the Cyflow mark never appears inside one,
+and Cyflow green never overrides a saved palette.
+
+### Migration
+
+Run `database/migrations/010_weekly_content_rhythm.sql`. It is additive and
+backward-compatible: every column is nullable or defaulted, the `approval_status`
+ENUM gains a value without touching existing rows, and a plan created before this
+phase reads normally (it simply has no rhythm snapshot). `database/schema.sql` is
+updated for fresh installs.
+
+### Environment
+
+`OPENAI_PLANNER_MODEL` (optional) — the model used for planner generation and
+critic review. Falls back to `OPENAI_TEXT_MODEL` when unset. Never hardcoded,
+never exposed to users.
+
+### Regenerating the review output
+
+No database or provider credentials are needed; the review server boots the real
+app with in-memory fakes.
+
+```bash
+node tools/build-logo.mjs                      # production logo assets from the source
+node tools/review-server.mjs 4599              # the real app, fake data, no MySQL
+node tools/app-review.mjs http://127.0.0.1:4599 .render-review/app-redesign/after desktop mobile
+node tools/render-cyfrow-week.mjs              # true-1080 creatives + contact sheet
+```
+
+Review output lands in `.render-review/` and is gitignored.
+
+---
 
 > **Status: Phase 4.7.1 — planner controls, content quality, brand fidelity.**
 > Fixes the planner's control and quality problems: explicit posts-per-day with

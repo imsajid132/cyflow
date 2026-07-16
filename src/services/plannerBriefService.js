@@ -34,7 +34,18 @@ import {
   FORMAT_TEMPLATES,
   CONTENT_TONES,
   PLANNER_LIMITS,
+  CONTENT_PILLAR_LABELS,
+  CONTENT_PILLAR_PURPOSE,
+  VISUAL_FAMILIES,
 } from '../config/constants.js';
+import {
+  resolveRhythm,
+  weekdayConfig,
+  pillarSequenceForDay,
+  formatsForPillar,
+  visualFamiliesForPillar,
+  familyLayout,
+} from './weeklyRhythmService.js';
 
 /**
  * Default weights when a user has not customised their mix.
@@ -354,13 +365,96 @@ function pick(list, index, fallback = null) {
 }
 
 /**
- * Build one brief per slot.
+ * Which of a pillar's formats the user's mix favours.
  *
- * @param {{ slots, preferences, profile, platforms }} input
+ * Only formats the pillar already admits are considered, so the mix can lean a
+ * week without breaking the weekday's purpose: a user who loves checklists gets
+ * checklists on the days a checklist genuinely fits, not on Wednesday's trust
+ * post. Ties and already-used formats are pushed down so one weighted format
+ * does not take every slot.
+ *
+ * Returns null when the mix says nothing about this pillar, leaving the caller
+ * to rotate as before.
+ */
+export function preferredByMix(pillarFormats, mix, seenFormat) {
+  const normalized = normalizeMix(mix);
+  if (!normalized) return null;
+  const scored = pillarFormats
+    .map((format) => ({
+      format,
+      weight: Number(normalized[format]) || 0,
+      used: seenFormat?.get(format) || 0,
+    }))
+    .filter((entry) => entry.weight > 0);
+  if (scored.length === 0) return null;
+  // Highest weight first; among equals, the one used least so far.
+  scored.sort((a, b) => (b.weight - a.weight) || (a.used - b.used));
+  return scored[0].format;
+}
+
+/**
+ * The layout a chosen format's content actually needs (its content shape), so a
+ * checklist gets rows and a comparison gets columns whatever the visual family
+ * is labelled. Reuses the format→template alternation.
+ */
+function layoutForFormat(format, occurrence, previousTemplate) {
+  return templateForContentType(format, occurrence, previousTemplate);
+}
+
+/**
+ * Choose a named visual family for a pillar whose layout matches the chosen
+ * content layout. The family is a role/label; the layout is what renders. When
+ * the pillar has no family on that layout, fall back to any family that uses it,
+ * so the two never disagree about the actual structure.
+ */
+function familyForLayout(pillar, layout) {
+  const eligible = visualFamiliesForPillar(pillar);
+  const match = eligible.find((key) => familyLayout(key) === layout);
+  if (match) return match;
+  const any = Object.keys(VISUAL_FAMILIES).find((key) => VISUAL_FAMILIES[key].layout === layout);
+  return any || eligible[0];
+}
+
+/**
+ * Resolve a weekday's rhythm CTA mode into a concrete include/strategy for one
+ * post. "automatic" defers to the run's overall CTA cadence by position.
+ */
+function ctaFromRhythm(rhythmCtaMode, runCtaMode, index) {
+  switch (rhythmCtaMode) {
+    case 'no_cta':
+      return { include: false, strategy: 'none' };
+    case 'soft_cta':
+      return { include: true, strategy: 'soft' };
+    case 'conversational_cta':
+      return { include: true, strategy: 'conversational' };
+    case 'direct_cta':
+      return { include: true, strategy: 'direct' };
+    case 'automatic':
+    default:
+      return { include: ctaForPosition(runCtaMode, index), strategy: 'automatic' };
+  }
+}
+
+/**
+ * Build one brief per slot, driven by the weekly rhythm.
+ *
+ * Each slot already carries its real calendar `weekday` (the schedule engine is
+ * weekday-accurate). The rhythm names the pillar for that weekday; the pillar
+ * admits a set of formats and visual families; and multiple posts on one day
+ * step through complementary pillars. This is the fix for "a Thursday plan
+ * started with Monday's strategy": strategy now follows the calendar.
+ *
+ * `rhythm` is the resolved snapshot (from weeklyRhythmService.resolveRhythm). It
+ * is optional so pre-4.8 callers keep working; absent, a Balanced rhythm is
+ * resolved so the weekday mapping still applies.
+ *
+ * @param {{ slots, preferences, profile, platforms, rhythm? }} input
  * @returns {Array<object>} briefs aligned 1:1 with slots
  */
-export function buildBriefSet({ slots = [], preferences = {}, profile = null, platforms = [] } = {}) {
+export function buildBriefSet({ slots = [], preferences = {}, profile = null, platforms = [], rhythm = null } = {}) {
   const count = Math.min(slots.length, PLANNER_LIMITS.MAX_ITEMS_PER_RUN);
+  // The mix biases format choice WITHIN each weekday's pillar (see
+  // preferredByMix). It no longer decides the plan's shape; the rhythm does.
   const mix = preferences.contentMix && Object.keys(preferences.contentMix).length
     ? preferences.contentMix
     : DEFAULT_CONTENT_MIX;
@@ -370,52 +464,99 @@ export function buildBriefSet({ slots = [], preferences = {}, profile = null, pl
   const activeGoals = goals.length ? goals : [...DEFAULT_GOALS];
 
   const tone = PLANNER_TONES.includes(preferences.tone) ? preferences.tone : 'professional';
-  const ctaMode = PLANNER_CTA_MODES.includes(preferences.ctaMode) ? preferences.ctaMode : 'some';
+  const runCtaMode = PLANNER_CTA_MODES.includes(preferences.ctaMode) ? preferences.ctaMode : 'some';
+  const snapshot = rhythm && rhythm.weekdays ? rhythm : resolveRhythm({ preset: preferences.contentRhythmPreset, customRhythm: preferences.contentRhythm });
 
   const services = Array.isArray(profile?.services) ? profile.services.filter(Boolean) : [];
-  const contentTypes = dealContentTypes(mix, count);
   const location = [profile?.city, profile?.region].filter(Boolean).join(', ') || null;
 
-  // How many times each format has been used so far, for template alternation.
-  const seenType = new Map();
+  // Per-format occurrence (for angle + layout alternation) and per-day index.
+  const seenFormat = new Map();
   let previousTemplate = null;
+  let currentDay = null;
+  let indexInDay = 0;
+  let dayPillars = [];
 
   const briefs = [];
   for (let i = 0; i < count; i += 1) {
-    const contentType = contentTypes[i] || 'educational_insight';
-    const occurrence = seenType.get(contentType) || 0;
-    seenType.set(contentType, occurrence + 1);
+    const slot = slots[i] || {};
+    const weekday = Number(slot.weekday) || 1;
+    const config = weekdayConfig(snapshot, weekday);
+    const dayKey = slot.localDate || `pos-${i}`;
+
+    // At the start of each new calendar day, resolve that day's pillar sequence.
+    if (dayKey !== currentDay) {
+      currentDay = dayKey;
+      indexInDay = 0;
+      const postsThisDay = slots.filter((s) => (s?.localDate || '') === (slot.localDate || '')).length || 1;
+      dayPillars = pillarSequenceForDay(config?.pillar || 'educational_insight', postsThisDay);
+    } else {
+      indexInDay += 1;
+    }
+
+    const pillar = dayPillars[indexInDay] || config?.pillar || 'educational_insight';
+
+    /*
+     * Format selection, in priority order:
+     *
+     *   1. a locked weekday pins its format outright;
+     *   2. otherwise the user's content mix biases WHICH of the pillar's
+     *      eligible formats is used;
+     *   3. otherwise the pillar's formats rotate by position.
+     *
+     * Step 2 exists because the rhythm took over format selection in 4.8 and
+     * left `contentMix` wired to nothing while the run snapshot still recorded
+     * it as configuration — a control that looked live and did nothing. The mix
+     * now steers within the weekday's pillar rather than against it: the rhythm
+     * decides the post's PURPOSE, the mix leans on how it is written.
+     */
+    const pillarFormats = formatsForPillar(pillar);
+    const preferredFormat = config?.locked && config?.format ? config.format : null;
+    const format = preferredFormat
+      || preferredByMix(pillarFormats, mix, seenFormat)
+      || pillarFormats[i % pillarFormats.length];
+
+    const occurrence = seenFormat.get(format) || 0;
+    seenFormat.set(format, occurrence + 1);
 
     const service = pick(services, i, null);
     const goal = pick(activeGoals, i, 'awareness');
-    const angleList = ANGLES[contentType] || ANGLES.educational_insight;
+    const angleList = ANGLES[format] || ANGLES.educational_insight;
     const angle = pick(angleList, occurrence, angleList[0]);
     const audienceProblem = pick(AUDIENCE_PROBLEMS, i, AUDIENCE_PROBLEMS[0]);
-    const includeCta = ctaForPosition(ctaMode, i);
+    const cta = ctaFromRhythm(config?.ctaMode || 'automatic', runCtaMode, i);
     const resolvedTone = toneForPosition(tone, i);
-    const templateKey = templateForContentType(contentType, occurrence, previousTemplate);
+    const templateKey = layoutForFormat(format, occurrence, previousTemplate);
     previousTemplate = templateKey;
+    const visualFamily = config?.locked && config?.visualFamily ? config.visualFamily : familyForLayout(pillar, templateKey);
 
     briefs.push({
-      slot: slots[i],
+      slot,
       position: i,
+      weekday,
+      pillar,
+      pillarLabel: CONTENT_PILLAR_LABELS[pillar] || 'Insight',
+      pillarPurpose: CONTENT_PILLAR_PURPOSE[pillar] || null,
       // `format` is the strategic shape; `contentType` is kept as an alias so
       // storage and the Phase 4.7 API surface keep working unchanged.
-      format: contentType,
-      contentType,
-      formatLabel: PLANNER_FORMAT_LABELS[contentType] || 'Insight',
+      format,
+      contentType: format,
+      formatLabel: PLANNER_FORMAT_LABELS[format] || 'Insight',
+      visualFamily,
+      visualFamilyLabel: VISUAL_FAMILIES[visualFamily]?.label || null,
       goal,
       angle,
       audienceProblem,
       serviceEmphasis: service,
-      location: contentType === 'local_relevance' ? location : null,
+      location: pillar === 'engagement_local' || format === 'local_relevance' ? location : null,
       tone: CONTENT_TONES.includes(resolvedTone) ? resolvedTone : 'professional',
-      includeCta,
-      callToAction: includeCta ? profile?.defaultCallToAction || null : null,
+      includeCta: cta.include,
+      ctaStrategy: cta.strategy,
+      callToAction: cta.include ? profile?.defaultCallToAction || null : null,
       templateKey,
       platforms: [...platforms],
       // The instruction text handed to the writer as DATA, never as commands.
-      brief: composeBriefText({ contentType, angle, service, goal, audienceProblem, profile }),
+      brief: composeBriefText({ pillar, format, angle, service, goal, audienceProblem, profile }),
     });
   }
   return briefs;
@@ -428,9 +569,13 @@ export function buildBriefSet({ slots = [], preferences = {}, profile = null, pl
  * price, guarantee, statistic, or credential — the writer is explicitly told to
  * work from this data alone.
  */
-export function composeBriefText({ contentType, angle, service, goal, audienceProblem, profile }) {
+export function composeBriefText({ pillar, format, contentType, angle, service, goal, audienceProblem, profile }) {
+  const shape = format || contentType || 'educational_insight';
   const parts = [];
-  parts.push(`Format: ${contentType.replace(/_/g, ' ')}.`);
+  if (pillar && CONTENT_PILLAR_PURPOSE[pillar]) {
+    parts.push(`Purpose (${CONTENT_PILLAR_LABELS[pillar]}): ${CONTENT_PILLAR_PURPOSE[pillar]}`);
+  }
+  parts.push(`Format: ${shape.replace(/_/g, ' ')}.`);
   parts.push(`Angle: ${angle}.`);
   if (audienceProblem) parts.push(`The reader's problem: ${audienceProblem}.`);
   if (goal) parts.push(`Objective: ${goal.replace(/_/g, ' ')}.`);

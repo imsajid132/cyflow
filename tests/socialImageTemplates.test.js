@@ -62,6 +62,8 @@ test('the template set leads with the planner design families', () => {
     // Phase 4.7.1 design families — what the planner selects from.
     'editorial-insight', 'light-editorial', 'checklist-guide', 'comparison-cards',
     'stat-highlight', 'service-authority', 'local-insight',
+    // Phase 4.8 — two structurally distinct additions.
+    'numbered-steps', 'faq-editorial',
     // Earlier layouts, kept so existing drafts still render.
     'editorial-premium', 'bold-service-promo', 'local-authority',
     'modern-split', 'minimal-luxury', 'geometric-conversion',

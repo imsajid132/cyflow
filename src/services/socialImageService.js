@@ -106,6 +106,7 @@ export function createSocialImageService({
    *           backgroundStyle, logoUrl?, primaryColor?, secondaryColor?,
    *           accentColor?, headingFont?, bodyFont?, cta?, website?, phone?,
    *           businessCategory?, serviceTag?, bullets?, stat?, comparison?,
+   *           answerSummary?, emphasisPhrase?,
    *           badge?, locationLabel? }} input
    * @param {{ postId? }} [ctx]
    */
@@ -158,6 +159,15 @@ export function createSocialImageService({
       comparison: input.comparison,
       badge: input.badge,
       locationLabel: input.locationLabel,
+      /*
+       * The FAQ answer. Forwarding it is not optional decoration: without it the
+       * faq-editorial layout falls back to the SUBHEADLINE, which is clamped to
+       * 140 characters, and a real answer renders cut off mid-word. The layout
+       * and the builder both handled it correctly; only this hop was missing, so
+       * the defect was invisible to any test that called buildTemplate directly.
+       */
+      answerSummary: input.answerSummary,
+      emphasisPhrase: input.emphasisPhrase,
     });
     const safeHtml = sanitizeGeneratedHtml(built.html);
 

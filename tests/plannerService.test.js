@@ -428,22 +428,82 @@ test('auto-queue mode approves fresh posts but still holds flagged ones', async 
 
 // --- duplicate prevention ---------------------------------------------------
 
-test('repetitive generation is regenerated, then flagged for review', async () => {
-  // This generator returns the SAME post every time, so regeneration cannot
-  // save it — the engine must flag rather than silently ship duplicates.
+test('generation that repeats itself exactly is a hard failure, not review work', async () => {
+  /*
+   * Phase 4.8 replaced the older contract here, which marked these NEEDS_REVIEW.
+   *
+   * This generator returns the SAME post every time, so retrying cannot save it.
+   * "Needs review" asks a human to make a judgement call, and there is no
+   * judgement to make about a post that is byte-identical to the one above it:
+   * it is unusable. Sending it to review wearing the same badge as a
+   * genuinely-borderline post is what trains people to rubber-stamp the queue.
+   *
+   * So severe duplication is now a hard failure with its own status, and the
+   * stronger assertion is that it CANNOT be approved. Merely-similar posts are
+   * still soft-flagged for review; that path is covered in
+   * contentUniquenessService.test.js, where the verdict is 'review'.
+   */
   const openai = createFakePlannerOpenAI({ duplicate: true });
   const ctx = build({ openai });
   const plan = await generate(ctx, { planLength: 3 });
 
   const later = plan.items.slice(1);
+  assert.ok(later.length > 0);
   for (const item of later) {
     assert.ok(item.duplicationScore > 0, 'a repeated post must score above zero');
-    assert.equal(item.approvalStatus, PLANNER_ITEM_STATUS.NEEDS_REVIEW);
-    assert.ok(item.duplicationNotes, 'the card must explain why it was flagged');
-    assert.match(item.duplicationNotes, /similar/i);
-    assert.ok(item.regenerationCount > 0, 'it must have been retried before being flagged');
+    assert.equal(item.approvalStatus, PLANNER_ITEM_STATUS.GENERATION_FAILED);
+    assert.equal(item.qualityStatus, 'generation_failed');
+    assert.ok(Array.isArray(item.qualityFailures) && item.qualityFailures.length,
+      'a hard failure must record structured reasons');
+    assert.ok(item.regenerationCount > 0, 'it must have been retried before failing');
+
+    // The status is not cosmetic: it blocks approval.
+    // eslint-disable-next-line no-await-in-loop
+    await assert.rejects(
+      () => ctx.svc.setItemStatus(USER, item.id, 'approved'),
+      /could not be generated/i,
+      'a hard failure must not be approvable',
+    );
   }
-  assert.match(plan.run.generationNotes, /flagged for similarity review/);
+  assert.match(plan.run.generationNotes, /could not be generated/i);
+});
+
+test('a run whose every post hard-failed is marked failed, not review', async () => {
+  const openai = createFakePlannerOpenAI({ duplicate: true });
+  const ctx = build({ openai });
+  // Two slots: the first is unique (nothing to repeat yet), the second fails.
+  // With every post failing the run itself must say so.
+  const plan = await generate(ctx, { planLength: 3 });
+  const failed = plan.items.filter((i) => i.approvalStatus === PLANNER_ITEM_STATUS.GENERATION_FAILED);
+  assert.ok(failed.length > 0, 'the duplicate generator must produce hard failures');
+
+  // Not every post failed here (the first one had nothing to repeat), so the run
+  // stays reviewable and reports the failures rather than hiding them.
+  assert.equal(plan.run.status, PLANNER_RUN_STATUS.REVIEW);
+  assert.equal(plan.run.qualityStatus, 'needs_review');
+  assert.ok(Array.isArray(plan.run.qualityFailures) && plan.run.qualityFailures.length,
+    'the run must record which items failed');
+});
+
+test('editing a hard-failed post clears the failure and lets it be approved', async () => {
+  const openai = createFakePlannerOpenAI({ duplicate: true });
+  const ctx = build({ openai });
+  const plan = await generate(ctx, { planLength: 3 });
+  const item = plan.items.find((i) => i.approvalStatus === PLANNER_ITEM_STATUS.GENERATION_FAILED);
+  assert.ok(item, 'expected a hard-failed item');
+
+  // A human writes it properly. The machine's verdict no longer describes it.
+  await ctx.svc.updateItem(USER, item.id, {
+    caption: 'A hand-written post that says something specific and useful about the work.',
+  });
+  const after = await ctx.svc.getPlan(USER, plan.run.id);
+  const edited = after.items.find((i) => i.id === item.id);
+  assert.notEqual(edited.approvalStatus, PLANNER_ITEM_STATUS.GENERATION_FAILED);
+  assert.equal(edited.qualityFailures, null, 'the stale failure record must be cleared');
+
+  // ...and it can now be approved, because a person took responsibility for it.
+  const approved = await ctx.svc.setItemStatus(USER, item.id, 'approved');
+  assert.equal(approved.approvalStatus, PLANNER_ITEM_STATUS.APPROVED);
 });
 
 test('a unique plan flags nothing and needs no regeneration', async () => {
@@ -1035,4 +1095,41 @@ test('one user can never read or mutate another user plan', async () => {
   await assert.rejects(() => ctx.svc.setItemStatus(OTHER, plan.items[0].id, 'approved'), /not found/i);
   await assert.rejects(() => ctx.svc.deleteItem(OTHER, plan.items[0].id), /not found/i);
   assert.deepEqual(await ctx.svc.listPlans(OTHER), []);
+});
+
+test('a hard failure cannot be laundered through "draft" and then approved', async () => {
+  /*
+   * The bypass this closes, found by an adversarial audit and reproduced here:
+   *
+   *   POST /items/:id/status {status:'draft'}   -> approvalStatus becomes draft
+   *   POST /items/:id/status {status:'approved'} -> approved. Queued. Shipped.
+   *
+   * The gate was keyed to `approvalStatus`, which the user can move, so moving
+   * it cleared the block while `qualityStatus` still recorded the failure. It is
+   * now keyed to `qualityStatus`, which only a human edit or a passing
+   * regeneration clears.
+   */
+  const openai = createFakePlannerOpenAI({ duplicate: true });
+  const ctx = build({ openai });
+  const plan = await generate(ctx, { planLength: 3 });
+  const item = plan.items.find((i) => i.approvalStatus === PLANNER_ITEM_STATUS.GENERATION_FAILED);
+  assert.ok(item, 'expected a hard-failed item');
+
+  // Direct approval is refused.
+  await assert.rejects(() => ctx.svc.setItemStatus(USER, item.id, 'approved'), /could not be generated/i);
+
+  // ...and so is approval AFTER moving it to draft, which used to work.
+  const drafted = await ctx.svc.setItemStatus(USER, item.id, 'draft');
+  assert.equal(drafted.approvalStatus, PLANNER_ITEM_STATUS.DRAFT);
+  assert.equal(drafted.qualityStatus, 'generation_failed', 'the failure record must survive a status move');
+  await assert.rejects(
+    () => ctx.svc.setItemStatus(USER, item.id, 'approved'),
+    /could not be generated/i,
+    'moving a hard failure to draft must not launder it into the queue',
+  );
+
+  // Bulk approve refuses it too, with a reason rather than silently.
+  const bulk = await ctx.svc.bulkSetStatus(USER, plan.run.id, [item.id], 'approved');
+  assert.equal(bulk.updated.length, 0);
+  assert.match(bulk.skipped[0].reason, /generation failed/i);
 });

@@ -257,6 +257,9 @@ export const IMAGE_TEMPLATES = Object.freeze([
   'stat-highlight', // Stat Highlight (a verified figure only)
   'service-authority', // Service Authority (service panel + insight)
   'local-insight', // Local Insight (place label + card)
+  // Phase 4.8 — two structurally distinct additions.
+  'numbered-steps', // Numbered Steps (an ordered process, not ticks)
+  'faq-editorial', // FAQ Editorial (a question and its answer)
   // Earlier layouts. Still offered in the manual picker and still rendering
   // drafts saved before this phase.
   'editorial-premium',
@@ -280,6 +283,8 @@ export const PLANNER_DESIGN_FAMILIES = Object.freeze([
   'stat-highlight',
   'service-authority',
   'local-insight',
+  'numbered-steps',
+  'faq-editorial',
 ]);
 
 /**
@@ -503,13 +508,15 @@ export const PLANNER_FORMAT_LABELS = Object.freeze({
  */
 export const FORMAT_TEMPLATES = Object.freeze({
   checklist: ['checklist-guide'],
-  process: ['checklist-guide'],
+  // A process is genuinely a numbered sequence, so it leads with the numbered
+  // layout and falls back to the checklist rows only if that is unavailable.
+  process: ['numbered-steps', 'checklist-guide'],
   comparison: ['comparison-cards'],
   myth_fact: ['comparison-cards', 'editorial-insight'],
   educational_insight: ['editorial-insight', 'light-editorial'],
   quick_tip: ['light-editorial', 'checklist-guide'],
   common_mistake: ['editorial-insight', 'light-editorial'],
-  faq_answer: ['light-editorial', 'editorial-insight'],
+  faq_answer: ['faq-editorial', 'light-editorial'],
   authority: ['editorial-insight', 'stat-highlight'],
   service_benefit: ['service-authority'],
   soft_promo: ['service-authority', 'light-editorial'],
@@ -522,6 +529,238 @@ export const FORMAT_TEMPLATES = Object.freeze({
  * generator returns an empty stat otherwise and the layout falls back.
  */
 export const STAT_CAPABLE_FORMATS = Object.freeze(['authority']);
+
+// --- Phase 4.8: weekly content rhythm --------------------------------------
+
+/**
+ * Content PILLARS: the strategic purpose a post serves on a given weekday.
+ *
+ * A pillar is coarser than a format. A pillar answers "why is this post here
+ * this day"; a format answers "how is it written". One pillar admits several
+ * formats, which is what lets a week of "Educational Insight" Mondays still read
+ * differently week to week.
+ *
+ * The order here is the Balanced Weekly Rhythm's Monday..Sunday assignment.
+ */
+export const CONTENT_PILLARS = Object.freeze([
+  'educational_insight',
+  'service_promotion',
+  'trust_authority',
+  'problem_solution',
+  'actionable_tips',
+  'engagement_local',
+  'soft_promo_recap',
+]);
+
+export const CONTENT_PILLAR_LABELS = Object.freeze({
+  educational_insight: 'Educational Insight',
+  service_promotion: 'Service Promotion',
+  trust_authority: 'Trust and Authority',
+  problem_solution: 'Problem and Solution',
+  actionable_tips: 'Actionable Tips',
+  engagement_local: 'Engagement and Local Relevance',
+  soft_promo_recap: 'Soft Promotion and Recap',
+});
+
+/** One sentence of purpose per pillar, handed to the brief builder as guidance. */
+export const CONTENT_PILLAR_PURPOSE = Object.freeze({
+  educational_insight: 'Teach one useful thing about the business, service, or the problem the audience has.',
+  service_promotion: 'Promote one real service by explaining the problem it solves, not by boasting.',
+  trust_authority: 'Build credibility through standards and process. Never invent reviews, years, or results.',
+  problem_solution: 'Name a common problem, mistake, or choice, and what to do about it.',
+  actionable_tips: 'Give practical, doable steps the reader can use today.',
+  engagement_local: 'Be conversational, audience-focused, or locally relevant. No invented local figures.',
+  soft_promo_recap: 'A low-pressure recap, planning thought, or gentle next step. Understated.',
+});
+
+/**
+ * The writing FORMATS each pillar admits, in preference order.
+ *
+ * The first is the pillar's most natural format; the rest give a multi-post day
+ * and week-to-week variation somewhere honest to go. Every entry is a real
+ * member of PLANNER_FORMATS.
+ */
+export const PILLAR_FORMATS = Object.freeze({
+  educational_insight: ['educational_insight', 'faq_answer', 'common_mistake'],
+  service_promotion: ['service_benefit', 'soft_promo', 'process'],
+  trust_authority: ['authority', 'faq_answer', 'process'],
+  problem_solution: ['common_mistake', 'comparison', 'myth_fact'],
+  actionable_tips: ['checklist', 'quick_tip', 'process'],
+  engagement_local: ['local_relevance', 'quick_tip', 'educational_insight'],
+  soft_promo_recap: ['soft_promo', 'service_benefit', 'authority'],
+});
+
+/**
+ * The VISUAL FAMILIES each pillar admits, in preference order.
+ *
+ * A visual family is a named creative direction (see VISUAL_FAMILIES). Several
+ * families share one structural layout, which is deliberate: the references
+ * collapse into a handful of structures, and a family is a role over a layout,
+ * not a new layout per name.
+ */
+export const PILLAR_VISUAL_FAMILIES = Object.freeze({
+  educational_insight: ['editorial_insight', 'light_editorial', 'faq_editorial'],
+  service_promotion: ['service_authority', 'soft_conversion', 'process_steps'],
+  trust_authority: ['trust_editorial', 'faq_editorial', 'process_steps'],
+  problem_solution: ['problem_solution', 'comparison_cards', 'myth_fact'],
+  actionable_tips: ['checklist_guide', 'numbered_steps', 'light_editorial'],
+  engagement_local: ['local_authority', 'conversational_insight', 'light_editorial'],
+  // `light_editorial` is the brief's "Minimal Editorial" for a Sunday: a quiet
+  // recap does not need a conversion panel. It also keeps this pillar coherent
+  // with FORMAT_TEMPLATES, where soft_promo may legitimately land on
+  // light-editorial as its alternate layout.
+  soft_promo_recap: ['soft_conversion', 'weekly_recap', 'brand_statement', 'light_editorial'],
+});
+
+/**
+ * The named creative families and the structural layout each resolves to.
+ *
+ * Seventeen families, nine structural layouts. This is the reference-prescribed
+ * shape, not 17 near-identical cards: a family carries a role (badge wording,
+ * emphasis, which content block) over a layout that genuinely fits it. Two
+ * families sharing a layout (trust_editorial and editorial_insight) differ in
+ * their badge and their copy, never by inventing decoration.
+ *
+ * `requiresStat` families only render when the business supplied a real figure;
+ * otherwise the planner picks another family for that slot.
+ */
+export const VISUAL_FAMILIES = Object.freeze({
+  editorial_insight: { label: 'Editorial Insight', layout: 'editorial-insight' },
+  light_editorial: { label: 'Light Editorial', layout: 'light-editorial' },
+  service_authority: { label: 'Service Authority', layout: 'service-authority' },
+  trust_editorial: { label: 'Trust Editorial', layout: 'editorial-insight' },
+  process_steps: { label: 'Process Steps', layout: 'numbered-steps' },
+  problem_solution: { label: 'Problem and Solution', layout: 'comparison-cards' },
+  comparison_cards: { label: 'Comparison Cards', layout: 'comparison-cards' },
+  myth_fact: { label: 'Myth versus Fact', layout: 'comparison-cards' },
+  checklist_guide: { label: 'Checklist Guide', layout: 'checklist-guide' },
+  numbered_steps: { label: 'Numbered Steps', layout: 'numbered-steps' },
+  faq_editorial: { label: 'FAQ Editorial', layout: 'faq-editorial' },
+  local_authority: { label: 'Local Authority', layout: 'local-insight' },
+  conversational_insight: { label: 'Conversational Insight', layout: 'light-editorial' },
+  soft_conversion: { label: 'Soft Conversion', layout: 'service-authority' },
+  brand_statement: { label: 'Brand Statement', layout: 'editorial-insight' },
+  weekly_recap: { label: 'Weekly Recap', layout: 'checklist-guide' },
+  verified_stat: { label: 'Verified Stat Highlight', layout: 'stat-highlight', requiresStat: true },
+});
+export const VISUAL_FAMILY_KEYS = Object.freeze(Object.keys(VISUAL_FAMILIES));
+
+/** The CTA strength a weekday's posts should carry. */
+export const RHYTHM_CTA_MODES = Object.freeze([
+  'no_cta',
+  'soft_cta',
+  'conversational_cta',
+  'direct_cta',
+  'automatic',
+]);
+
+/**
+ * The built-in weekly rhythm presets.
+ *
+ * A preset names a pillar per ISO weekday (Monday = 1 … Sunday = 7). "custom" is
+ * a marker: it means "use the saved per-weekday rhythm JSON", and carries the
+ * Balanced assignment as its starting point so a fresh custom week is sensible
+ * rather than empty.
+ */
+export const RHYTHM_PRESETS = Object.freeze([
+  'balanced',
+  'education_led',
+  'trust_building',
+  'growth_promotion',
+  'local_business',
+  'custom',
+]);
+
+export const RHYTHM_PRESET_LABELS = Object.freeze({
+  balanced: 'Balanced Weekly Rhythm',
+  education_led: 'Education-Led Week',
+  trust_building: 'Trust-Building Week',
+  growth_promotion: 'Growth and Promotion Week',
+  local_business: 'Local Business Week',
+  custom: 'Custom Weekly Rhythm',
+});
+
+/**
+ * Each preset's pillar per ISO weekday. Keyed 1..7 (Mon..Sun).
+ *
+ * Balanced is the reference rhythm from the brief. The themed presets lean the
+ * week toward one purpose while keeping genuine variety, because seven identical
+ * posts is the failure every rhythm here exists to prevent.
+ */
+export const RHYTHM_PRESET_PILLARS = Object.freeze({
+  balanced: Object.freeze({
+    1: 'educational_insight',
+    2: 'service_promotion',
+    3: 'trust_authority',
+    4: 'problem_solution',
+    5: 'actionable_tips',
+    6: 'engagement_local',
+    7: 'soft_promo_recap',
+  }),
+  education_led: Object.freeze({
+    1: 'educational_insight',
+    2: 'actionable_tips',
+    3: 'problem_solution',
+    4: 'educational_insight',
+    5: 'actionable_tips',
+    6: 'engagement_local',
+    7: 'trust_authority',
+  }),
+  trust_building: Object.freeze({
+    1: 'trust_authority',
+    2: 'problem_solution',
+    3: 'trust_authority',
+    4: 'educational_insight',
+    5: 'actionable_tips',
+    6: 'engagement_local',
+    7: 'soft_promo_recap',
+  }),
+  growth_promotion: Object.freeze({
+    1: 'educational_insight',
+    2: 'service_promotion',
+    3: 'problem_solution',
+    4: 'service_promotion',
+    5: 'actionable_tips',
+    6: 'engagement_local',
+    7: 'soft_promo_recap',
+  }),
+  local_business: Object.freeze({
+    1: 'engagement_local',
+    2: 'service_promotion',
+    3: 'trust_authority',
+    4: 'problem_solution',
+    5: 'actionable_tips',
+    6: 'engagement_local',
+    7: 'soft_promo_recap',
+  }),
+  // custom starts from Balanced; the saved rhythm JSON overrides per weekday.
+  custom: Object.freeze({
+    1: 'educational_insight',
+    2: 'service_promotion',
+    3: 'trust_authority',
+    4: 'problem_solution',
+    5: 'actionable_tips',
+    6: 'engagement_local',
+    7: 'soft_promo_recap',
+  }),
+});
+
+/**
+ * Complementary pillars, for a second or third post on the same day.
+ *
+ * The primary post of a day uses the weekday's pillar; the rest step through
+ * this list so a two-post Tuesday is "service promotion, then something that
+ * supports it" rather than two service adverts.
+ */
+export const COMPLEMENTARY_PILLARS = Object.freeze({
+  educational_insight: ['actionable_tips', 'trust_authority', 'problem_solution'],
+  service_promotion: ['educational_insight', 'trust_authority', 'soft_promo_recap'],
+  trust_authority: ['problem_solution', 'educational_insight', 'service_promotion'],
+  problem_solution: ['actionable_tips', 'educational_insight', 'trust_authority'],
+  actionable_tips: ['educational_insight', 'engagement_local', 'problem_solution'],
+  engagement_local: ['educational_insight', 'actionable_tips', 'service_promotion'],
+  soft_promo_recap: ['educational_insight', 'trust_authority', 'engagement_local'],
+});
 
 /** Bounds on the structured extras the content-type templates render. */
 export const PLANNER_VISUAL_LIMITS = Object.freeze({
@@ -564,14 +803,19 @@ export const HEADLINE_RULES = Object.freeze({
  * "100 to 180 words" will still return forty.
  */
 export const POST_COPY_RULES = Object.freeze({
+  // Phase 4.8 widened these bands. Facebook and Instagram carry more context
+  // than the 4.7.2 100-180 allowed, and giving them room to breathe is what
+  // stops the copy reading as clipped. Threads stays deliberately short and its
+  // band still does not overlap the long-form floor, so a trimmed Instagram
+  // post cannot pass as a Threads post on length alone.
   facebook: Object.freeze({
-    MIN_WORDS: 100, MAX_WORDS: 180, MIN_PARAGRAPHS: 2, MAX_PARAGRAPHS: 4,
+    MIN_WORDS: 130, MAX_WORDS: 220, MIN_PARAGRAPHS: 2, MAX_PARAGRAPHS: 4,
   }),
   instagram: Object.freeze({
-    MIN_WORDS: 100, MAX_WORDS: 180, MIN_PARAGRAPHS: 2, MAX_PARAGRAPHS: 4,
+    MIN_WORDS: 120, MAX_WORDS: 200, MIN_PARAGRAPHS: 2, MAX_PARAGRAPHS: 4,
   }),
   threads: Object.freeze({
-    MIN_WORDS: 40, MAX_WORDS: 100, MIN_PARAGRAPHS: 1, MAX_PARAGRAPHS: 3,
+    MIN_WORDS: 45, MAX_WORDS: 100, MIN_PARAGRAPHS: 1, MAX_PARAGRAPHS: 3,
   }),
 });
 
@@ -656,6 +900,78 @@ export const BANNED_PHRASES = Object.freeze([
   'seamlessly',
   'robust solution',
   'at the end of the day',
+  // Phase 4.8 additions.
+  'now more than ever',
+  'your journey starts here',
+  'revolutionize your business',
+  'maximize your potential',
+  'seamless solutions',
+  'tailored solutions for your needs',
+  'stand out from the competition',
+  'the key to success',
+  'in the ever-evolving world',
+  'say goodbye to',
+]);
+
+/**
+ * Unsupported-claim PHRASES: sentences that assert experience, results, counts,
+ * or reputation the business never gave us. Distinct from generic filler: these
+ * are not empty, they are UNVERIFIABLE, and a small business posting an invented
+ * proof point is a real credibility and honesty problem.
+ *
+ * A hit forces a regeneration with a specific angle. Real proof does not go in
+ * prose at all: it goes in a stat layout, from structured verified data.
+ */
+export const UNSUPPORTED_CLAIM_PHRASES = Object.freeze([
+  'i have seen clients',
+  'we have seen clients',
+  'we have helped hundreds',
+  'we have helped thousands',
+  'we have helped countless',
+  'our clients often achieve',
+  'our clients regularly',
+  'from our years of experience',
+  'in our years of experience',
+  'years of experience have taught',
+  'customers regularly tell us',
+  'clients regularly tell us',
+  'we recently helped',
+  'our proven system',
+  'our proven process',
+  'our proven method',
+  'trusted by thousands',
+  'trusted by hundreds',
+  'trusted by businesses everywhere',
+  'our award-winning team',
+  'our award winning',
+  'award-winning service',
+  'thousands of satisfied customers',
+  'hundreds of satisfied customers',
+  'our track record speaks',
+  'join thousands of',
+  'rated number one',
+  'the leading provider',
+  'the number one choice',
+]);
+
+/**
+ * Unsupported-claim NUMBER patterns: a figure attached to a claim context
+ * (experience, client counts, results, ratings). Numbers alone are fine
+ * ("resize to 800px", "check every spring"); a number claiming a RESULT or a
+ * REPUTATION is what gets caught. Sources are strings so they compile once in
+ * the guard.
+ */
+export const UNSUPPORTED_CLAIM_PATTERNS = Object.freeze([
+  // "10 years of experience", "over 5 years in business"
+  '\\b\\d+\\+?\\s*(?:years?|yrs?)\\s+(?:of\\s+)?(?:experience|in\\s+business|serving)',
+  // "over 500 clients", "1,000+ customers", "hundreds of projects completed"
+  '\\b(?:over|more\\s+than|upwards\\s+of|nearly)?\\s*\\d[\\d,]*\\+?\\s*(?:clients?|customers?|businesses|projects?|websites?|reviews?)\\b',
+  // "50% increase", "grew traffic by 30%", "2x more leads"
+  '\\b\\d+(?:\\.\\d+)?\\s*%\\s*(?:increase|growth|more|boost|improvement|higher|faster|reduction)',
+  '\\b\\d+x\\s+(?:more|faster|better|the\\s+traffic|the\\s+leads|revenue)',
+  // "rated 5 stars", "ranked #1", "5-star reviews"
+  '\\b(?:rated|ranked)\\s+#?\\d',
+  '\\b\\d+(?:\\.\\d+)?\\s*(?:star|stars)\\b',
 ]);
 
 /** Planner tone options (a superset of CONTENT_TONES plus 'mixed'). */
@@ -702,8 +1018,19 @@ export const PLANNER_ITEM_STATUS = Object.freeze({
   APPROVED: 'approved',
   QUEUED: 'queued',
   REJECTED: 'rejected',
+  // Phase 4.8: a HARD failure the retries could not fix. Distinct from
+  // needs_review: it cannot be approved, only retried, edited or deleted.
+  // Dressing a hard failure as "needs review" is the dishonesty this prevents.
+  GENERATION_FAILED: 'generation_failed',
 });
 export const PLANNER_ITEM_STATUS_VALUES = Object.freeze(Object.values(PLANNER_ITEM_STATUS));
+
+/** Item quality roll-up, stored separately from the human approval status. */
+export const PLANNER_QUALITY_STATUS = Object.freeze({
+  PASSED: 'passed',
+  NEEDS_REVIEW: 'needs_review',
+  GENERATION_FAILED: 'generation_failed',
+});
 
 /** Plan lengths offered in the wizard; any 1..PLANNER_LIMITS.MAX_PLAN_LENGTH is accepted. */
 export const PLANNER_PLAN_LENGTHS = Object.freeze([3, 5, 7, 14]);
@@ -737,6 +1064,16 @@ export const PLANNER_LIMITS = Object.freeze({
   SUMMARY_MAX: 500,
   BRIEF_MAX: 2000,
 });
+
+/**
+ * At or above this a post is not "similar", it is the same post.
+ *
+ * Repetition below this stays a soft flag, because judging whether two posts on
+ * one service are genuinely different is a call a human can make. At 0.9 there
+ * is nothing to judge, so the item becomes a hard failure rather than review
+ * work handed to somebody as though it were.
+ */
+export const HARD_DUPLICATE_SCORE = 0.9;
 
 /** Similarity thresholds used by contentUniquenessService (0..1). */
 export const DUPLICATION_THRESHOLDS = Object.freeze({

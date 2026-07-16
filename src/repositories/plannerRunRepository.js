@@ -28,11 +28,14 @@ function safeParseJson(value, fallback) {
 
 const RUN_COLUMNS =
   'id, user_id, business_profile_id, name, status, start_date, end_date, timezone, ' +
-  'plan_length, posts_per_day, settings_json, generation_notes, archived_at, created_at, updated_at';
+  'plan_length, posts_per_day, settings_json, resolved_rhythm_json, quality_status, ' +
+  'quality_failures_json, generation_notes, archived_at, created_at, updated_at';
 
 const ITEM_COLUMNS =
   'id, planner_run_id, user_id, post_id, position, scheduled_for, original_timezone, ' +
-  'content_type, goal, platform_targets_json, template_key, aspect_ratio, background_style, ' +
+  'content_type, content_pillar, content_format, audience_problem, topic_angle, cta_strategy, ' +
+  'visual_family, quality_status, quality_failures_json, goal, platform_targets_json, ' +
+  'template_key, aspect_ratio, background_style, ' +
   'generated_headline, generated_subheadline, generated_summary, generated_caption, ' +
   'generated_hashtags_json, platform_captions_json, generated_alt_text, brief, media_asset_id, ' +
   'approval_status, duplication_score, duplication_notes, regeneration_count, ' +
@@ -52,6 +55,9 @@ export function sanitizeRun(row) {
     planLength: Number(row.plan_length),
     postsPerDay: Number(row.posts_per_day ?? 1),
     settings: safeParseJson(row.settings_json, {}),
+    resolvedRhythm: safeParseJson(row.resolved_rhythm_json, null),
+    qualityStatus: row.quality_status ?? null,
+    qualityFailures: safeParseJson(row.quality_failures_json, null),
     generationNotes: row.generation_notes ?? null,
     archivedAt: row.archived_at ?? null,
     createdAt: row.created_at ?? null,
@@ -70,6 +76,14 @@ export function sanitizeItem(row) {
     scheduledFor: row.scheduled_for ?? null,
     originalTimezone: row.original_timezone ?? null,
     contentType: row.content_type,
+    contentPillar: row.content_pillar ?? null,
+    contentFormat: row.content_format ?? null,
+    audienceProblem: row.audience_problem ?? null,
+    topicAngle: row.topic_angle ?? null,
+    ctaStrategy: row.cta_strategy ?? null,
+    visualFamily: row.visual_family ?? null,
+    qualityStatus: row.quality_status ?? null,
+    qualityFailures: safeParseJson(row.quality_failures_json, null),
     goal: row.goal ?? null,
     platformTargets: safeParseJson(row.platform_targets_json, []),
     templateKey: row.template_key ?? null,
@@ -106,8 +120,9 @@ export async function createRun(input, connection) {
   const [result] = await runner(connection).execute(
     `INSERT INTO planner_runs
        (user_id, business_profile_id, name, status, start_date, end_date, timezone,
-        plan_length, posts_per_day, settings_json, generation_notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        plan_length, posts_per_day, settings_json, resolved_rhythm_json, quality_status,
+        quality_failures_json, generation_notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.userId,
       input.businessProfileId ?? null,
@@ -119,6 +134,9 @@ export async function createRun(input, connection) {
       input.planLength ?? 7,
       input.postsPerDay ?? 1,
       JSON.stringify(input.settings ?? {}),
+      input.resolvedRhythm == null ? null : JSON.stringify(input.resolvedRhythm),
+      input.qualityStatus ?? null,
+      input.qualityFailures == null ? null : JSON.stringify(input.qualityFailures),
       input.generationNotes ?? null,
     ],
   );
@@ -152,6 +170,7 @@ export async function updateRun(runId, userId, fields, connection) {
     startDate: 'start_date',
     endDate: 'end_date',
     archivedAt: 'archived_at',
+    qualityStatus: 'quality_status',
   };
   const sets = [];
   const values = [];
@@ -163,6 +182,10 @@ export async function updateRun(runId, userId, fields, connection) {
   if (fields.settings !== undefined) {
     sets.push('`settings_json` = ?');
     values.push(JSON.stringify(fields.settings));
+  }
+  if (fields.qualityFailures !== undefined) {
+    sets.push('`quality_failures_json` = ?');
+    values.push(fields.qualityFailures == null ? null : JSON.stringify(fields.qualityFailures));
   }
   if (sets.length === 0) return findRunByIdForUser(runId, userId, connection);
   values.push(runId, userId);
@@ -188,12 +211,14 @@ export async function createItem(input, connection) {
   const [result] = await runner(connection).execute(
     `INSERT INTO planner_run_items
        (planner_run_id, user_id, position, scheduled_for, original_timezone, content_type,
+        content_pillar, content_format, audience_problem, topic_angle, cta_strategy,
+        visual_family, quality_status, quality_failures_json,
         goal, platform_targets_json, template_key, aspect_ratio, background_style,
         generated_headline, generated_subheadline, generated_summary, generated_caption,
         generated_hashtags_json, platform_captions_json, generated_alt_text, brief,
         media_asset_id, approval_status, duplication_score, duplication_notes,
         regeneration_count, content_fingerprint_json, edited_fields_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.plannerRunId,
       input.userId,
@@ -201,6 +226,14 @@ export async function createItem(input, connection) {
       input.scheduledFor ?? null,
       input.originalTimezone ?? null,
       input.contentType ?? 'educational',
+      input.contentPillar ?? null,
+      input.contentFormat ?? null,
+      input.audienceProblem ?? null,
+      input.topicAngle ?? null,
+      input.ctaStrategy ?? null,
+      input.visualFamily ?? null,
+      input.qualityStatus ?? null,
+      input.qualityFailures == null ? null : JSON.stringify(input.qualityFailures),
       input.goal ?? null,
       JSON.stringify(input.platformTargets ?? []),
       input.templateKey ?? null,
@@ -266,6 +299,8 @@ const ITEM_FIELD_COLUMNS = {
   regenerationCount: 'regeneration_count',
   postId: 'post_id',
   position: 'position',
+  qualityStatus: 'quality_status',
+  visualFamily: 'visual_family',
 };
 
 const ITEM_JSON_COLUMNS = {
@@ -274,6 +309,7 @@ const ITEM_JSON_COLUMNS = {
   platformCaptions: 'platform_captions_json',
   fingerprint: 'content_fingerprint_json',
   editedFields: 'edited_fields_json',
+  qualityFailures: 'quality_failures_json',
 };
 
 export async function updateItem(itemId, userId, fields, connection) {
@@ -319,7 +355,8 @@ export async function listRecentFingerprintsForUser(
 ) {
   const params = [userId];
   let sql =
-    `SELECT id, planner_run_id, content_type, goal, template_key, content_fingerprint_json, created_at
+    `SELECT id, planner_run_id, content_type, content_pillar, goal, template_key,
+            content_fingerprint_json, created_at
        FROM planner_run_items
       WHERE user_id = ?
         AND content_fingerprint_json IS NOT NULL`;

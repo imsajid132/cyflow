@@ -386,6 +386,9 @@ CREATE TABLE IF NOT EXISTS `planner_preferences` (
   `platforms_json`          JSON            NULL DEFAULT NULL,
   `goals_json`              JSON            NULL DEFAULT NULL,
   `content_mix_json`        JSON            NULL DEFAULT NULL,
+  -- Phase 4.8 weekly rhythm: the preset key and any per-weekday custom overrides.
+  `content_rhythm_preset`   VARCHAR(32)     NOT NULL DEFAULT 'balanced',
+  `content_rhythm_json`     JSON            NULL DEFAULT NULL,
   `tone`                    VARCHAR(32)     NOT NULL DEFAULT 'professional',
   `cta_mode`                VARCHAR(32)     NOT NULL DEFAULT 'some',
   `approval_mode`           VARCHAR(32)     NOT NULL DEFAULT 'require_approval',
@@ -421,6 +424,12 @@ CREATE TABLE IF NOT EXISTS `planner_runs` (
   `plan_length`         INT UNSIGNED    NOT NULL DEFAULT 7,
   `posts_per_day`       TINYINT UNSIGNED NOT NULL DEFAULT 1,
   `settings_json`       JSON            NULL DEFAULT NULL,
+  -- Phase 4.8: the frozen weekly-rhythm snapshot + run-level quality roll-up.
+  -- resolved_rhythm_json is written once at generation and never recomputed, so
+  -- a later change to the user's saved rhythm cannot mutate an existing plan.
+  `resolved_rhythm_json`  JSON          NULL DEFAULT NULL,
+  `quality_status`      VARCHAR(32)     NULL DEFAULT NULL,
+  `quality_failures_json` JSON          NULL DEFAULT NULL,
   `generation_notes`    VARCHAR(2000)   NULL DEFAULT NULL,
   -- Set when a plan is archived rather than destroyed: it produced published
   -- history, which must never disappear as though it never happened.
@@ -451,6 +460,15 @@ CREATE TABLE IF NOT EXISTS `planner_run_items` (
   `scheduled_for`            DATETIME        NULL DEFAULT NULL,
   `original_timezone`        VARCHAR(64)     NULL DEFAULT NULL,
   `content_type`             VARCHAR(32)     NOT NULL DEFAULT 'educational',
+  -- Phase 4.8: pillar/format/family metadata + per-post structured quality.
+  `content_pillar`           VARCHAR(48)     NULL DEFAULT NULL,
+  `content_format`           VARCHAR(48)     NULL DEFAULT NULL,
+  `audience_problem`         VARCHAR(255)    NULL DEFAULT NULL,
+  `topic_angle`              VARCHAR(255)    NULL DEFAULT NULL,
+  `cta_strategy`             VARCHAR(32)     NULL DEFAULT NULL,
+  `visual_family`            VARCHAR(48)     NULL DEFAULT NULL,
+  `quality_status`           VARCHAR(32)     NULL DEFAULT NULL,
+  `quality_failures_json`    JSON            NULL DEFAULT NULL,
   `goal`                     VARCHAR(32)     NULL DEFAULT NULL,
   `platform_targets_json`    JSON            NULL DEFAULT NULL,
   `template_key`             VARCHAR(128)    NULL DEFAULT NULL,
@@ -467,7 +485,7 @@ CREATE TABLE IF NOT EXISTS `planner_run_items` (
   `generated_alt_text`       VARCHAR(500)    NULL DEFAULT NULL,
   `brief`                    VARCHAR(2000)   NULL DEFAULT NULL,
   `media_asset_id`           BIGINT UNSIGNED NULL DEFAULT NULL,
-  `approval_status`          ENUM('draft','needs_review','approved','queued','rejected')
+  `approval_status`          ENUM('draft','needs_review','approved','queued','rejected','generation_failed')
                                              NOT NULL DEFAULT 'needs_review',
   `duplication_score`        DECIMAL(4,3)    NOT NULL DEFAULT 0.000,
   `duplication_notes`        VARCHAR(500)    NULL DEFAULT NULL,

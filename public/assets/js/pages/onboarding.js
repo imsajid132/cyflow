@@ -84,7 +84,7 @@ function renderBusiness(root, ctx) {
     steps(1, 3, ['Business', 'Brand', 'Connections']),
     el('div', {}, [
       el('h1', { text: 'Set up your business' }),
-      el('p', { className: 'sub', text: 'This personalises your captions and branded images. It takes about a minute.' }),
+      el('p', { className: 'sub', text: 'This personalises your post copy and branded images. It takes about a minute.' }),
     ]),
     errorHost,
     el('div', { className: 'grid grid-2' }, [websiteCard, manualCard]),

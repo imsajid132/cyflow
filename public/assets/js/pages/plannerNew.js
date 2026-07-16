@@ -52,9 +52,10 @@ function today() {
 }
 
 export async function render(root, ctx) {
-  const [prefs, accountsRes] = await Promise.all([
+  const [prefs, accountsRes, rhythm] = await Promise.all([
     api.plannerPreferences(),
     api.apiRequest('/api/social-accounts'),
+    api.plannerRhythm(),
   ]);
   if (accountsRes.unauthorized) { ctx.navigate('/login'); return; }
   const accounts = (api.payload(accountsRes)?.accounts || []).filter((a) => a.status === 'active');
@@ -109,6 +110,52 @@ export async function render(root, ctx) {
     forDate: today(),
     hint: 'Your posting times are local to this zone.',
   });
+
+  /*
+   * --- Weekly content rhythm ------------------------------------------------
+   *
+   * The strategy preview. The planner decides what each post is FOR from the
+   * real calendar weekday, and showing that before generating is the difference
+   * between a plan with reasoning and a plan that merely appears to have some.
+   * Everything here comes from the server's resolved rhythm; nothing is guessed
+   * client-side, so the preview cannot drift from what generation will do.
+   */
+  const rhythmHost = el('div', { className: 'rhythm-week', attrs: { id: 'rhythm-week', 'aria-live': 'polite' } });
+  const rhythmSelect = selectField({
+    id: 'contentRhythmPreset',
+    label: 'Weekly rhythm',
+    options: (rhythm?.presets || []).map((p) => ({ label: p.label, value: p.key })),
+    value: rhythm?.preset || 'balanced',
+    hint: 'Each weekday carries a strategy. Posts follow the real calendar day.',
+  });
+
+  function paintRhythm(data) {
+    rhythmHost.textContent = '';
+    if (!data?.weekdays?.length) {
+      rhythmHost.appendChild(el('p', { className: 'hint', text: 'The weekly rhythm could not be loaded.' }));
+      return;
+    }
+    for (const day of data.weekdays) {
+      rhythmHost.appendChild(el('div', {
+        className: `rhythm-day${day.enabled ? '' : ' is-off'}`,
+      }, [
+        el('span', { className: 'rhythm-day-name', text: day.label }),
+        el('span', { className: 'rhythm-day-pillar', text: day.enabled ? day.pillarLabel : 'No posts' }),
+      ]));
+    }
+  }
+  paintRhythm(rhythm);
+
+  rhythmSelect.querySelector('#contentRhythmPreset')?.addEventListener('change', async (e) => {
+    const next = await api.plannerRhythm({ preset: e.target.value });
+    paintRhythm(next);
+  });
+
+  const rhythmCard = card([
+    el('div', { className: 'card-head' }, [el('span', { className: 'card-title', text: '2. Weekly rhythm' })]),
+    rhythmSelect,
+    rhythmHost,
+  ]);
 
   const scheduleCard = card([
     el('div', { className: 'card-head' }, [el('span', { className: 'card-title', text: '1. When' })]),
@@ -184,6 +231,8 @@ export async function render(root, ctx) {
         .filter((i) => i.checked).map((i) => i.getAttribute('data-platform')),
       timezone: tzPicker.getValue(),
       approvalMode: val('approvalMode'),
+      // The rhythm the user chose HERE wins over their saved default.
+      contentRhythmPreset: val('contentRhythmPreset') || null,
     };
   }
 
@@ -286,6 +335,7 @@ export async function render(root, ctx) {
 
   page.append(
     scheduleCard,
+    rhythmCard,
     platformCard,
     approvalCard,
     card([
@@ -294,7 +344,7 @@ export async function render(root, ctx) {
       el('div', { className: 'row', attrs: { style: 'gap:.5rem;margin-top:.7rem' } }, [generateBtn]),
       statusHost,
     ]),
-    notice('Generating a plan uses your daily generation allowance: one caption and one image per post. Nothing is published.', 'info'),
+    notice('Generating a plan uses your daily generation allowance: one post and one image per day. Nothing is published.', 'info'),
   );
 
   root.appendChild(page);

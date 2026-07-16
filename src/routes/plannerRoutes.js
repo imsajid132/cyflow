@@ -52,6 +52,9 @@ export function createPlannerRoutes({ plannerController, requireAuth }) {
 
   // --- preferences ---------------------------------------------------------
   router.get('/preferences', requireAuth, plannerController.getPreferences);
+  // Read-only preview of the weekly rhythm. No CSRF or write limiter: it
+  // changes nothing, and the wizard calls it as the preset selector moves.
+  router.get('/rhythm', requireAuth, plannerController.describeRhythm);
   router.put(
     '/preferences',
     requireAuth,

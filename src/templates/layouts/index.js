@@ -25,6 +25,9 @@ import * as comparisonCards from './comparisonCards.js';
 import * as statHighlight from './statHighlight.js';
 import * as serviceAuthority from './serviceAuthority.js';
 import * as localInsight from './localInsight.js';
+// Phase 4.8: two structurally distinct additions.
+import * as numberedSteps from './numberedSteps.js';
+import * as faqEditorial from './faqEditorial.js';
 
 const MODULES = [
   // --- planner design families (Phase 4.7.1) ---
@@ -35,6 +38,8 @@ const MODULES = [
   statHighlight,
   serviceAuthority,
   localInsight,
+  numberedSteps,
+  faqEditorial,
   // --- earlier layouts, still selectable and still rendering old drafts ---
   editorialPremium,
   boldServicePromo,

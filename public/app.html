@@ -5,7 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="Cyflow Social — generate, schedule, and publish social content for Facebook Pages, Instagram Professional, and Threads." />
   <title>Cyflow Social</title>
-  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+  <!-- Browsers request /favicon.ico regardless of what a page declares, so it
+       exists at the root rather than 404ing on every page load. -->
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/assets/brand/cyflow-mark-192.png" />
+  <link rel="apple-touch-icon" href="/assets/brand/apple-touch-icon.png" />
   <link rel="stylesheet" href="/assets/css/design-system.css" />
 </head>
 <body>
@@ -17,7 +22,7 @@
       <span class="hamburger" aria-hidden="true"></span>
     </button>
     <a class="brand" href="/dashboard" data-link>
-      <img src="/assets/favicon.svg" alt="" width="24" height="24" />
+      <img src="/assets/brand/cyflow-mark-64.png" alt="" width="24" height="24" />
       <span>Cyflow&nbsp;Social</span>
     </a>
   </header>
@@ -27,7 +32,7 @@
     <nav class="sidebar" id="sidebar" aria-label="Main navigation">
       <div class="sidebar-head">
         <a class="brand" href="/dashboard" data-link>
-          <img src="/assets/favicon.svg" alt="" width="26" height="26" />
+          <img src="/assets/brand/cyflow-mark-64.png" alt="" width="26" height="26" />
           <span>Cyflow&nbsp;Social</span>
         </a>
         <button class="icon-btn drawer-close" id="nav-close" type="button" aria-label="Close menu">✕</button>
