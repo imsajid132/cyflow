@@ -78,10 +78,20 @@ const PROVIDER_ACCOUNTS = Object.freeze([
 /**
  * Build the app with fakes. Returns the app plus the repositories, so a caller
  * can seed data that belongs to the user it just registered.
+ *
+ * @param {{ repairThreads?: boolean }} [opts] when set, the writer returns a
+ *        valid Threads post and the REAL validator accepts it — so the browser
+ *        retry exercises a genuine repair rather than a stubbed success.
  */
-export function buildReviewApp() {
+export function buildReviewApp(opts = {}) {
+  const openaiContentService = opts.repairThreads
+    ? createFakePlannerOpenAI({
+      validate: true,
+      platformScript: { threads: [REPAIRED_THREADS] },
+    })
+    : createFakePlannerOpenAI();
   const overrides = createFakeOverrides({
-    openaiContentService: createFakePlannerOpenAI(),
+    openaiContentService,
     socialImageService: { ...createFakeSocialImageService(), isReadyForUser: async () => true },
   });
   const app = createApp(overrides);
@@ -143,16 +153,42 @@ export async function seedWorld(overrides, userId) {
   return { mediaAssetRepository, postRepository };
 }
 
+/*
+ * Planner item 31, as a fixture.
+ *
+ * Instagram is perfectly good copy. Threads is 44 words against a floor of 45 —
+ * the exact reported state, one word short. Both are measured by the test that
+ * uses them, so neither can drift.
+ */
+export const FAILED_ITEM_COPY = Object.freeze({
+  instagram: [
+    'Most people paying for search work cannot say what they got for it last month. That is not a failure of attention on their part. It is what happens when a report is built to look busy rather than to be read.',
+    'Ask which pages were touched and why those ones. Ask what changed on them, in plain words, and what the change was meant to do. A good answer is short and specific: the page for the service you actually sell was thin, so it now says what the job involves and what it costs to look into. A weak answer talks about visibility and momentum.',
+    'None of this needs you to understand technical work. It needs a straight reply. If the reply arrives dressed in vocabulary, you have learned something anyway, and you have learned it before the invoice rather than after it.',
+  ].join('\n\n'),
+  threads: [
+    'Most people paying for SEO could not tell you what they got for it last month. Ask which pages were worked on, and why those ones.',
+    'A vague answer is itself the answer. You do not need the vocabulary to judge a straight reply.',
+  ].join('\n\n'),
+});
+
+/** What the writer returns when the Threads post is repaired: 69 words. */
+export const REPAIRED_THREADS = [
+  'Ask an agency which pages it worked on last month, and why those ones. The answer tells you more than the report will.',
+  'A useful reply sounds like this: the page for the service you actually sell was thin, so it now explains what the job involves. A weak reply talks about visibility.',
+  'You do not need the vocabulary to judge a straight answer. That is the whole test.',
+].join('\n\n');
+
 /**
- * Seed a real plan whose first item is a hard failure, so the retry flow can be
+ * Seed a real plan whose first item is planner item 31, so the retry can be
  * driven in a browser.
  *
  * The plan is generated through the REAL service, then one item is put into the
- * state the user reported. Nothing about the retry path is stubbed: clicking
- * Retry in the browser runs the real regeneration, the real duplicate check and
- * the real per-platform rewrite.
+ * reported state: Instagram valid, Threads one word short, nothing duplicated.
+ * Nothing about the retry path is stubbed — clicking Retry in the browser runs
+ * the real validator, the real repair loop and the real single-flight guard.
  */
-export async function seedFailedPlan(overrides, userId, plannerService) {
+export async function seedFailedPlan(overrides, userId, plannerService, { scenario = 'repair' } = {}) {
   /*
    * Start tomorrow, not on a fixed date. The schedule engine drops slots that
    * are already in the past, so a hardcoded date silently produces an empty
@@ -172,14 +208,42 @@ export async function seedFailedPlan(overrides, userId, plannerService) {
   });
 
   const target = plan.items[0];
+
+  /*
+   * Two different failures, because they take two different routes through the
+   * planner and each has its own browser test.
+   *
+   * 'repair'    — planner item 31. Threads one word short, Instagram fine,
+   *               nothing duplicated. The retry rewrites Threads ONLY, so the
+   *               card's copy (which is Instagram's) does not change.
+   * 'duplicate' — the Phase 4.8 failure. The post repeats another post, so the
+   *               angle itself must change and every platform follows. This is
+   *               the only scenario where the visible copy changes, which is
+   *               what the drawer-staleness test needs in order to mean
+   *               anything.
+   */
+  const duplicate = scenario === 'duplicate';
   await overrides.plannerRunRepository.updateItem(target.id, userId, {
+    ...(duplicate ? {} : {
+      caption: FAILED_ITEM_COPY.instagram,
+      platformCaptions: {
+        instagram: { caption: FAILED_ITEM_COPY.instagram, hashtags: ['#seo'] },
+        threads: { caption: FAILED_ITEM_COPY.threads, hashtags: [] },
+      },
+    }),
     approvalStatus: 'generation_failed',
     qualityStatus: 'generation_failed',
-    qualityFailures: ['post copy is too short for instagram: 41 words, needs at least 120'],
-    duplicationNotes: 'Too similar to a recent post: a similar angle, the same hashtags.',
+    qualityFailures: duplicate
+      ? ['this post is a near-duplicate of another one']
+      : ['Threads has 44 words; the minimum is 45'],
+    duplicationScore: duplicate ? 0.91 : 0.157,
+    duplicationNotes: duplicate
+      ? 'Too similar to a recent post: a similar angle, the same hashtags.'
+      : null,
+    regenerationCount: duplicate ? 0 : 9,
   });
 
-  return { runId: plan.run.id, failedItemId: target.id };
+  return { runId: plan.run.id, failedItemId: target.id, scenario };
 }
 
 /** Register the review user + seed their world. Uses the real password hashing. */
@@ -205,15 +269,20 @@ export async function seedReviewUser(overrides) {
 const isMain = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
   const port = Number(process.argv[2] || 4599);
+  // --with-failed-plan   planner item 31: Threads one word short (tools/repair-smoke.mjs)
+  // --with-duplicate-plan the 4.8 failure: a near-duplicate  (tools/retry-smoke.mjs)
   const withPlan = process.argv.includes('--with-failed-plan');
-  const { app, overrides } = buildReviewApp();
+  const withDuplicate = process.argv.includes('--with-duplicate-plan');
+  const { app, overrides } = buildReviewApp({ repairThreads: withPlan });
   const user = await seedReviewUser(overrides);
 
   let seeded = '';
-  if (withPlan) {
+  if (withPlan || withDuplicate) {
     const { buildPlannerService } = await import('./review-planner.mjs');
-    const info = await seedFailedPlan(overrides, user.id, buildPlannerService(overrides));
-    seeded = ` run=${info.runId} failedItem=${info.failedItemId}`;
+    const info = await seedFailedPlan(overrides, user.id, buildPlannerService(overrides), {
+      scenario: withDuplicate ? 'duplicate' : 'repair',
+    });
+    seeded = ` run=${info.runId} failedItem=${info.failedItemId} scenario=${info.scenario}`;
   }
 
   app.listen(port, '127.0.0.1', () => {

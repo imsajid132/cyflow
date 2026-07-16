@@ -118,46 +118,85 @@ test("threads' band does not overlap facebook's as a range", () => {
   );
 });
 
-test('post copy that is too short for its platform is rejected', () => {
+/*
+ * Every message below is asserted for its NUMBERS, not for a phrase.
+ *
+ * These reasons are shown to users and fed back to the writer on a repair, so
+ * the thing that matters is that each one carries the real count next to the
+ * required one. A generic "too short" would satisfy a /too short/ regex and
+ * tell nobody anything — which is precisely how planner item 31 came to store
+ * "the instagram post could not be written to a valid length or shape" nine
+ * times over.
+ */
+
+test('post copy that is too short for its platform is rejected, with the real count', () => {
   const short = postFor('facebook', ['Forty words is fine for Threads and nowhere near enough for Facebook.', 'So this fails.']);
   const issues = postCopyIssues(short.caption, 'facebook');
-  assert.ok(issues.some((i) => /too short/.test(i)), JSON.stringify(issues));
+  const words = wordCount(short.caption);
+  assert.ok(
+    issues.includes(`Facebook has ${words} words; the minimum is ${POST_COPY_RULES.facebook.MIN_WORDS}`),
+    JSON.stringify(issues),
+  );
 });
 
-test('post copy that is too long for its platform is rejected', () => {
+test('post copy that is too long for its platform is rejected, with the real count', () => {
   // Four 60-word paragraphs = 240 words, over Facebook's 220 ceiling, and each
   // paragraph stays under the wall-of-text limit so it is length that fails.
   const para = 'roof '.repeat(60).trim();
   const long = [para, para, para, para].join('\n\n');
   const issues = postCopyIssues(long, 'facebook');
-  assert.ok(issues.some((i) => /too long/.test(i)), JSON.stringify(issues));
+  assert.ok(
+    issues.includes(`Facebook has 240 words; the maximum is ${POST_COPY_RULES.facebook.MAX_WORDS}`),
+    JSON.stringify(issues),
+  );
 });
 
 test('a single block that meets the word count is still rejected as one paragraph', () => {
   const oneBlock = 'word '.repeat(120).trim();
   const issues = postCopyIssues(oneBlock, 'facebook');
   assert.ok(
-    issues.some((i) => /one block/.test(i)),
+    issues.includes('Facebook has 1 paragraph; it needs 2 to 4'),
     `a 120-word wall of text must not pass: ${JSON.stringify(issues)}`,
   );
 });
 
-test('too many paragraphs is rejected', () => {
+test('too many paragraphs is rejected, and says how many there are', () => {
   const many = Array.from({ length: 6 }, () => 'word '.repeat(20).trim()).join('\n\n');
   const issues = postCopyIssues(many, 'facebook');
-  assert.ok(issues.some((i) => /too many paragraphs/.test(i)), JSON.stringify(issues));
+  assert.ok(issues.includes('Facebook has 6 paragraphs; it needs 2 to 4'), JSON.stringify(issues));
 });
 
 test('one enormous paragraph is rejected even when the paragraph count passes', () => {
   const lopsided = [`${'word '.repeat(PARAGRAPH_MAX_WORDS + 10).trim()}`, 'A short second paragraph here.'].join('\n\n');
   const issues = postCopyIssues(lopsided, 'facebook');
-  assert.ok(issues.some((i) => /needs breaking up/.test(i)), JSON.stringify(issues));
+  assert.ok(
+    issues.includes(
+      `Facebook has a paragraph of ${PARAGRAPH_MAX_WORDS + 10} words; `
+      + `the maximum for one paragraph is ${PARAGRAPH_MAX_WORDS}`,
+    ),
+    JSON.stringify(issues),
+  );
 });
 
 test('hashtags inside the post copy are rejected', () => {
   const withTags = `${PLAN[0].facebook}\n\nFollow along #seo #localseo`;
   const issues = postCopyIssues(withTags, 'facebook');
-  assert.ok(issues.some((i) => /hashtags are inside/.test(i)), JSON.stringify(issues));
+  assert.ok(
+    issues.includes('Facebook has hashtags inside the post copy; they belong at the end'),
+    JSON.stringify(issues),
+  );
+});
+
+test('a singular count reads as a sentence, not as a row in a table', () => {
+  // "1 words" is the tell that a message was assembled rather than written, and
+  // these are read by users now.
+  assert.ok(postCopyIssues('word', 'threads').includes('Threads has 1 word; the minimum is 45'));
+  assert.ok(postCopyIssues('word '.repeat(120).trim(), 'facebook')
+    .includes('Facebook has 1 paragraph; it needs 2 to 4'));
+});
+
+test('empty post copy names the platform rather than saying "empty post copy"', () => {
+  assert.deepEqual(postCopyIssues('', 'instagram'), ['Instagram has no post copy']);
 });
 
 test('an unknown platform gets no invented length verdict', () => {
@@ -171,7 +210,10 @@ test('applyStyleGuard rejects a thin post when it knows the platform', () => {
     { caption: 'We build websites. Call us today for a quote.', headline: 'We build websites for you' },
     { platform: 'facebook' },
   );
-  assert.ok(guarded.rejections.some((r) => /too short/.test(r)), JSON.stringify(guarded.rejections));
+  assert.ok(
+    guarded.rejections.includes(`Facebook has 9 words; the minimum is ${POST_COPY_RULES.facebook.MIN_WORDS}`),
+    JSON.stringify(guarded.rejections),
+  );
 });
 
 test('applyStyleGuard without a platform falls back to the old floor and never throws', () => {

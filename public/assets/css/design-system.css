@@ -675,6 +675,35 @@ legend { padding: 0; }
 }
 .planner-card-actions { display: flex; gap: .35rem; flex-wrap: wrap; }
 
+/*
+ * Why a post failed.
+ *
+ * The sentence is always visible; the measurements are one click away. A failed
+ * post used to say nothing at all here, so the only way to find out why was to
+ * read quality_failures_json in the database.
+ */
+.planner-failure {
+  display: flex; flex-direction: column; gap: .3rem;
+  padding: .45rem .55rem; border-radius: var(--radius-sm);
+  background: var(--err-bg); color: var(--err-fg); border: 1px solid var(--err-bd);
+}
+.planner-failure-summary { font-size: .74rem; font-weight: 600; margin: 0; }
+.planner-failure-detail > summary {
+  font-size: .7rem; cursor: pointer; list-style: revert;
+  /* The row is small; give the pointer something honest to land on. */
+  padding: .1rem 0;
+}
+.planner-failure-detail > summary:focus-visible {
+  outline: 2px solid currentColor; outline-offset: 2px; border-radius: 2px;
+}
+.planner-failure-list {
+  margin: .3rem 0 0; padding-left: 1.1rem;
+  font-size: .7rem; line-height: 1.45;
+  /* Validator output, verbatim: never re-wrapped into a paragraph, because each
+     line is one specific measurement the user may need to act on. */
+  display: flex; flex-direction: column; gap: .15rem;
+}
+
 /* --- timezone combobox ---------------------------------------------------- */
 .tz-field { position: relative; }
 .tz-list {

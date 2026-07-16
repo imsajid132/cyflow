@@ -24,6 +24,7 @@ import {
   PLANNER_ITEM_STATUS,
   PLANNER_QUALITY_STATUS,
   HARD_DUPLICATE_SCORE,
+  DUPLICATION_THRESHOLDS,
   PLANNER_LIMITS,
   PLANNER_APPROVAL_MODES,
   PLANNER_CADENCES,
@@ -39,6 +40,7 @@ import {
   RHYTHM_PRESET_LABELS,
   PLANNER_WEEKDAY_LABELS,
   PLATFORM_VALUES,
+  PLATFORM_LABELS,
   ACCOUNT_TYPE_TO_PLATFORM,
   SOCIAL_ACCOUNT_STATUS,
   POST_STATUS,
@@ -59,6 +61,12 @@ import { ValidationError, NotFoundError, ConflictError, RateLimitError } from '.
 import { toMysqlUtc, addSecondsUtc } from '../utils/time.js';
 import { isSupportedTimezone } from './timezoneService.js';
 import { normalizeTemplate } from '../templates/socialImageTemplates.js';
+import {
+  postCopyIssues,
+  measurePostCopy,
+  targetBandFor,
+  repairGuidance,
+} from './contentStyleGuard.js';
 
 import * as defaultPlannerPrefs from '../repositories/plannerPreferenceRepository.js';
 import * as defaultPlannerRuns from '../repositories/plannerRunRepository.js';
@@ -619,6 +627,7 @@ export function createPlannerService({
     let evaluation = null;
     let content = null;
     let styleRejections = [];
+    let repairNotes = [];
 
     for (let attempt = 0; attempt <= PLANNER_LIMITS.MAX_REGENERATION_ATTEMPTS; attempt += 1) {
       let candidate;
@@ -626,25 +635,19 @@ export function createPlannerService({
         // eslint-disable-next-line no-await-in-loop
         candidate = await openaiContentService.generatePlannerPost(
           {
+            ...postRequestFrom({ brief, profile }),
             platform: primaryPlatform,
-            format: brief.format,
-            contentType: brief.contentType,
-            goal: brief.goal,
-            tone: brief.tone,
-            brief: brief.brief,
-            brandName: profile?.businessName ?? null,
-            businessCategory: profile?.businessCategory ?? null,
-            businessDescription: profile?.businessDescription ?? null,
-            serviceEmphasis: brief.serviceEmphasis,
-            audienceProblem: brief.audienceProblem,
-            location: brief.location,
-            website: displayWebsite(profile?.websiteUrl),
-            language: profile?.defaultLanguage ?? null,
-            callToAction: brief.callToAction,
             avoidPhrases,
             avoidOpenings,
-            // Tell the next attempt what was actually wrong with the last one.
+            // Tell the next attempt what was actually wrong with the last one,
+            // and by how much: the verdict alone produces another near-miss.
             styleIssues: styleRejections,
+            repairNotes,
+            targetBand: targetBandFor(
+              primaryPlatform,
+              attempt,
+              content ? measurePostCopy(content.caption, primaryPlatform) : null,
+            ),
           },
           { userId },
         );
@@ -657,6 +660,9 @@ export function createPlannerService({
 
       attempts.push(candidate);
       styleRejections = candidate._style?.rejections ?? [];
+      repairNotes = styleRejections.length
+        ? repairGuidance(candidate.caption, primaryPlatform, attempt + 1)
+        : [];
       evaluation = uniqueness.evaluate(
         {
           caption: candidate.caption,
@@ -846,6 +852,123 @@ export function createPlannerService({
    *          hard: two platforms ended up with the same post, which is the exact
    *          defect per-platform generation exists to prevent.
    */
+  /**
+   * Write ONE platform's post copy, repairing it against the validator.
+   *
+   * Bounded at PLANNER_LIMITS.MAX_COPY_ATTEMPTS, and each attempt is genuinely
+   * different from the one before it:
+   *
+   *   1. aim at the platform's safe target band
+   *   2. same band, plus the exact counts the last attempt missed by
+   *   3. a narrower band pushed away from the edge that was actually missed
+   *
+   * Then it stops. A fourth attempt at a prompt that has failed three times is
+   * not a strategy, it is spend — and the user's Retry button is still there,
+   * each click buying a fresh bounded run of three.
+   *
+   * Nothing here ever edits the returned copy to satisfy a count. A post that
+   * is one word short is sent back to the writer with "add a real detail, do
+   * not pad", because appending "Get in touch today!" would pass the check and
+   * make the post worse.
+   *
+   * @returns {{ content, issues: string[], calls: number }} `issues` is the
+   *          FINAL verdict: empty means this platform is good.
+   */
+  async function writePlatformPost({
+    userId, platform, request, siblingCopy = null, siblingPlatform = null,
+    priorIssues = [], priorNotes = [],
+  }) {
+    let content = null;
+    let issues = [];
+    let tooSimilar = false;
+    /*
+     * The FIRST attempt of a retry already knows the numbers.
+     *
+     * The copy that failed is sitting in the database, so its counts can be
+     * measured before a single call is made. Starting a retry with an empty
+     * verdict would throw that away and make attempt 1 an unguided re-roll —
+     * which is what nine of item 31's regenerations were.
+     *
+     * A fresh generation passes neither, because there is nothing to repair yet.
+     */
+    let repairNotes = priorNotes;
+    let styleIssues = priorIssues.slice(0, 6);
+    let calls = 0;
+
+    for (let attempt = 0; attempt < PLANNER_LIMITS.MAX_COPY_ATTEMPTS; attempt += 1) {
+      const targetBand = targetBandFor(platform, attempt, content ? measurePostCopy(content.caption, platform) : null);
+      let candidate;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        candidate = await openaiContentService.generatePlannerPost(
+          { ...request, platform, siblingCopy, styleIssues, repairNotes, targetBand },
+          { userId },
+        );
+      } catch {
+        // A call that threw told us nothing, so it cannot inform the next
+        // attempt. It still counts against the budget: an unavailable model
+        // must not become an unbounded loop.
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      calls += 1;
+      content = candidate;
+      issues = candidate._style?.rejections ?? [];
+
+      tooSimilar = siblingCopy
+        ? uniqueness.platformCopyTooSimilar(siblingCopy, candidate.caption)
+        : false;
+      if (issues.length === 0 && !tooSimilar) break;
+
+      // Tell the next attempt exactly what this one measured, and what to fix.
+      styleIssues = issues.slice(0, 6);
+      repairNotes = repairGuidance(candidate.caption, platform, attempt + 1);
+      if (tooSimilar) {
+        repairNotes = [
+          ...repairNotes,
+          'your last attempt was too close to the post already written for another platform: '
+          + 'change the opening sentence and the structure, not just the wording',
+        ];
+      }
+    }
+
+    /*
+     * The verdict covers BOTH ways this copy can be unusable.
+     *
+     * `issues` carried only the style rejections, so copy that survived three
+     * attempts still reading as a paste of its sibling came back with an empty
+     * verdict and would have been stored as a pass. The one caller that noticed
+     * was checking for it separately; the repair path was not. Deciding it here,
+     * once, is what stops the next caller inheriting that gap.
+     */
+    const verdict = [...issues];
+    if (content && tooSimilar) {
+      const other = siblingPlatform ? (PLATFORM_LABELS[siblingPlatform] ?? siblingPlatform) : 'another platform';
+      verdict.push(`${PLATFORM_LABELS[platform] ?? platform} repeats the post written for ${other}`);
+    }
+    return { content, issues: verdict, calls };
+  }
+
+  /** The request fields a platform post is written from, shared by every path. */
+  function postRequestFrom({ brief, profile }) {
+    return {
+      format: brief.format,
+      contentType: brief.contentType,
+      goal: brief.goal,
+      tone: brief.tone,
+      brief: brief.brief,
+      brandName: profile?.businessName ?? null,
+      businessCategory: profile?.businessCategory ?? null,
+      businessDescription: profile?.businessDescription ?? null,
+      serviceEmphasis: brief.serviceEmphasis,
+      audienceProblem: brief.audienceProblem,
+      location: brief.location,
+      website: displayWebsite(profile?.websiteUrl),
+      language: profile?.defaultLanguage ?? null,
+      callToAction: brief.callToAction,
+    };
+  }
+
   async function generatePlatformCopy({ userId, brief, profile, primaryPlatform, primary }) {
     const platformCaptions = {
       [primaryPlatform]: { caption: primary.caption, hashtags: primary.hashtags },
@@ -860,40 +983,14 @@ export function createPlannerService({
     }
 
     for (const platform of others) {
-      let variant = null;
-      for (let attempt = 0; attempt <= PLANNER_LIMITS.MAX_REGENERATION_ATTEMPTS; attempt += 1) {
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          const candidate = await openaiContentService.generatePlannerPost(
-            {
-              platform,
-              format: brief.format,
-              contentType: brief.contentType,
-              goal: brief.goal,
-              tone: brief.tone,
-              brief: brief.brief,
-              brandName: profile?.businessName ?? null,
-              businessCategory: profile?.businessCategory ?? null,
-              businessDescription: profile?.businessDescription ?? null,
-              serviceEmphasis: brief.serviceEmphasis,
-              audienceProblem: brief.audienceProblem,
-              location: brief.location,
-              website: displayWebsite(profile?.websiteUrl),
-              language: profile?.defaultLanguage ?? null,
-              callToAction: brief.callToAction,
-              siblingCopy: primary.caption,
-              styleIssues: variant?._style?.rejections ?? [],
-            },
-            { userId },
-          );
-          variant = candidate;
-          const tooSimilar = uniqueness.platformCopyTooSimilar(primary.caption, candidate.caption);
-          if ((candidate._style?.rejections ?? []).length === 0 && !tooSimilar) break;
-        } catch {
-          // eslint-disable-next-line no-continue
-          continue;
-        }
-      }
+      // eslint-disable-next-line no-await-in-loop
+      const { content: variant, issues } = await writePlatformPost({
+        userId,
+        platform,
+        request: postRequestFrom({ brief, profile }),
+        siblingCopy: primary.caption,
+        siblingPlatform: primaryPlatform,
+      });
 
       if (!variant?.caption) {
         // Falling back to the primary copy keeps the plan usable, but it IS the
@@ -906,21 +1003,43 @@ export function createPlannerService({
       }
 
       platformCaptions[platform] = { caption: variant.caption, hashtags: variant.hashtags };
-      const rejections = variant._style?.rejections ?? [];
-      if (rejections.length) {
-        // The variant survived its own retries and is still invalid: hard.
-        identical.push(`the ${platform} post could not be written to a valid length or shape`);
-      }
-      if (uniqueness.platformCopyTooSimilar(primary.caption, variant.caption)) {
-        identical.push(`the ${platform} post is the same post as the ${primaryPlatform} one`);
-      }
+      /*
+       * The variant survived its attempts and is still invalid.
+       *
+       * The exact reasons are reported, not summarised. This line used to push
+       * `the ${platform} post could not be written to a valid length or shape`
+       * and throw `issues` away — while `issues` held "Threads has 44 words;
+       * the minimum is 45". The number the user needed was one stack frame from
+       * being stored, and instead they got a sentence that told them nothing and
+       * sent them to phpMyAdmin.
+       */
+      for (const reason of issues) identical.push(reason);
     }
 
     return {
       platformCaptions,
       platformNotes: notes.slice(0, 4),
-      platformIdenticalNotes: identical.slice(0, 4),
+      platformIdenticalNotes: identical.slice(0, 6),
     };
+  }
+
+  /**
+   * Which of this item's platforms currently hold copy the validator rejects.
+   *
+   * Read from the SAME canonical resolver the queue publishes from, so a repair
+   * cannot disagree with what would actually go out.
+   *
+   * @returns {Map<string, string[]>} platform -> exact reasons. Absent means it
+   *          is fine, and a platform that is fine is never rewritten.
+   */
+  function failingPlatforms(item) {
+    const stored = platformCaptionsFor(item);
+    const failing = new Map();
+    for (const platform of item.platformTargets) {
+      const issues = postCopyIssues(stored[platform]?.caption ?? '', platform);
+      if (issues.length) failing.set(platform, issues);
+    }
+    return failing;
   }
 
   /**
@@ -1160,6 +1279,173 @@ export function createPlannerService({
     return decorateItem(userId, updated);
   }
 
+  /*
+   * Regenerations currently running, keyed by user + item + target.
+   *
+   * A user whose post says "Generation failed" clicks Retry, sees nothing
+   * happen for several seconds, and clicks it again. Each click was a full
+   * generation: real OpenAI spend, and a race between two writes to the same
+   * row where the loser's copy silently won or lost depending on ordering.
+   *
+   * The second click is now REFUSED rather than queued, because joining it to
+   * the first would return the first's answer to a user who asked for a fresh
+   * one, and running it after would charge them twice for the same request.
+   *
+   * Honest about what this is: an in-process guard, not a distributed lock. It
+   * holds for this application (a single Node process) and it closes the
+   * reported defect. Two processes would need the lock in the database, and
+   * this map would not be the place to pretend otherwise.
+   */
+  const inFlightRegenerations = new Map();
+
+  /**
+   * Rewrite only the platforms whose copy the validator rejects.
+   *
+   * Everything not named here is untouched by construction rather than by
+   * promise: this function writes `caption`, `hashtags` and the failing
+   * platforms' entries in `platformCaptions`, and nothing else. The image, the
+   * headline, the subheadline, the schedule, the timezone, the platform
+   * selection and the template are never in the update at all, so no future
+   * edit to it can quietly start clobbering them.
+   *
+   * `caption` moves only when the PRIMARY platform is one of the failures,
+   * because `caption` IS the primary platform's copy — the canonical field the
+   * board edits and the resolver falls back to.
+   */
+  async function repairFailingPlatforms({
+    userId, item, profile, failing, avoidPhrases, avoidOpenings, force = false, edited = new Set(), req,
+  }) {
+    const primaryPlatform = item.platformTargets[0];
+    const stored = platformCaptionsFor(item);
+    const request = {
+      ...postRequestFrom({
+        brief: {
+          format: item.contentFormat ?? item.contentType,
+          contentType: item.contentType,
+          goal: item.goal,
+          tone: 'professional',
+          brief: item.brief,
+          serviceEmphasis: null,
+          audienceProblem: item.audienceProblem ?? null,
+          location: null,
+          callToAction: profile?.defaultCallToAction ?? null,
+        },
+        profile,
+      }),
+      avoidPhrases,
+      // Openings already used elsewhere in this plan, plus this item's own
+      // previous opening: a repair must not simply reword what was rejected.
+      avoidOpenings,
+    };
+
+    const platformCaptions = { ...(item.platformCaptions ?? {}) };
+    // Every platform that is NOT being repaired keeps its exact stored copy,
+    // written down explicitly so a passing sibling cannot be lost to a gap in
+    // the map when the column was NULL.
+    for (const platform of item.platformTargets) {
+      if (!failing.has(platform)) platformCaptions[platform] = stored[platform];
+    }
+
+    const remaining = [];
+    let primary = null;
+
+    for (const [platform, priorIssues] of failing) {
+      // A repair is written against a platform that is STAYING, so it cannot
+      // drift into being a copy of the post it will sit beside.
+      const sibling = item.platformTargets.find((p) => p !== platform && !failing.has(p));
+      // eslint-disable-next-line no-await-in-loop
+      const { content, issues } = await writePlatformPost({
+        userId,
+        platform,
+        request,
+        siblingCopy: sibling ? stored[sibling]?.caption ?? null : null,
+        siblingPlatform: sibling ?? null,
+        priorIssues,
+        // Measured from the copy that is actually stored, so the first attempt
+        // is told "you wrote 44 words, the floor is 45, aim for 55 to 85" rather
+        // than being asked to guess what "too short" meant.
+        priorNotes: repairGuidance(stored[platform]?.caption ?? '', platform, 0),
+      });
+
+      if (!content?.caption) {
+        // Nothing usable came back. Keep what is already there and say so:
+        // replacing real copy with nothing would be worse than a failed status.
+        remaining.push(...priorIssues);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+
+      platformCaptions[platform] = { caption: content.caption, hashtags: content.hashtags };
+      if (platform === primaryPlatform) primary = content;
+      remaining.push(...issues);
+    }
+
+    const stillFailing = remaining.length > 0;
+    const fields = {
+      platformCaptions,
+      regenerationCount: item.regenerationCount + 1,
+      qualityStatus: stillFailing
+        ? PLANNER_QUALITY_STATUS.GENERATION_FAILED
+        : PLANNER_QUALITY_STATUS.NEEDS_REVIEW,
+      // Cleared on success. A stale reason under a passing post is a lie the
+      // user has no way to disprove.
+      qualityFailures: stillFailing ? remaining.slice(0, 8) : null,
+      approvalStatus: stillFailing
+        ? PLANNER_ITEM_STATUS.GENERATION_FAILED
+        : PLANNER_ITEM_STATUS.NEEDS_REVIEW,
+    };
+
+    /*
+     * The canonical caption and the fingerprint move ONLY with the primary.
+     *
+     * A fingerprint describes the primary platform's copy. Refreshing it after
+     * repairing a sibling would describe text that platform never held, and
+     * poison the next duplicate comparison with it.
+     */
+    if (primary) {
+      fields.caption = primary.caption;
+      fields.hashtags = primary.hashtags;
+      /*
+       * A forced repair that actually rewrote the canonical caption clears its
+       * edit flag, because the user's text is genuinely gone — that is what
+       * they confirmed. Only `caption`, and only when the primary was rewritten:
+       * a repair of a sibling leaves the human's caption untouched, so claiming
+       * to have discarded it would be a lie, and the headline is never rewritten
+       * here at all.
+       */
+      if (force && edited.has('caption')) {
+        const remainingEdits = new Set(edited);
+        remainingEdits.delete('caption');
+        fields.editedFields = [...remainingEdits];
+      }
+      fields.fingerprint = {
+        ...uniqueness.fingerprint({
+          caption: primary.caption,
+          headline: item.headline,
+          hashtags: primary.hashtags,
+          cta: profile?.defaultCallToAction ?? null,
+          contentType: item.contentType,
+          format: item.contentFormat ?? item.contentType,
+          pillar: item.contentPillar ?? null,
+          goal: item.goal,
+          serviceEmphasis: item.fingerprint?.serviceEmphasis ?? null,
+          audienceProblem: item.audienceProblem ?? null,
+          templateKey: item.templateKey,
+        }),
+        visualExtras: item.fingerprint?.visualExtras ?? null,
+      };
+    }
+
+    const updated = await runsRepo.updateItem(item.id, userId, fields);
+    await logging.record(EVENT_TYPES.PLANNER_ITEM_REGENERATED, {
+      req,
+      userId,
+      message: 'Planned post copy repaired',
+      context: { itemId: item.id, platforms: [...failing.keys()], resolved: !stillFailing },
+    });
+    return decorateItem(userId, updated);
+  }
+
   /**
    * Regenerate ONE field without losing the rest.
    *
@@ -1168,7 +1454,18 @@ export function createPlannerService({
    *
    * @param {'caption'|'image'} target
    */
-  async function regenerateItem(userId, itemId, target, { force = false, req } = {}) {
+  async function regenerateItem(userId, itemId, target, opts = {}) {
+    const key = `${userId}:${itemId}:${target}`;
+    if (inFlightRegenerations.has(key)) {
+      throw new ConflictError('This post is already being regenerated. Wait for it to finish.');
+    }
+    const run = runRegeneration(userId, itemId, target, opts)
+      .finally(() => inFlightRegenerations.delete(key));
+    inFlightRegenerations.set(key, run);
+    return run;
+  }
+
+  async function runRegeneration(userId, itemId, target, { force = false, req } = {}) {
     const item = await requireItem(userId, itemId);
     if (item.approvalStatus === PLANNER_ITEM_STATUS.QUEUED) {
       throw new ConflictError('This post is already queued. Edit it from the queue instead.');
@@ -1186,6 +1483,12 @@ export function createPlannerService({
       const siblings = await runsRepo.listItemsForRun(item.plannerRunId, userId);
       const others = siblings.filter((s) => s.id !== item.id);
       const avoidPhrases = others.map((s) => s.headline).filter(Boolean);
+      // Openings already used elsewhere in this plan, plus this item's own
+      // previous opening: a retry must not simply reword what failed.
+      const avoidOpenings = [
+        ...others.map((s) => s.fingerprint?.openingText).filter(Boolean),
+        item.fingerprint?.openingText,
+      ].filter(Boolean);
 
       /*
        * Tell the retry exactly why the last attempt failed, and what not to
@@ -1198,6 +1501,40 @@ export function createPlannerService({
         ...(item.duplicationNotes ? [item.duplicationNotes] : []),
       ];
       const primaryPlatform = item.platformTargets[0];
+
+      /*
+       * Repair what is broken, and nothing else — but only when something IS
+       * broken.
+       *
+       * Two different user intents arrive here. "Regenerate post copy" in the
+       * drawer means "write me a fresh post", and it must keep refreshing the
+       * headline and the rest. "Retry generation" on a failed card means "this
+       * did not work, fix it", and the minimal correct answer is to rewrite the
+       * copy that failed and leave everything else exactly as it is — including
+       * the headline, because the headline is what the EXISTING image renders,
+       * and changing one without the other would make the picture disagree with
+       * the post.
+       *
+       * The item's status already separates them: Retry only exists on a
+       * hard-failed card. So a repair is scoped to hard-failed items, and only
+       * when the damage is genuinely platform-local.
+       *
+       * A duplicate is excluded because it is an ITEM problem, not a platform
+       * one: the post repeats another post, so the angle itself has to change
+       * and every platform follows the new one. Narrowing that to a single
+       * platform would leave the repetition exactly where it was.
+       */
+      const isRetryOfFailure = item.qualityStatus === PLANNER_QUALITY_STATUS.GENERATION_FAILED
+        || item.approvalStatus === PLANNER_ITEM_STATUS.GENERATION_FAILED;
+      const duplicateProblem = Boolean(item.duplicationNotes)
+        || (item.duplicationScore ?? 0) >= DUPLICATION_THRESHOLDS.REGENERATE;
+      const failing = isRetryOfFailure && !duplicateProblem ? failingPlatforms(item) : new Map();
+
+      if (failing.size > 0) {
+        return repairFailingPlatforms({
+          userId, item, profile, failing, avoidPhrases, avoidOpenings, force, edited, req,
+        });
+      }
 
       const content = await openaiContentService.generatePlannerPost(
         {
@@ -1218,13 +1555,9 @@ export function createPlannerService({
           callToAction: profile?.defaultCallToAction ?? null,
           hashtagPreference: 'moderate',
           avoidPhrases,
-          // Openings already used elsewhere in this plan, plus this item's own
-          // previous opening: the retry must not simply reword it.
-          avoidOpenings: [
-            ...others.map((s) => s.fingerprint?.openingText).filter(Boolean),
-            item.fingerprint?.openingText,
-          ].filter(Boolean),
+          avoidOpenings,
           styleIssues: priorReasons,
+          targetBand: targetBandFor(primaryPlatform, 0),
         },
         { userId },
       );

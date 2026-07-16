@@ -100,13 +100,29 @@ test('a grammar error rejects the post and names the fix for the retry', () => {
     headline: 'What to ask before you hire',
   }, { platform: 'facebook' });
 
-  const grammar = guarded.rejections.filter((r) => /^grammar:/.test(r));
+  const grammar = guarded.rejections.filter((r) => /grammar error/.test(r));
   assert.equal(grammar.length, 1, `expected a grammar rejection: ${JSON.stringify(guarded.rejections)}`);
   assert.match(grammar[0], /"a agency" should be "an agency"/);
+  // The platform is named, because a failed item can carry reasons from more
+  // than one platform at once and the user has to know which post to look at.
+  assert.match(grammar[0], /^Facebook contains the grammar error/);
 
   // Rejected, never silently rewritten: the text is untouched so a human (and
   // the retry) can see exactly what the writer produced.
   assert.match(guarded.content.caption, /a agency/);
+});
+
+test('a grammar error still reports when the caller did not name a platform', () => {
+  // The guard reports on what it can judge. Without a platform it cannot judge
+  // length, but "a agency" is wrong on any platform.
+  const guarded = applyStyleGuard({
+    caption: 'If a agency can answer these questions, they are worth talking to. '.repeat(12),
+    headline: 'What to ask before you hire',
+  });
+  assert.ok(
+    guarded.rejections.some((r) => /^this post contains the grammar error/.test(r)),
+    JSON.stringify(guarded.rejections),
+  );
 });
 
 test('a headline grammar error is caught too', () => {

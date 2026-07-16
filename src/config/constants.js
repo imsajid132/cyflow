@@ -238,6 +238,20 @@ export const PLATFORMS = Object.freeze({
 });
 export const PLATFORM_VALUES = Object.freeze(Object.values(PLATFORMS));
 
+/**
+ * How a platform is NAMED to a person.
+ *
+ * Validation messages are read by users now, not only by the log: "Threads has
+ * 44 words" is a sentence, "threads has 44 words" is a database row. The
+ * planner board renders these verbatim, so the capital belongs here rather than
+ * in a CSS text-transform that would also shout at the rest of the sentence.
+ */
+export const PLATFORM_LABELS = Object.freeze({
+  facebook: 'Facebook',
+  instagram: 'Instagram',
+  threads: 'Threads',
+});
+
 // Map a connected account_type to its content platform key.
 export const ACCOUNT_TYPE_TO_PLATFORM = Object.freeze({
   facebook_page: PLATFORMS.FACEBOOK,
@@ -820,6 +834,53 @@ export const POST_COPY_RULES = Object.freeze({
 });
 
 /**
+ * What the WRITER is asked to aim at. Never what the validator accepts.
+ *
+ * These two bands were the same number, and that was the defect. The prompt
+ * said "write 45 to 100 words" for Threads because POST_COPY_RULES.threads
+ * said 45, so the model treated 45 as a satisfying answer and landed on 44:
+ * a 2% undershoot on a 45-word target, which is a coin flip. The post was then
+ * rejected for being one word short, the retry was handed the same
+ * boundary-hugging instruction, and it missed again. Planner item 31 reached
+ * regeneration_count 9 that way, with duplication_score 0.157 proving nothing
+ * else was wrong with it.
+ *
+ * Aiming at the middle of the acceptable range means an ordinary miss lands
+ * INSIDE the range instead of outside it. The validator does not move: a post
+ * of 46 words is still perfectly valid and is never rejected for missing the
+ * target. The target only decides where the model tries to land.
+ *
+ * NARROW_* is the third and last attempt, after two misses. It is tighter and
+ * further from the edge that was actually missed (see narrowTargetFor), on the
+ * reasoning that a writer who has now undershot twice needs a bigger push than
+ * the one that has already failed twice.
+ *
+ * Every band here is asserted to sit strictly inside its POST_COPY_RULES band
+ * with real margin — see tests/postCopyTargets.test.js. That test is the thing
+ * that stops this file drifting back to the boundary.
+ */
+export const POST_COPY_TARGETS = Object.freeze({
+  facebook: Object.freeze({
+    MIN_WORDS: 155, MAX_WORDS: 195, NARROW_MIN: 165, NARROW_MAX: 185,
+  }),
+  instagram: Object.freeze({
+    MIN_WORDS: 140, MAX_WORDS: 180, NARROW_MIN: 150, NARROW_MAX: 170,
+  }),
+  threads: Object.freeze({
+    MIN_WORDS: 55, MAX_WORDS: 85, NARROW_MIN: 62, NARROW_MAX: 78,
+  }),
+});
+
+/**
+ * The smallest gap allowed between a target edge and the validator's edge.
+ *
+ * Asserted by the target-band test rather than merely documented, so a future
+ * tightening of a target cannot silently reintroduce the boundary-hugging that
+ * produced the 44-word post.
+ */
+export const POST_COPY_TARGET_MIN_MARGIN = 10;
+
+/**
  * A paragraph longer than this is a wall of text regardless of the total word
  * count: four short paragraphs and one 160-word block both satisfy the word
  * band, and only one of them is readable.
@@ -1067,6 +1128,21 @@ export const PLANNER_LIMITS = Object.freeze({
   MAX_POSTS_PER_DAY: 5,
   DEFAULT_POSTS_PER_DAY: 1,
   MAX_REGENERATION_ATTEMPTS: 2,
+  /*
+   * How many times ONE platform's post copy may be written before the planner
+   * gives up and says so.
+   *
+   * Three, and no more. Attempt 1 aims at the safe target band. Attempt 2 is
+   * told the exact counts it missed by. Attempt 3 gets a narrower band pushed
+   * away from the edge it missed. If all three fail, that platform is marked
+   * failed HONESTLY rather than retried forever: a fourth attempt at the same
+   * prompt is not a strategy, it is just spend. The user's own Retry button is
+   * still there, and each click buys a fresh bounded run of three.
+   *
+   * This is a per-platform budget. Two failing platforms cost at most six
+   * calls, and a passing platform costs none, because it is not rewritten.
+   */
+  MAX_COPY_ATTEMPTS: 3,
   /*
    * How many different layouts a full plan should reach for.
    *

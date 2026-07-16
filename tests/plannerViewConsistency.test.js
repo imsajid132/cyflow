@@ -73,3 +73,67 @@ test('the retry handler reloads so both views update together', () => {
   assert.match(body, /await load\(\)/, 'a retry must reload the plan, refreshing card and drawer at once');
   assert.match(body, /generation_failed/, 'a retry that still fails must say so rather than claim success');
 });
+
+// --- one click, one generation ----------------------------------------------
+
+/*
+ * A retry takes seconds and the button used to look identical throughout, so
+ * people clicked it repeatedly. Each click was a full generation: real spend,
+ * and two writes racing for one row. Both halves are asserted here — the button
+ * that refuses, and the handler that tracks the item.
+ */
+
+test('the retry button refuses to fire while it is already running', () => {
+  const start = CARD.indexOf("text: 'Retry generation'");
+  const body = CARD.slice(start, CARD.indexOf('actions.appendChild(retryBtn)', start));
+  assert.match(body, /if \(retryBtn\.disabled\) return/, 'a disabled retry button must not fire the handler');
+  assert.match(body, /handlers\.onRetry\?\.\(item, retryBtn\)/, 'the handler needs the button to disable it');
+});
+
+test('the retry handler shows it is working and ignores clicks while in flight', () => {
+  const start = WEEK.indexOf('async function retryGeneration');
+  const body = WEEK.slice(start, WEEK.indexOf('\n  async function setStatus', start));
+
+  assert.match(body, /if \(retrying\.has\(item\.id\)\) return/, 'a second click must be dropped, not sent');
+  assert.match(body, /retrying\.add\(item\.id\)/);
+  assert.match(body, /setLoading\(btn, true/, 'the button must show that something is happening');
+  // Released in a finally, so a thrown request cannot lock the item forever.
+  assert.match(body, /finally \{[\s\S]*retrying\.delete\(item\.id\)/, 'the guard must release even on failure');
+});
+
+test('one retry produces exactly one toast', () => {
+  const start = WEEK.indexOf('async function retryGeneration');
+  const body = WEEK.slice(start, WEEK.indexOf('\n  async function setStatus', start));
+  // Three outcomes, mutually exclusive: request failed, still failing, worked.
+  // The error path returns, so no call can ever reach a second toast.
+  const toasts = body.match(/toast\(/g) ?? [];
+  assert.equal(toasts.length, 3, `expected exactly three exclusive outcomes: ${toasts.length}`);
+  assert.match(body, /toast\(api\.errorMessage[\s\S]*?return;/, 'the error path must return before the others');
+});
+
+// --- the user can see why it failed ------------------------------------------
+
+test('a failed card renders the exact reasons, not just a status chip', () => {
+  // The reasons were already stored and already precise. Nothing showed them,
+  // so the only way to learn why a post would not generate was phpMyAdmin.
+  assert.match(CARD, /function failureDetails/);
+  assert.match(CARD, /item\.qualityFailures/, 'the card must read the stored reasons');
+  assert.match(CARD, /needs? another rewrite/, 'a friendly summary leads');
+  assert.match(CARD, /el\('details'/, 'the exact reasons are one click away, not the headline');
+});
+
+test('failure reasons reach the DOM as text, never as markup', () => {
+  // Validator output includes quoted user-ish content ("a agency" should be
+  // "an agency"). It goes in through textContent like everything else here.
+  const start = CARD.indexOf('function failureDetails');
+  const body = CARD.slice(start, CARD.indexOf('\n}', start));
+  assert.ok(!/innerHTML/.test(body), 'never innerHTML');
+  assert.match(body, /el\('li', \{ text: String\(r\) \}\)/);
+});
+
+test('the summary names the platforms by prefix match, against a fixed list', () => {
+  // Not parsing: the server writes each reason with its platform first, and
+  // this checks three known names. An unattributable reason is still shown.
+  assert.match(CARD, /PLATFORM_NAMES = Object\.freeze\(\['Facebook', 'Instagram', 'Threads'\]\)/);
+  assert.match(CARD, /startsWith\(name\)/);
+});

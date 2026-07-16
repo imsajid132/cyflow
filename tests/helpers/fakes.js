@@ -12,6 +12,7 @@ import { PLANNER_ITEM_STATUS } from '../../src/config/constants.js';
 import { normalizeEmail } from '../../src/utils/validation.js';
 import { OAuthError, OAUTH_ERROR_CODES } from '../../src/utils/oauthErrors.js';
 import { createMediaAssetService } from '../../src/services/mediaAssetService.js';
+import { applyStyleGuard } from '../../src/services/contentStyleGuard.js';
 
 /** Fake `userRepository`. */
 export function createFakeUserRepository(seed = []) {
@@ -1222,8 +1223,60 @@ export function createFakePlannerOpenAI(opts = {}) {
   // Scripted mode advances only on a PRIMARY call, so platform-variant calls do
   // not consume the script.
   let scriptIndex = 0;
+  // How many times each platform has been asked for copy. Drives `platformScript`
+  // and lets a test assert that a passing platform was never rewritten.
+  const perPlatform = new Map();
+
+  /*
+   * Run the REAL style guard, exactly as the real service does.
+   *
+   * Opt-in, because the canned FAKE_POSTS above are ~20 words and every
+   * platform band starts at 45: switching this on globally would fail every
+   * existing planner test for reasons that have nothing to do with what they
+   * test.
+   *
+   * Where it IS on, the fake stops being a yes-man. `_style` is attached by
+   * parsePlannerOutput in the real service, so a fake that omits it hands the
+   * planner `rejections: []` and every post passes — which is why a 44-word
+   * Threads post could not be reproduced in a test before this existed.
+   */
+  const finish = (result, platform) => {
+    if (!opts.validate) return result;
+    const guarded = applyStyleGuard(result, { platform });
+    return {
+      ...guarded.content,
+      _style: { repaired: guarded.repaired, rejections: guarded.rejections },
+    };
+  };
+
+  /*
+   * Record usage the way the real service does: one row per PROVIDER CALL, on
+   * the way out of a call that actually happened.
+   *
+   * Opt-in via `apiUsage`, and it matters for one question specifically — does a
+   * blocked duplicate click cost the user anything? That can only be answered
+   * where the spend is booked, and in production the planner never books it;
+   * openaiContentService.recordUsage does, per call. A fake that skipped this
+   * would make "no calls, no charge" true by construction instead of by test.
+   */
+  const bookUsage = async (ctx) => {
+    if (!opts.apiUsage) return;
+    await opts.apiUsage.recordUsage({
+      userId: ctx?.userId ?? null,
+      scheduledPostId: null,
+      service: 'openai',
+      operation: 'openai_generate_content',
+      inputUnits: 1,
+      outputUnits: 1,
+      metadata: { model: 'fake', success: true, classification: null },
+    });
+  };
+
   return {
     _calls: calls,
+    _perPlatform: perPlatform,
+    /** How many times this platform's copy was written. */
+    callsFor: (platform) => perPlatform.get(platform) ?? 0,
     isAvailable: () => opts.available !== false,
     async generateSocialContent() {
       return {
@@ -1234,11 +1287,46 @@ export function createFakePlannerOpenAI(opts = {}) {
         _meta: { model: 'fake', responseId: 'resp_1', usage: { inputUnits: 1, outputUnits: 1 } },
       };
     },
-    async generatePlannerPost(input) {
+    async generatePlannerPost(input, ctx = {}) {
       calls.push(input);
       if (opts.error) throw opts.error;
       const i = n;
       n += 1;
+      const attemptForPlatform = perPlatform.get(input.platform) ?? 0;
+      perPlatform.set(input.platform, attemptForPlatform + 1);
+      await bookUsage(ctx);
+
+      /*
+       * Per-platform script: `{ threads: [firstAttempt, repaired], ... }`.
+       *
+       * Each platform advances independently and repeats its last entry, which
+       * is what models a repair: attempt 1 comes back 44 words, attempt 2 comes
+       * back at a usable length. Keyed by platform rather than by call order
+       * because the planner interleaves platforms, and a test that depends on
+       * global call order is asserting the scheduler, not the repair.
+       */
+      if (opts.platformScript?.[input.platform]) {
+        const script = opts.platformScript[input.platform];
+        const raw = script[Math.min(attemptForPlatform, script.length - 1)];
+        // A bare string is the caption: what these scripts are almost always
+        // about is the copy, and `{ caption: '...' }` on every entry is noise.
+        // (Spreading a bare string would scatter it across integer keys and
+        // silently produce a post with no caption at all.)
+        const entry = typeof raw === 'string' ? { caption: raw } : raw;
+        return finish({
+          headline: 'A specific useful headline',
+          subheadline: 'Supporting line',
+          imageAltText: 'Alt',
+          summary: 'Summary',
+          hashtags: ['#seo'],
+          ...entry,
+          _meta: {
+            model: 'fake',
+            responseId: `resp_${input.platform}_${attemptForPlatform}`,
+            usage: { inputUnits: 1, outputUnits: 1 },
+          },
+        }, input.platform);
+      }
 
       /*
        * Scripted mode: return these exact posts, in order, then repeat the last.
@@ -1263,13 +1351,13 @@ export function createFakePlannerOpenAI(opts = {}) {
         const entry = opts.scripted[Math.min(index, opts.scripted.length - 1)];
         const post = isVariant ? (entry.variants?.[input.platform] ?? entry) : entry;
         const { variants, ...body } = post;
-        return {
+        return finish({
           subheadline: 'Supporting line',
           imageAltText: 'Alt',
           summary: 'Summary',
           ...body,
           _meta: { model: 'fake', responseId: `resp_s${index}`, usage: { inputUnits: 1, outputUnits: 1 } },
-        };
+        }, input.platform);
       }
 
       if (opts.duplicate) {

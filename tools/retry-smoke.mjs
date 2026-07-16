@@ -1,5 +1,5 @@
 /**
- * The retry, driven in a real browser.
+ * The Phase 4.8 retry, driven in a real browser.
  *
  * Reproduces the reported sequence exactly: open the drawer, note the copy,
  * click Retry, and check that the status, the weekly card, the ALREADY-OPEN
@@ -8,6 +8,17 @@
  * The card-versus-drawer disagreement is invisible to any unit test, because it
  * was never about the data layer: both read the same field. The drawer was
  * holding an item object captured when it opened. Only a browser can catch that.
+ *
+ * REQUIRES the DUPLICATE scenario:
+ *
+ *   node tools/review-server.mjs <port> --with-duplicate-plan
+ *
+ * That is not incidental. A duplicate is the case where the post's angle itself
+ * has to change, so the primary copy is rewritten and the visible text moves —
+ * which is the only way "the drawer still shows the old copy" can be observed
+ * at all. The other failure (tools/repair-smoke.mjs) rewrites one sibling
+ * platform and deliberately leaves the visible copy alone, so running this
+ * against it would report a stale drawer that is in fact perfectly correct.
  *
  * Usage: node tools/retry-smoke.mjs <baseUrl>
  */

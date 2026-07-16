@@ -144,11 +144,60 @@ function truncate(text, max) {
   return `${s.slice(0, max - 1)}…`;
 }
 
+/** Platform names as the server writes them at the start of a failure reason. */
+const PLATFORM_NAMES = Object.freeze(['Facebook', 'Instagram', 'Threads']);
+
+/**
+ * Which platforms these failure reasons are about.
+ *
+ * The server writes every reason with its platform first ("Threads has 44
+ * words; the minimum is 45"), so this is a prefix check against a fixed list of
+ * three, not parsing. A reason it cannot attribute is still SHOWN in full
+ * below; it just does not get named in the one-line summary.
+ */
+function platformsIn(reasons) {
+  return PLATFORM_NAMES.filter((name) => reasons.some((r) => String(r).startsWith(name)));
+}
+
+/** "Instagram and Threads" — an English list, not "Instagram, Threads". */
+function englishList(names) {
+  if (names.length <= 1) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/**
+ * Why this post failed, in a sentence, with the exact reasons one click away.
+ *
+ * The failures were already stored and already precise; nothing rendered them,
+ * so the only way to find out why a post would not generate was to open
+ * phpMyAdmin and read quality_failures_json. A summary alone would repeat the
+ * original mistake of telling the user nothing, and a raw list of validator
+ * output as the headline would be shouting at them. So: the sentence is the
+ * summary, and the measurements are in the <details>.
+ */
+function failureDetails(item) {
+  const reasons = Array.isArray(item.qualityFailures) ? item.qualityFailures.filter(Boolean) : [];
+  if (!reasons.length) return null;
+
+  const named = platformsIn(reasons);
+  const summary = named.length
+    ? `${englishList(named)} need${named.length === 1 ? 's' : ''} another rewrite.`
+    : 'This post needs another rewrite.';
+
+  return el('div', { className: 'planner-failure' }, [
+    el('p', { className: 'planner-failure-summary', attrs: { role: 'status' }, text: summary }),
+    el('details', { className: 'planner-failure-detail' }, [
+      el('summary', { text: `What failed (${reasons.length})` }),
+      el('ul', { className: 'planner-failure-list' }, reasons.map((r) => el('li', { text: String(r) }))),
+    ]),
+  ]);
+}
+
 /**
  * One planned post.
  *
  * @param {object} item
- * @param {{ selected, onSelect, onOpen, onApprove, onReject }} handlers
+ * @param {{ selected, onSelect, onOpen, onApprove, onReject, onRetry }} handlers
  */
 export function plannerCard(item, handlers = {}) {
   const checkbox = el('input', {
@@ -191,7 +240,20 @@ export function plannerCard(item, handlers = {}) {
     }
     if (hardFailed && handlers.onRetry) {
       const retryBtn = el('button', { className: 'btn btn-primary btn-sm', text: 'Retry generation', attrs: { type: 'button' } });
-      retryBtn.addEventListener('click', () => handlers.onRetry?.(item));
+      /*
+       * One click, one generation.
+       *
+       * A retry takes several seconds and, until it returned, this button
+       * looked exactly like it had before the click. So people clicked it
+       * again, and each click was another full generation: real spend, and two
+       * writes racing for the same row. The button hands itself to the handler
+       * so the handler can disable it for the duration, and refuses to fire
+       * while it is already disabled.
+       */
+      retryBtn.addEventListener('click', () => {
+        if (retryBtn.disabled) return;
+        handlers.onRetry?.(item, retryBtn);
+      });
       actions.appendChild(retryBtn);
     }
     if (item.approvalStatus !== 'rejected') {
@@ -239,6 +301,7 @@ export function plannerCard(item, handlers = {}) {
     item.duplicationNotes
       ? el('p', { className: 'planner-warning', attrs: { role: 'status' }, text: item.duplicationNotes })
       : null,
+    failureDetails(item),
     actions.childNodes.length ? actions : null,
   ]);
 }

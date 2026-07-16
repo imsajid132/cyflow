@@ -23,11 +23,13 @@ import {
   BANNED_PHRASES,
   HEADLINE_RULES,
   POST_COPY_RULES,
+  POST_COPY_TARGETS,
   PARAGRAPH_MAX_WORDS,
   UNSUPPORTED_CLAIM_PHRASES,
   UNSUPPORTED_CLAIM_PATTERNS,
   CONSONANT_SOUND_VOWEL_WORDS,
   VOWEL_SOUND_CONSONANT_WORDS,
+  PLATFORM_LABELS,
 } from '../config/constants.js';
 
 /* Compiled once. Each pattern matches a figure attached to a claim context. */
@@ -244,53 +246,85 @@ export function paragraphsOf(text) {
   return text.split(/\n+/).map((p) => p.trim()).filter(Boolean);
 }
 
+/** How a platform is named in a message a person reads. */
+const label = (platform) => PLATFORM_LABELS[platform] ?? platform;
+
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * What this post copy actually IS, measured.
+ *
+ * Separate from the verdict because a repair attempt has to be TOLD the counts,
+ * not just told it failed. "Threads has 44 words; the minimum is 45" is a
+ * sentence a writer can act on. "could not be written to a valid length or
+ * shape" is not, and that string is exactly what planner item 31 stored nine
+ * times while the number it needed was sitting one stack frame away.
+ *
+ * @returns {{ words, paragraphs, longestParagraph, rules }|null} null when the
+ *          platform is unknown, because measuring against no rules is guessing.
+ */
+export function measurePostCopy(caption, platform) {
+  const rules = POST_COPY_RULES[platform];
+  if (!rules) return null;
+  const paragraphs = paragraphsOf(caption);
+  return {
+    words: wordCount(caption),
+    paragraphs: paragraphs.length,
+    longestParagraph: paragraphs.reduce((max, p) => Math.max(max, wordCount(p)), 0),
+    rules,
+  };
+}
+
 /**
  * Is this real post copy for this platform, or a caption wearing a post's name?
  *
  * The bands are per-platform and Threads' does not overlap Facebook's, so a
  * trimmed Instagram post cannot pass as a Threads post on length alone.
  *
+ * Every message names the platform and carries the REAL number next to the
+ * required one. These are shown to users on the planner board and fed back to
+ * the writer on a repair attempt, so they are written as sentences rather than
+ * as log lines, and none of them is ever collapsed into a generic summary.
+ *
  * Returns [] for an unknown platform: this guard reports on what it can judge,
  * and a caller that does not say which platform it is writing for does not get
  * a length verdict invented for it.
  */
 export function postCopyIssues(caption, platform) {
-  const rules = POST_COPY_RULES[platform];
-  if (!rules) return [];
+  const m = measurePostCopy(caption, platform);
+  if (!m) return [];
+  const { rules } = m;
+  const who = label(platform);
+
+  if (m.words === 0) return [`${who} has no post copy`];
 
   const issues = [];
-  const words = wordCount(caption);
-  if (words === 0) return ['empty post copy'];
-
-  const paragraphs = paragraphsOf(caption);
-  if (words < rules.MIN_WORDS) {
-    issues.push(`post copy is too short for ${platform}: ${words} words, needs at least ${rules.MIN_WORDS}`);
+  if (m.words < rules.MIN_WORDS) {
+    issues.push(`${who} has ${plural(m.words, 'word', 'words')}; the minimum is ${rules.MIN_WORDS}`);
   }
-  if (words > rules.MAX_WORDS) {
-    issues.push(`post copy is too long for ${platform}: ${words} words, at most ${rules.MAX_WORDS}`);
+  if (m.words > rules.MAX_WORDS) {
+    issues.push(`${who} has ${plural(m.words, 'word', 'words')}; the maximum is ${rules.MAX_WORDS}`);
   }
-  if (paragraphs.length < rules.MIN_PARAGRAPHS) {
+  if (m.paragraphs < rules.MIN_PARAGRAPHS || m.paragraphs > rules.MAX_PARAGRAPHS) {
     issues.push(
-      paragraphs.length <= 1
-        ? `post copy is one block: ${platform} needs ${rules.MIN_PARAGRAPHS} to ${rules.MAX_PARAGRAPHS} short paragraphs`
-        : `post copy has too few paragraphs for ${platform}: ${paragraphs.length}`,
+      `${who} has ${plural(m.paragraphs, 'paragraph', 'paragraphs')}; `
+      + `it needs ${rules.MIN_PARAGRAPHS} to ${rules.MAX_PARAGRAPHS}`,
     );
-  }
-  if (paragraphs.length > rules.MAX_PARAGRAPHS) {
-    issues.push(`post copy has too many paragraphs for ${platform}: ${paragraphs.length}, at most ${rules.MAX_PARAGRAPHS}`);
   }
 
   // Word count alone does not make a post readable: 160 words in one lump
   // satisfies the band and is still a wall of text.
-  const longest = paragraphs.reduce((max, p) => Math.max(max, wordCount(p)), 0);
-  if (longest > PARAGRAPH_MAX_WORDS) {
-    issues.push(`one paragraph runs to ${longest} words and needs breaking up`);
+  if (m.longestParagraph > PARAGRAPH_MAX_WORDS) {
+    issues.push(
+      `${who} has a paragraph of ${plural(m.longestParagraph, 'word', 'words')}; `
+      + `the maximum for one paragraph is ${PARAGRAPH_MAX_WORDS}`,
+    );
   }
 
   // Hashtags belong in the hashtags array, at the end, not woven into a
   // sentence. A tag inside the prose is the caption habit this replaces.
   if (/(^|\s)#[\p{L}\p{N}_]{2,}/u.test(caption)) {
-    issues.push('hashtags are inside the post copy instead of separate at the end');
+    issues.push(`${who} has hashtags inside the post copy; they belong at the end`);
   }
   return issues;
 }
@@ -373,13 +407,22 @@ export function applyStyleGuard(content, { platform } = {}) {
     if (JSON.stringify(out.comparison) !== before) repaired.push('comparison');
   }
 
+  /*
+   * Every reason below names the platform when the caller said which one it is.
+   * A failed item can carry reasons from more than one platform at once, and
+   * "contains the grammar error" without a subject leaves the reader (and the
+   * repair) guessing which post to fix.
+   */
+  const who = PLATFORM_LABELS[platform] ?? null;
+  const on = (text) => (who ? `${who} ${text}` : `this post ${text}`);
+
   // Banned phrases: not repairable, so the post is rejected for regeneration.
   const phraseHits = new Set();
   for (const field of ['caption', 'headline', 'subheadline']) {
     for (const hit of findBannedPhrases(out[field])) phraseHits.add(hit);
   }
   if (phraseHits.size) {
-    rejections.push(`generic marketing phrasing: ${[...phraseHits].slice(0, 3).join(', ')}`);
+    rejections.push(on(`uses generic marketing phrasing: ${[...phraseHits].slice(0, 3).join(', ')}`));
   }
 
   // Unsupported claims: invented experience, results, counts, or reputation.
@@ -389,7 +432,7 @@ export function applyStyleGuard(content, { platform } = {}) {
   for (const field of ['caption', 'headline', 'subheadline']) {
     for (const reason of findUnsupportedClaims(out[field])) claimHits.add(reason);
   }
-  for (const reason of claimHits) rejections.push(`unsupported claim: ${reason}`);
+  for (const reason of claimHits) rejections.push(on(`makes an unsupported claim: it ${reason}`));
 
   /*
    * Obvious article errors ("a agency", "a SEO audit").
@@ -406,7 +449,7 @@ export function applyStyleGuard(content, { platform } = {}) {
   }
   if (articleHits.length) {
     const detail = articleHits.slice(0, 3).map((h) => `"${h.found}" should be "${h.expected}"`).join(', ');
-    rejections.push(`grammar: ${detail}`);
+    rejections.push(on(`contains the grammar error ${detail}`));
   }
 
   for (const issue of headlineIssues(out.headline)) rejections.push(issue);
@@ -428,6 +471,84 @@ export function applyStyleGuard(content, { platform } = {}) {
   return { content: out, repaired: [...new Set(repaired)], rejections: [...new Set(rejections)] };
 }
 
+/**
+ * The band a repair attempt should aim at, and which way to lean.
+ *
+ * The first two attempts aim at the plain safe target. A third attempt has
+ * already missed twice, so it is given the narrower band pushed AWAY from the
+ * edge it actually missed: copy that came in short is aimed at the upper half,
+ * copy that ran long at the lower half. Aiming a repeatedly-short writer at the
+ * same midpoint that already failed twice is not a different instruction.
+ *
+ * @param {string} platform
+ * @param {number} attempt zero-based
+ * @param {{words:number}|null} last the previous attempt's measurement
+ */
+export function targetBandFor(platform, attempt = 0, last = null) {
+  const target = POST_COPY_TARGETS[platform];
+  if (!target) return null;
+  if (attempt < 2) return { min: target.MIN_WORDS, max: target.MAX_WORDS };
+
+  const rules = POST_COPY_RULES[platform];
+  if (last && rules) {
+    // Came in short: aim high in the narrow band. Ran long: aim low.
+    if (last.words < rules.MIN_WORDS) return { min: target.NARROW_MAX, max: target.MAX_WORDS };
+    if (last.words > rules.MAX_WORDS) return { min: target.MIN_WORDS, max: target.NARROW_MIN };
+  }
+  return { min: target.NARROW_MIN, max: target.NARROW_MAX };
+}
+
+/**
+ * Tell the next attempt exactly what the last one measured and what to do.
+ *
+ * This is the difference between a repair and a re-roll. A writer told only
+ * "rejected" produces another near-miss; a writer told "you wrote 44 words, the
+ * floor is 45, aim for 62 to 85, and add a real detail rather than padding"
+ * has something to act on.
+ *
+ * The anti-filler line is not decoration. The cheapest way to answer "you are
+ * one word short" is to bolt on "Get in touch today!", which passes the count
+ * and makes the post worse. Nothing in this codebase appends words to fix a
+ * word count; the shortage is always sent back to the writer with the
+ * instruction to add something real.
+ *
+ * @returns {string[]} short lines, safe to hand to the model verbatim
+ */
+export function repairGuidance(caption, platform, attempt = 0) {
+  const m = measurePostCopy(caption, platform);
+  const band = targetBandFor(platform, attempt, m);
+  if (!m || !band) return [];
+  const who = label(platform);
+  const { rules } = m;
+
+  const lines = [
+    `your last ${who} attempt measured ${plural(m.words, 'word', 'words')} `
+    + `in ${plural(m.paragraphs, 'paragraph', 'paragraphs')}`,
+  ];
+
+  if (m.words < rules.MIN_WORDS) {
+    const short = rules.MIN_WORDS - m.words;
+    lines.push(
+      `that is ${plural(short, 'word', 'words')} below the ${rules.MIN_WORDS} minimum: `
+      + 'add a useful sentence (a concrete example, a clarification, or a practical '
+      + 'detail). Do NOT pad with filler, restatement, or a longer sign-off',
+    );
+  } else if (m.words > rules.MAX_WORDS) {
+    lines.push(
+      `that is ${plural(m.words - rules.MAX_WORDS, 'word', 'words')} over the ${rules.MAX_WORDS} maximum: `
+      + 'cut a whole point rather than trimming every sentence',
+    );
+  }
+  if (m.paragraphs < rules.MIN_PARAGRAPHS || m.paragraphs > rules.MAX_PARAGRAPHS) {
+    lines.push(
+      `use ${rules.MIN_PARAGRAPHS} to ${rules.MAX_PARAGRAPHS} paragraphs `
+      + '(separate each with a blank line)',
+    );
+  }
+  lines.push(`return approximately ${band.min} to ${band.max} words for ${who}`);
+  return lines;
+}
+
 export default {
   applyStyleGuard,
   stripDashes,
@@ -438,6 +559,9 @@ export default {
   expectedArticle,
   headlineIssues,
   postCopyIssues,
+  measurePostCopy,
+  targetBandFor,
+  repairGuidance,
   paragraphsOf,
   wordCount,
 };

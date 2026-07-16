@@ -246,12 +246,28 @@ export async function render(root, ctx) {
             onReject: (i) => setStatus(i, 'rejected'),
             // A hard-failed card offers Retry instead of Approve. The retry
             // re-validates server-side: if the new copy is still invalid the
-            // card stays failed rather than being quietly released.
-            onRetry: (i) => retryGeneration(i),
+            // card stays failed rather than being quietly released. The button
+            // comes through so it can show that it is working and refuse to be
+            // clicked twice.
+            onRetry: (i, btn) => retryGeneration(i, btn),
           }))),
       ]));
     }
   }
+
+  /*
+   * Items with a retry in flight.
+   *
+   * The button disables itself, but the button is not the whole story: every
+   * load() rebuilds the board, so the element that was clicked is gone by the
+   * time the request returns. Tracking the ITEM means a second click cannot get
+   * through on a freshly-rendered button either.
+   *
+   * The server refuses concurrent retries per item anyway. This is the half
+   * that stops the user seeing a rejection they caused by double-clicking, and
+   * it keeps one click to one toast.
+   */
+  const retrying = new Set();
 
   /**
    * Retry a post the generator could not write.
@@ -260,22 +276,32 @@ export async function render(root, ctx) {
    * copy is invalid by definition, so there is no user edit to discard. The
    * server re-validates the result, so a retry that fails again stays failed.
    */
-  async function retryGeneration(item) {
-    const res = await api.apiRequest(
-      `/api/planner/items/${encodeURIComponent(item.id)}/regenerate`,
-      { method: 'POST', body: { target: 'caption', force: true } },
-    );
-    if (!res.ok) {
-      toast(api.errorMessage(res, 'That retry did not work. Try again shortly.'), 'err');
-      return;
+  async function retryGeneration(item, btn) {
+    if (retrying.has(item.id)) return;
+    retrying.add(item.id);
+    setLoading(btn, true, 'Retrying…');
+    try {
+      const res = await api.apiRequest(
+        `/api/planner/items/${encodeURIComponent(item.id)}/regenerate`,
+        { method: 'POST', body: { target: 'caption', force: true } },
+      );
+      if (!res.ok) {
+        toast(api.errorMessage(res, 'That retry did not work. Try again shortly.'), 'err');
+        return;
+      }
+      const updated = api.payload(res)?.item;
+      if (updated?.qualityStatus === 'generation_failed') {
+        toast('The retry still could not produce a usable post. Try editing it instead.', 'warn');
+      } else {
+        toast('Post copy regenerated.', 'ok');
+      }
+      await load();
+    } finally {
+      // The board has re-rendered, so `btn` is usually detached by now; calling
+      // setLoading on it is harmless and matters in the paths where it is not.
+      retrying.delete(item.id);
+      setLoading(btn, false);
     }
-    const updated = api.payload(res)?.item;
-    if (updated?.qualityStatus === 'generation_failed') {
-      toast('The retry still could not produce a usable post. Try editing it instead.', 'warn');
-    } else {
-      toast('Post copy regenerated.', 'ok');
-    }
-    await load();
   }
 
   async function setStatus(item, status) {
