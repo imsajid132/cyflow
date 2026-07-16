@@ -1184,38 +1184,92 @@ export function createPlannerService({
       await assertUnderDailyLimit(userId, 1);
 
       const siblings = await runsRepo.listItemsForRun(item.plannerRunId, userId);
-      const avoidPhrases = siblings
-        .filter((s) => s.id !== item.id)
-        .map((s) => s.headline)
-        .filter(Boolean);
+      const others = siblings.filter((s) => s.id !== item.id);
+      const avoidPhrases = others.map((s) => s.headline).filter(Boolean);
+
+      /*
+       * Tell the retry exactly why the last attempt failed, and what not to
+       * repeat. Without this a retry is an unguided re-roll of the same prompt
+       * that produced the defect, which is how a user ends up clicking Retry
+       * four times and getting four failures.
+       */
+      const priorReasons = [
+        ...(Array.isArray(item.qualityFailures) ? item.qualityFailures : []),
+        ...(item.duplicationNotes ? [item.duplicationNotes] : []),
+      ];
+      const primaryPlatform = item.platformTargets[0];
 
       const content = await openaiContentService.generatePlannerPost(
         {
-          platform: item.platformTargets[0],
+          platform: primaryPlatform,
+          format: item.contentFormat ?? item.contentType,
           contentType: item.contentType,
           goal: item.goal,
           tone: 'professional',
           brief: item.brief,
           brandName: profile?.businessName ?? null,
+          businessCategory: profile?.businessCategory ?? null,
+          businessDescription: profile?.businessDescription ?? null,
+          // The service is already named inside `item.brief`, which is the text
+          // the writer works from; there is no separate service column.
+          audienceProblem: item.audienceProblem ?? null,
+          website: displayWebsite(profile?.websiteUrl),
           language: profile?.defaultLanguage ?? null,
           callToAction: profile?.defaultCallToAction ?? null,
           hashtagPreference: 'moderate',
           avoidPhrases,
+          // Openings already used elsewhere in this plan, plus this item's own
+          // previous opening: the retry must not simply reword it.
+          avoidOpenings: [
+            ...others.map((s) => s.fingerprint?.openingText).filter(Boolean),
+            item.fingerprint?.openingText,
+          ].filter(Boolean),
+          styleIssues: priorReasons,
         },
         { userId },
       );
 
+      /*
+       * The duplicate comparison, with THIS item excluded by id.
+       *
+       * Comparing a regeneration against its own stored fingerprint is comparing
+       * it against itself: same pillar, same service, same format, same
+       * template, same hashtags, because it is the same item. Those soft axes
+       * all matched and produced "Too similar to a recent post: a similar angle,
+       * the same hashtags, the same writing format" — a post condemned by its
+       * identity while its actual words scored 0.21 similar.
+       *
+       * Everything else still counts: siblings in this run, other runs, the
+       * user's recent history. The lookback is also time-bounded now, matching
+       * generation, which it silently was not.
+       */
       const recent = await runsRepo.listRecentFingerprintsForUser(userId, {
         limit: PLANNER_LIMITS.DUPLICATE_LOOKBACK_ITEMS,
+        sinceUtc: addSecondsUtc(-PLANNER_LIMITS.DUPLICATE_LOOKBACK_DAYS * 24 * 3600, now()),
+        excludeItemId: item.id,
       });
-      const evaluation = uniqueness.evaluate(
-        {
-          caption: content.caption, headline: content.headline,
-          hashtags: content.hashtags, contentType: item.contentType,
-          goal: item.goal, templateKey: item.templateKey,
-        },
-        { batch: [], recent },
-      );
+      /*
+       * The candidate carries its FULL identity now (service, CTA, format,
+       * pillar). That makes the comparison against OTHER posts accurate rather
+       * than accidentally lenient — which is only safe because this item is no
+       * longer in the candidate set.
+       */
+      const candidate = {
+        caption: content.caption,
+        headline: content.headline,
+        hashtags: content.hashtags,
+        cta: profile?.defaultCallToAction ?? null,
+        contentType: item.contentType,
+        format: item.contentFormat ?? item.contentType,
+        pillar: item.contentPillar ?? null,
+        goal: item.goal,
+        // The item has no service column; its normalized service lives in the
+        // fingerprint, which is the same form every other fingerprint stores.
+        serviceEmphasis: item.fingerprint?.serviceEmphasis ?? null,
+        audienceProblem: item.audienceProblem ?? null,
+        templateKey: item.templateKey,
+      };
+      const evaluation = uniqueness.evaluate(candidate, { batch: [], recent });
 
       /*
        * A retry RE-VALIDATES. It does not launder.
@@ -1230,18 +1284,69 @@ export function createPlannerService({
       const stillFailing = retryRejections.length > 0
         || evaluation.score >= HARD_DUPLICATE_SCORE;
 
+      /*
+       * Rewrite the OTHER platforms too.
+       *
+       * The retry used to write only `generated_caption` and leave
+       * `platform_captions_json` untouched. Those are two sources of truth for
+       * the same text, and they diverged the moment a retry ran: the board
+       * showed the new copy while the drawer and, far worse, the QUEUE still
+       * held the old one. A retried post would have published its pre-retry
+       * text. Regenerating every target platform keeps the two in step, and
+       * `platformCaptionsFor()` stays the single canonical resolver.
+       *
+       * Sibling platforms are not "preserved" here in the sense of keeping stale
+       * text: the primary copy changed, so a Threads post written against the
+       * OLD primary would no longer belong to this post at all.
+       */
+      const { platformCaptions, platformIdenticalNotes } = await generatePlatformCopy({
+        userId,
+        brief: {
+          platforms: item.platformTargets,
+          format: item.contentFormat ?? item.contentType,
+          contentType: item.contentType,
+          goal: item.goal,
+          tone: 'professional',
+          brief: item.brief,
+          serviceEmphasis: null,
+          audienceProblem: item.audienceProblem ?? null,
+          location: null,
+          callToAction: profile?.defaultCallToAction ?? null,
+        },
+        profile,
+        primaryPlatform,
+        primary: content,
+      });
+
+      const hardFailed = stillFailing || platformIdenticalNotes.length > 0;
+      const failures = [
+        ...retryRejections,
+        ...platformIdenticalNotes,
+        ...(evaluation.score >= HARD_DUPLICATE_SCORE ? ['this post is a near-duplicate of another one'] : []),
+      ];
+
       const fields = {
         caption: content.caption,
         hashtags: content.hashtags,
         summary: content.summary,
+        // NULL for a single-platform plan, exactly as generation writes it, so
+        // the resolver's fallback to `caption` behaves identically either way.
+        platformCaptions,
         regenerationCount: item.regenerationCount + 1,
         duplicationScore: evaluation.score,
         duplicationNotes: evaluation.verdict === 'unique' ? null : uniqueness.describe(evaluation),
-        qualityStatus: stillFailing
+        // The fingerprint must describe the copy that is actually stored. A
+        // stale one would poison the NEXT comparison with text that no longer
+        // exists anywhere.
+        fingerprint: {
+          ...uniqueness.fingerprint(candidate),
+          visualExtras: item.fingerprint?.visualExtras ?? null,
+        },
+        qualityStatus: hardFailed
           ? PLANNER_QUALITY_STATUS.GENERATION_FAILED
           : PLANNER_QUALITY_STATUS.NEEDS_REVIEW,
-        qualityFailures: stillFailing ? retryRejections.slice(0, 8) : null,
-        approvalStatus: stillFailing
+        qualityFailures: hardFailed ? failures.slice(0, 8) : null,
+        approvalStatus: hardFailed
           ? PLANNER_ITEM_STATUS.GENERATION_FAILED
           : PLANNER_ITEM_STATUS.NEEDS_REVIEW,
       };

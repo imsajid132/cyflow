@@ -143,6 +143,45 @@ export async function seedWorld(overrides, userId) {
   return { mediaAssetRepository, postRepository };
 }
 
+/**
+ * Seed a real plan whose first item is a hard failure, so the retry flow can be
+ * driven in a browser.
+ *
+ * The plan is generated through the REAL service, then one item is put into the
+ * state the user reported. Nothing about the retry path is stubbed: clicking
+ * Retry in the browser runs the real regeneration, the real duplicate check and
+ * the real per-platform rewrite.
+ */
+export async function seedFailedPlan(overrides, userId, plannerService) {
+  /*
+   * Start tomorrow, not on a fixed date. The schedule engine drops slots that
+   * are already in the past, so a hardcoded date silently produces an empty
+   * plan the moment it goes stale.
+   */
+  const tomorrow = new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 10);
+
+  const plan = await plannerService.generatePlan(userId, {
+    startDate: tomorrow,
+    planLength: 2,
+    cadence: 'every_day',
+    times: ['09:00'],
+    postsPerDay: 1,
+    timezone: 'Asia/Karachi',
+    platforms: ['instagram', 'threads'],
+    contentRhythmPreset: 'balanced',
+  });
+
+  const target = plan.items[0];
+  await overrides.plannerRunRepository.updateItem(target.id, userId, {
+    approvalStatus: 'generation_failed',
+    qualityStatus: 'generation_failed',
+    qualityFailures: ['post copy is too short for instagram: 41 words, needs at least 120'],
+    duplicationNotes: 'Too similar to a recent post: a similar angle, the same hashtags.',
+  });
+
+  return { runId: plan.run.id, failedItemId: target.id };
+}
+
 /** Register the review user + seed their world. Uses the real password hashing. */
 export async function seedReviewUser(overrides) {
   const bcrypt = (await import('bcrypt')).default;
@@ -166,10 +205,19 @@ export async function seedReviewUser(overrides) {
 const isMain = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
   const port = Number(process.argv[2] || 4599);
+  const withPlan = process.argv.includes('--with-failed-plan');
   const { app, overrides } = buildReviewApp();
   const user = await seedReviewUser(overrides);
+
+  let seeded = '';
+  if (withPlan) {
+    const { buildPlannerService } = await import('./review-planner.mjs');
+    const info = await seedFailedPlan(overrides, user.id, buildPlannerService(overrides));
+    seeded = ` run=${info.runId} failedItem=${info.failedItemId}`;
+  }
+
   app.listen(port, '127.0.0.1', () => {
     // eslint-disable-next-line no-console
-    console.log(`review server on http://127.0.0.1:${port} (seeded user ${user.id})`);
+    console.log(`review server on http://127.0.0.1:${port} (user ${user.id})${seeded}`);
   });
 }

@@ -82,6 +82,9 @@ export async function render(root, ctx) {
     renderSummary();
     renderBulk();
     renderBoard();
+    // The drawer is part of the view, not a snapshot taken when it opened. If
+    // the board is refreshing, so is it.
+    refreshDrawer();
     return true;
   }
 
@@ -286,7 +289,21 @@ export async function render(root, ctx) {
 
   // --- edit drawer ---------------------------------------------------------
 
+  /*
+   * Which item the drawer is showing, by ID — never the item OBJECT.
+   *
+   * openDrawer() used to capture the item by value in its closure, so after a
+   * regeneration the board re-rendered from fresh data while the open drawer
+   * kept displaying the copy it had been handed minutes earlier. The card said
+   * one thing and the drawer said another, and the drawer was wrong.
+   *
+   * Holding an id instead means there is one source of truth (`plan.items`) and
+   * the drawer is re-rendered from it, like the board is.
+   */
+  let openItemId = null;
+
   function closeDrawer() {
+    openItemId = null;
     drawer.hidden = true;
     clear(drawer);
     document.removeEventListener('keydown', onDrawerKey);
@@ -295,7 +312,22 @@ export async function render(root, ctx) {
     if (e.key === 'Escape') closeDrawer();
   }
 
+  /**
+   * Re-render an open drawer from the latest plan data.
+   *
+   * Called after every reload. If the item it was showing is gone (deleted, or
+   * removed with the rejected ones), the drawer closes rather than displaying a
+   * post that no longer exists.
+   */
+  function refreshDrawer() {
+    if (!openItemId) return;
+    const latest = plan?.items?.find((i) => i.id === openItemId);
+    if (!latest) { closeDrawer(); return; }
+    openDrawer(latest);
+  }
+
   function openDrawer(item) {
+    openItemId = item.id;
     clear(drawer);
     drawer.hidden = false;
     document.addEventListener('keydown', onDrawerKey);
@@ -360,9 +392,19 @@ export async function render(root, ctx) {
           if (!ok) return;
           res = await doRegen(true);
         }
-        if (!res.ok) { toast(api.errorMessage(res, 'The caption could not be regenerated.'), 'err'); return; }
-        toast('Post copy regenerated.', 'ok');
-        closeDrawer();
+        if (!res.ok) { toast(api.errorMessage(res, 'The post copy could not be regenerated.'), 'err'); return; }
+        const updated = api.payload(res)?.item;
+        if (updated?.qualityStatus === 'generation_failed') {
+          toast('That rewrite still could not produce a usable post. Try editing it instead.', 'warn');
+        } else {
+          toast('Post copy regenerated.', 'ok');
+        }
+        /*
+         * Stay open and re-render from the reloaded plan, rather than closing.
+         * Closing hid the very thing the user asked for, and it was masking the
+         * bug where the drawer's captured item went stale: you could not see the
+         * drawer disagreeing with the card if the drawer was never on screen.
+         */
         await load();
       } finally {
         setLoading(regenCaptionBtn, false);

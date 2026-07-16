@@ -1106,10 +1106,13 @@ export function createFakePlannerRunRepository() {
       items.delete(String(itemId));
       return { deleted: true };
     },
-    async listRecentFingerprintsForUser(userId, { limit = 60, sinceUtc = null, excludeRunId = null } = {}) {
+    async listRecentFingerprintsForUser(userId, { limit = 60, sinceUtc = null, excludeRunId = null, excludeItemId = null } = {}) {
       return [...items.values()]
         .filter((i) => i.userId === String(userId) && i.fingerprint)
         .filter((i) => (excludeRunId ? i.plannerRunId !== String(excludeRunId) : true))
+        // Mirrors the real repository's `AND id <> ?`: a regeneration is never
+        // compared against the row it is replacing.
+        .filter((i) => (excludeItemId ? String(i.id) !== String(excludeItemId) : true))
         // The real repository applies `AND created_at >= ?`. The fake ignored
         // sinceUtc entirely, so its duplication lookback was unbounded in time
         // and a test could never catch a broken cutoff.
@@ -1216,6 +1219,9 @@ const FAKE_POSTS = [
 export function createFakePlannerOpenAI(opts = {}) {
   const calls = [];
   let n = 0;
+  // Scripted mode advances only on a PRIMARY call, so platform-variant calls do
+  // not consume the script.
+  let scriptIndex = 0;
   return {
     _calls: calls,
     isAvailable: () => opts.available !== false,
@@ -1233,6 +1239,38 @@ export function createFakePlannerOpenAI(opts = {}) {
       if (opts.error) throw opts.error;
       const i = n;
       n += 1;
+
+      /*
+       * Scripted mode: return these exact posts, in order, then repeat the last.
+       *
+       * Needed to reproduce a retry faithfully — the generation and the retry
+       * must be specific, known posts so the assertion is about the planner's
+       * duplicate logic rather than about whatever the rotation happened to
+       * produce.
+       *
+       * A call carrying `siblingCopy` is a PLATFORM VARIANT request, not the
+       * next post in the script. It gets that entry's `variants[platform]`, so
+       * the fake behaves like a real writer: same subject, genuinely different
+       * post per platform. Without this the fake would hand every platform the
+       * same text and the planner would correctly (but unhelpfully) flag it as
+       * one post pasted twice.
+       */
+      if (Array.isArray(opts.scripted) && opts.scripted.length) {
+        const isVariant = Boolean(input.siblingCopy);
+        // A variant belongs to the post that was just generated, not the next.
+        const index = isVariant ? Math.max(0, scriptIndex - 1) : scriptIndex;
+        if (!isVariant) scriptIndex += 1;
+        const entry = opts.scripted[Math.min(index, opts.scripted.length - 1)];
+        const post = isVariant ? (entry.variants?.[input.platform] ?? entry) : entry;
+        const { variants, ...body } = post;
+        return {
+          subheadline: 'Supporting line',
+          imageAltText: 'Alt',
+          summary: 'Summary',
+          ...body,
+          _meta: { model: 'fake', responseId: `resp_s${index}`, usage: { inputUnits: 1, outputUnits: 1 } },
+        };
+      }
 
       if (opts.duplicate) {
         return {

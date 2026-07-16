@@ -350,7 +350,7 @@ export async function deleteItem(itemId, userId, connection) {
  */
 export async function listRecentFingerprintsForUser(
   userId,
-  { limit = 60, sinceUtc = null, excludeRunId = null } = {},
+  { limit = 60, sinceUtc = null, excludeRunId = null, excludeItemId = null } = {},
   connection,
 ) {
   const params = [userId];
@@ -367,6 +367,23 @@ export async function listRecentFingerprintsForUser(
   if (excludeRunId) {
     sql += ' AND planner_run_id <> ?';
     params.push(excludeRunId);
+  }
+  /*
+   * Exclude ONE item, by id.
+   *
+   * A regeneration must not be compared against the row it is about to replace.
+   * Its own stored fingerprint shares the item's pillar, service, format,
+   * template and hashtags — because it IS the item — so the soft axes match
+   * perfectly and the new copy is condemned as a duplicate of itself, however
+   * different the words are.
+   *
+   * Only this row is excluded. Siblings in the same run, other runs, and the
+   * user's history all still count, so duplicate protection is narrowed by one
+   * row rather than disabled.
+   */
+  if (excludeItemId) {
+    sql += ' AND id <> ?';
+    params.push(excludeItemId);
   }
   sql += ' ORDER BY created_at DESC, id DESC LIMIT ?';
   params.push(Number(limit));

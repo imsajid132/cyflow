@@ -955,6 +955,27 @@ export const UNSUPPORTED_CLAIM_PHRASES = Object.freeze([
 ]);
 
 /**
+ * Words beginning with a vowel LETTER that take "a", not "an", because they are
+ * pronounced with a consonant sound. Without these, "a user" and "a one-page
+ * site" would be reported as errors.
+ */
+export const CONSONANT_SOUND_VOWEL_WORDS = Object.freeze([
+  'user', 'users', 'unique', 'union', 'united', 'universal', 'university',
+  'useful', 'usual', 'usually', 'utility', 'one', 'once', 'european', 'euro',
+]);
+
+/**
+ * Words beginning with a consonant LETTER that take "an", because they are
+ * pronounced with a vowel sound. Initialisms dominate here, and they are
+ * exactly what a writer gets wrong: "an SEO audit", "an FAQ", "an hour".
+ */
+export const VOWEL_SOUND_CONSONANT_WORDS = Object.freeze([
+  'seo', 'faq', 'html', 'http', 'https', 'https', 'ssl', 'sql', 'svg', 'seo-friendly',
+  'hour', 'hours', 'honest', 'honestly', 'honour', 'honor', 'heir',
+  'mvp', 'rss', 'xml', 'ftp', 'nda', 'seo audit',
+]);
+
+/**
  * Unsupported-claim NUMBER patterns: a figure attached to a claim context
  * (experience, client counts, results, ratings). Numbers alone are fine
  * ("resize to 800px", "check every spring"); a number claiming a RESULT or a

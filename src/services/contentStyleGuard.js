@@ -26,6 +26,8 @@ import {
   PARAGRAPH_MAX_WORDS,
   UNSUPPORTED_CLAIM_PHRASES,
   UNSUPPORTED_CLAIM_PATTERNS,
+  CONSONANT_SOUND_VOWEL_WORDS,
+  VOWEL_SOUND_CONSONANT_WORDS,
 } from '../config/constants.js';
 
 /* Compiled once. Each pattern matches a figure attached to a claim context. */
@@ -114,6 +116,84 @@ export function findBannedPhrases(value) {
   if (typeof value !== 'string' || !value) return [];
   const haystack = value.toLowerCase();
   return BANNED_PHRASES.filter((phrase) => haystack.includes(phrase));
+}
+
+const CONSONANT_SOUND = new Set(CONSONANT_SOUND_VOWEL_WORDS);
+const VOWEL_SOUND = new Set(VOWEL_SOUND_CONSONANT_WORDS);
+
+/**
+ * Which article a word takes.
+ *
+ * English decides this by SOUND, not spelling, which is why a naive
+ * "starts with aeiou" test is wrong in both directions: it would reject the
+ * correct "a user" and accept the incorrect "a SEO audit". The two exception
+ * lists carry the cases that actually occur in this product's vocabulary; an
+ * unknown word falls back to the letter, which is right most of the time.
+ *
+ * An ALL-CAPS initialism is read letter by letter, so its article follows the
+ * sound of its first letter's NAME: "an S", "an F", "an M".
+ */
+const LETTER_NAME_STARTS_WITH_VOWEL = new Set(['a', 'e', 'f', 'h', 'i', 'l', 'm', 'n', 'o', 'r', 's', 'x']);
+
+export function expectedArticle(word) {
+  if (!word) return null;
+  const bare = word.replace(/[^\p{L}\p{N}-]/gu, '');
+  if (!bare) return null;
+  const lower = bare.toLowerCase();
+
+  if (CONSONANT_SOUND.has(lower)) return 'a';
+  if (VOWEL_SOUND.has(lower)) return 'an';
+
+  /*
+   * A hyphenated compound takes the article of its FIRST element: "a one-page
+   * site", "an hour-long call". Checking the whole token would miss these,
+   * because "one-page" is not a word anyone lists.
+   */
+  if (lower.includes('-')) {
+    const [head] = lower.split('-');
+    if (CONSONANT_SOUND.has(head)) return 'a';
+    if (VOWEL_SOUND.has(head)) return 'an';
+  }
+
+  // An initialism the reader spells out: SEO, FAQ, RSS. Two or more capitals
+  // and no lower-case letters.
+  if (/^[A-Z0-9-]{2,}$/.test(bare) && /[A-Z]/.test(bare)) {
+    return LETTER_NAME_STARTS_WITH_VOWEL.has(lower[0]) ? 'an' : 'a';
+  }
+
+  return /^[aeiou]/.test(lower) ? 'an' : 'a';
+}
+
+/**
+ * Obvious article errors: "a agency", "a SEO audit", "an website", "an user".
+ *
+ * Deliberately narrow. This is not a grammar checker; it catches the specific,
+ * unambiguous a/an mistake that makes a post read as machine-written, and it
+ * stays quiet about anything it cannot be certain of. A false accusation here
+ * would burn a generation for nothing.
+ *
+ * Returns the exact pairs found, so the retry can be told precisely what to fix
+ * rather than having the text silently rewritten underneath the writer.
+ */
+export function findArticleErrors(value) {
+  if (typeof value !== 'string' || !value) return [];
+  const out = [];
+  const seen = new Set();
+  const re = /\b(a|an|A|An)\s+([\p{L}][\p{L}\p{N}-]*)/gu;
+  let match = re.exec(value);
+  while (match) {
+    const [, article, word] = match;
+    const expected = expectedArticle(word);
+    if (expected && expected !== article.toLowerCase()) {
+      const found = `${article.toLowerCase()} ${word}`;
+      if (!seen.has(found)) {
+        seen.add(found);
+        out.push({ found, expected: `${expected} ${word}` });
+      }
+    }
+    match = re.exec(value);
+  }
+  return out;
 }
 
 /**
@@ -311,6 +391,24 @@ export function applyStyleGuard(content, { platform } = {}) {
   }
   for (const reason of claimHits) rejections.push(`unsupported claim: ${reason}`);
 
+  /*
+   * Obvious article errors ("a agency", "a SEO audit").
+   *
+   * REJECTED, not repaired. Swapping the article in place would silently edit a
+   * sentence nobody has read, and a writer that produced "a agency" usually has
+   * more wrong with the line than its article. The reason names the exact pair
+   * and the correction, so the retry is told what to fix rather than being sent
+   * back empty-handed.
+   */
+  const articleHits = [];
+  for (const field of ['caption', 'headline', 'subheadline']) {
+    for (const hit of findArticleErrors(out[field])) articleHits.push(hit);
+  }
+  if (articleHits.length) {
+    const detail = articleHits.slice(0, 3).map((h) => `"${h.found}" should be "${h.expected}"`).join(', ');
+    rejections.push(`grammar: ${detail}`);
+  }
+
   for (const issue of headlineIssues(out.headline)) rejections.push(issue);
 
   /*
@@ -336,6 +434,8 @@ export default {
   hasBannedDash,
   findBannedPhrases,
   findUnsupportedClaims,
+  findArticleErrors,
+  expectedArticle,
   headlineIssues,
   postCopyIssues,
   paragraphsOf,
