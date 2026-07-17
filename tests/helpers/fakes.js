@@ -135,6 +135,84 @@ export function createFakeIntegrationRepository() {
         r.verifiedAt = null;
       }
     },
+
+    // --- OpenAI ---
+    //
+    // Distinct field names on the same row, mirroring the real table: one
+    // integration row per user carrying both credentials, so removing one
+    // provably leaves the other alone.
+    async getOpenAiCredentialRecord(userId) {
+      const r = map.get(String(userId));
+      if (!r) return null;
+      return {
+        encryptedApiKey: r.openaiEncryptedApiKey ?? null,
+        encryptionVersion: r.openaiEncryptionVersion ?? 1,
+        model: r.openaiModel ?? null,
+        verifiedAt: r.openaiVerifiedAt ?? null,
+        configured: r.openaiEncryptedApiKey != null,
+      };
+    },
+    async hasConfiguredOpenAiCredentials(userId) {
+      return map.get(String(userId))?.openaiEncryptedApiKey != null;
+    },
+    async upsertEncryptedOpenAiCredentials({ userId, encryptedApiKey, model = null, encryptionVersion = 1 }) {
+      const r = map.get(String(userId)) ?? {};
+      map.set(String(userId), {
+        ...r,
+        openaiEncryptedApiKey: encryptedApiKey,
+        openaiEncryptionVersion: encryptionVersion,
+        openaiModel: model,
+        // Saving or replacing ALWAYS resets verification, exactly as the real
+        // repository's ON DUPLICATE KEY UPDATE does. A new key is unproven.
+        openaiVerifiedAt: null,
+      });
+    },
+    async markOpenAiVerified(userId, verifiedAt) {
+      const r = map.get(String(userId));
+      if (r) r.openaiVerifiedAt = verifiedAt;
+    },
+    async clearOpenAiVerification(userId) {
+      const r = map.get(String(userId));
+      if (r) r.openaiVerifiedAt = null;
+    },
+    async updateOpenAiModel(userId, model) {
+      const r = map.get(String(userId));
+      if (r) r.openaiModel = model;
+    },
+    async deleteOpenAiCredentials(userId) {
+      const r = map.get(String(userId));
+      if (r) {
+        r.openaiEncryptedApiKey = null;
+        r.openaiModel = null;
+        r.openaiEncryptionVersion = 1;
+        r.openaiVerifiedAt = null;
+      }
+    },
+  };
+}
+
+/**
+ * Fake `openAiVerifier`.
+ *
+ * Answers whether a key "works" without a network call. Records the userId it
+ * was asked about, so a test can prove the verification was scoped to the right
+ * customer rather than to whoever happened to be cached.
+ */
+export function createFakeOpenAiVerifier(opts = {}) {
+  const calls = [];
+  return {
+    _calls: calls,
+    async verify({ userId }) {
+      calls.push({ userId });
+      if (opts.success === false) {
+        return {
+          success: false,
+          classification: opts.classification ?? 'auth',
+          message: opts.message ?? 'That key was rejected by OpenAI. Check it and try again.',
+        };
+      }
+      return { success: true, classification: null, message: 'Your OpenAI API key works.' };
+    },
   };
 }
 
@@ -1277,7 +1355,24 @@ export function createFakePlannerOpenAI(opts = {}) {
     _perPlatform: perPlatform,
     /** How many times this platform's copy was written. */
     callsFor: (platform) => perPlatform.get(platform) ?? 0,
-    isAvailable: () => opts.available !== false,
+    /*
+     * Availability is PER USER now, and this fake has to model that or it hides
+     * the thing under test.
+     *
+     * Discovered by the browser smoke test: with `isAvailable: () => true` the
+     * fake answered "yes" for a user with no OpenAI key, and plan generation
+     * returned 201. The real service refuses — but the fake replaces the real
+     * service, so the harness was reporting a pass over a path it had disabled.
+     *
+     * `isAvailableForUser` lets a caller wire this to the real credential check.
+     * Left unset it keeps the old process-wide answer, which is what every
+     * existing planner test wants.
+     */
+    isAvailable: async (userId = null) => {
+      if (opts.available === false) return false;
+      if (opts.isAvailableForUser) return opts.isAvailableForUser(userId);
+      return true;
+    },
     async generateSocialContent() {
       return {
         facebook: { caption: 'Caption for facebook', hashtags: ['#cyflow'] },
@@ -1396,6 +1491,7 @@ export function createFakePlannerOpenAI(opts = {}) {
 }
 
 export default {
+  createFakeOpenAiVerifier,
   createFakeUserRepository,
   createFakeIntegrationRepository,
   createFakeLogRepository,

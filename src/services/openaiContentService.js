@@ -34,6 +34,7 @@ import {
 import { AppError } from '../utils/errors.js';
 import { applyStyleGuard } from './contentStyleGuard.js';
 import * as defaultApiUsage from '../repositories/apiUsageRepository.js';
+import { openAiClientResolver as defaultClientResolver } from './openaiClientResolver.js';
 
 export const OPENAI_ERROR_CODES = Object.freeze({
   INVALID_CONFIGURATION: 'invalid_configuration',
@@ -286,27 +287,50 @@ export function createOpenAIContentService({
   config = defaultConfig,
   apiUsage = defaultApiUsage,
   buildClient = null,
+  clientResolver = defaultClientResolver,
   logger = console,
 } = {}) {
-  let cachedClient = client;
+  /*
+   * `client` is an INJECTED client, for tests only.
+   *
+   * There is deliberately no `cachedClient` any more. This service used to hold
+   * one, built from config.openai.apiKey — a single global key, in module state,
+   * serving every customer. That is the defect Milestone C1 exists to end, and
+   * a process-wide client variable is how it happened: whatever built it first
+   * won, for everyone, until restart.
+   *
+   * A client now belongs to ONE call for ONE user. See openaiClientResolver.
+   */
 
-  function isAvailable() {
-    return Boolean(client) || config.openai.available;
+  /**
+   * Whether THIS USER can generate.
+   *
+   * Takes a userId because availability is now a per-user fact, not a property
+   * of the process. Called with no user it reports only whether an injected
+   * test client exists — it must never answer "yes" on the strength of a global
+   * key, because that key is not the customer's to spend.
+   */
+  async function isAvailable(userId = null) {
+    if (client) return true;
+    if (userId == null) return false;
+    return clientResolver.isAvailableForUser(userId);
   }
 
-  function getClient() {
-    if (cachedClient) return cachedClient;
-    if (!config.openai.available) {
+  /**
+   * The OpenAI client for one user's own credential.
+   *
+   * Throws a user-facing ConflictError (from the resolver) when they have no
+   * usable key — BEFORE any provider call and before any usage record, so a
+   * missing integration costs them nothing.
+   */
+  async function getClientFor(userId) {
+    if (client) return { client, model: config.openai.textModel, source: 'injected' };
+    if (userId == null) {
+      // No user, no key. Refusing is the only honest answer: the alternative is
+      // spending somebody's credential on work nobody can attribute.
       throw new OpenAIContentError(OPENAI_ERROR_CODES.INVALID_CONFIGURATION);
     }
-    cachedClient = buildClient
-      ? buildClient()
-      : new OpenAI({
-          apiKey: config.openai.apiKey,
-          timeout: config.openai.requestTimeoutMs,
-          maxRetries: 2, // SDK retries ONLY transient 429/5xx/timeout, not 4xx
-        });
-    return cachedClient;
+    return clientResolver.resolveForUser(userId);
   }
 
   /** Log ONLY: upstream status, safe error code, internal classification. */
@@ -400,8 +424,9 @@ export function createOpenAIContentService({
       throw new OpenAIContentError(OPENAI_ERROR_CODES.INVALID_PROVIDER_RESPONSE);
     }
 
-    const openai = getClient();
-    const model = config.openai.textModel;
+    // This user's own key. Throws before any provider call or usage record if
+    // they have not configured one.
+    const { client: openai, model } = await getClientFor(ctx.userId ?? null);
 
     // GPT-5 compatible request: Responses API, strict structured outputs,
     // max_output_tokens, minimal reasoning — and NO temperature/max_tokens.
@@ -818,8 +843,9 @@ export function createOpenAIContentService({
     const platform = PLATFORM_VALUES.includes(input.platform) ? input.platform : null;
     if (!platform) throw new OpenAIContentError(OPENAI_ERROR_CODES.INVALID_PROVIDER_RESPONSE);
 
-    const openai = getClient();
-    const model = config.openai.textModel;
+    // This user's own key. Throws before any provider call or usage record if
+    // they have not configured one.
+    const { client: openai, model } = await getClientFor(ctx.userId ?? null);
     // `format` is the strategic shape; `contentType` is kept as an alias so
     // callers written against Phase 4.7 keep working.
     const contentType = typeof input.format === 'string'

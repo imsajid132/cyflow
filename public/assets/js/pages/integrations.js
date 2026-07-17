@@ -1,17 +1,31 @@
 /**
- * Integrations — HCTI credentials only.
+ * Integrations — the two credentials a customer supplies themselves.
  *
- * The user's HCTI User ID and API Key are encrypted server-side. They are never
+ * OpenAI API and HCTI. Both are encrypted server-side and neither is ever
  * returned after saving, so this page only ever shows configured/verified state
- * and empty inputs. The OpenAI key is centrally managed by the admin and is
- * never shown, requested, or referenced here as something a user supplies.
+ * and empty inputs. A "replace" is typing a new value, never editing the old
+ * one — the old one is not ours to hand back.
+ *
+ * Social accounts are deliberately NOT here. Those are authorised through OAuth
+ * on Connections; these are secrets someone pastes. Putting "sign in with
+ * Facebook" beside "paste your API key" teaches exactly the wrong habit.
  */
 
 import * as api from '../api.js';
 import {
-  el, card, pageHead, badge, notice, toast, field, val,
-  setLoading, setFieldError, clearFieldErrors, confirmModal,
+  el, card, pageHead, badge, notice, toast, field, selectField, val,
+  setLoading, setFieldError, clearFieldErrors, confirmModal, formatDate,
 } from '../ui.js';
+
+/** Models a customer may pick. Mirrors OPENAI_MODELS; the server re-validates. */
+const OPENAI_MODEL_OPTIONS = [
+  { value: 'gpt-5-mini', label: 'GPT-5 mini (fast, lower cost)' },
+  { value: 'gpt-5', label: 'GPT-5 (highest quality)' },
+  { value: 'gpt-4.1-mini', label: 'GPT-4.1 mini' },
+  { value: 'gpt-4.1', label: 'GPT-4.1' },
+  { value: 'gpt-4o-mini', label: 'GPT-4o mini' },
+  { value: 'gpt-4o', label: 'GPT-4o' },
+];
 
 function statusRow(status) {
   const configured = Boolean(status?.configured);
@@ -25,15 +39,38 @@ function statusRow(status) {
   return el('div', { className: 'row', attrs: { style: 'gap:.5rem' } }, bits);
 }
 
+/**
+ * Saved and verified are DIFFERENT facts and are shown as different badges.
+ *
+ * A key that is stored but has never authenticated is not "connected", and
+ * saying so would be the app claiming something it has not checked.
+ */
+function openAiStatusRow(status) {
+  const configured = Boolean(status?.configured);
+  const verified = Boolean(status?.verified);
+  const bits = [
+    badge(configured ? 'Key saved' : 'Not configured', configured ? 'ok' : 'warn'),
+    badge(verified ? 'Verified' : 'Not verified', verified ? 'ok' : 'warn'),
+  ];
+  // The mask is the only credential-derived value the API ever returns.
+  if (status?.maskedKey) {
+    bits.push(el('span', { className: 'card-sub', attrs: { 'data-openai-mask': '' }, text: status.maskedKey }));
+  }
+  if (status?.verifiedAt) {
+    bits.push(el('span', { className: 'card-sub', text: `Last verified ${formatDate(status.verifiedAt)}` }));
+  }
+  return el('div', { className: 'row', attrs: { style: 'gap:.5rem;flex-wrap:wrap' } }, bits);
+}
+
 export async function render(root, ctx) {
-  const [statusRes, capsRes] = await Promise.all([
+  const [statusRes, openAiRes] = await Promise.all([
     api.apiRequest('/api/integrations/hcti'),
-    api.apiRequest('/api/posts/capabilities'),
+    api.apiRequest('/api/integrations/openai'),
   ]);
-  if (statusRes.unauthorized || capsRes.unauthorized) { ctx.navigate('/login'); return; }
+  if (statusRes.unauthorized || openAiRes.unauthorized) { ctx.navigate('/login'); return; }
 
   let status = api.payload(statusRes) || {};
-  const caps = api.payload(capsRes) || {};
+  let openAi = api.payload(openAiRes) || {};
 
   const statusHost = el('div', {}, [statusRow(status)]);
   const saveBtn = el('button', { className: 'btn btn-primary', text: 'Save credentials', attrs: { type: 'button' } });
@@ -119,6 +156,149 @@ export async function render(root, ctx) {
 
   removeBtn.hidden = !status.configured;
 
+  // --- OpenAI API ----------------------------------------------------------
+  //
+  // The card that replaced "Post copy generation", which used to say Cyflow
+  // "never asks you for an AI provider key" and that there was "nothing for you
+  // to configure". That was true of a design where one application key served
+  // every customer — the design C1 removed. The key is the customer's now, and
+  // this is where they put it.
+
+  const aiStatusHost = el('div', {}, [openAiStatusRow(openAi)]);
+  const aiSaveBtn = el('button', { className: 'btn btn-primary', text: 'Save key', attrs: { type: 'button' } });
+  const aiTestBtn = el('button', { className: 'btn btn-secondary', text: 'Test connection', attrs: { type: 'button' } });
+  const aiRemoveBtn = el('button', { className: 'btn btn-danger', text: 'Remove', attrs: { type: 'button' } });
+  const aiResultHost = el('div', {});
+  const modelSelect = selectField({
+    id: 'openaiModel',
+    label: 'Model',
+    options: OPENAI_MODEL_OPTIONS,
+    value: openAi.model || OPENAI_MODEL_OPTIONS[0].value,
+  });
+
+  function refreshAi(next) {
+    if (next) openAi = { ...openAi, ...next };
+    aiStatusHost.textContent = '';
+    aiStatusHost.appendChild(openAiStatusRow(openAi));
+    aiRemoveBtn.hidden = !openAi.configured;
+    aiTestBtn.hidden = !openAi.configured;
+    // Replacing, not editing: the stored key is never put back in the box, so
+    // the label has to say which action this is.
+    aiSaveBtn.textContent = openAi.configured ? 'Replace key' : 'Save key';
+  }
+
+  aiSaveBtn.addEventListener('click', async () => {
+    if (aiSaveBtn.disabled) return;
+    clearFieldErrors(root);
+    aiResultHost.textContent = '';
+    const apiKey = val('openaiApiKey').trim();
+    if (!apiKey) {
+      setFieldError('openaiApiKey', 'Enter your OpenAI API key');
+      document.getElementById('openaiApiKey')?.focus();
+      return;
+    }
+    setLoading(aiSaveBtn, true, 'Saving…');
+    try {
+      const res = await api.apiRequest('/api/integrations/openai', {
+        method: 'PUT',
+        body: { apiKey, model: val('openaiModel') || null },
+      });
+      if (!res.ok) {
+        aiResultHost.appendChild(notice(api.errorMessage(res, 'That key could not be saved.'), 'err'));
+        return;
+      }
+      // Clear the input immediately. The key is not ours to keep in the DOM.
+      document.getElementById('openaiApiKey').value = '';
+      refreshAi(api.payload(res));
+      toast('OpenAI API key saved. Test the connection to verify it.', 'ok');
+    } finally {
+      setLoading(aiSaveBtn, false);
+      refreshAi();
+    }
+  });
+
+  aiTestBtn.addEventListener('click', async () => {
+    if (aiTestBtn.disabled) return;
+    aiResultHost.textContent = '';
+    setLoading(aiTestBtn, true, 'Testing…');
+    try {
+      const res = await api.apiRequest('/api/integrations/openai/test', { method: 'POST' });
+      if (!res.ok) {
+        aiResultHost.appendChild(notice(api.errorMessage(res, 'The key could not be tested.'), 'err'));
+        return;
+      }
+      const body = api.payload(res);
+      refreshAi({ verified: body.verified, verifiedAt: body.verifiedAt ?? null });
+      aiResultHost.appendChild(notice(body.message, body.success ? 'ok' : 'err'));
+    } finally {
+      setLoading(aiTestBtn, false);
+    }
+  });
+
+  aiRemoveBtn.addEventListener('click', async () => {
+    const ok = await confirmModal({
+      title: 'Remove your OpenAI API key?',
+      message: 'Cyflow will stop generating new post copy until you add a key again. Your existing plans and posts are not affected.',
+      confirmText: 'Remove',
+      danger: true,
+    });
+    if (!ok) return;
+    aiResultHost.textContent = '';
+    setLoading(aiRemoveBtn, true, 'Removing…');
+    try {
+      const res = await api.apiRequest('/api/integrations/openai', { method: 'DELETE', body: { confirm: 'DELETE' } });
+      if (!res.ok) {
+        aiResultHost.appendChild(notice(api.errorMessage(res, 'The key could not be removed.'), 'err'));
+        return;
+      }
+      refreshAi(api.payload(res));
+      toast('OpenAI API key removed.', 'ok');
+    } finally {
+      setLoading(aiRemoveBtn, false);
+    }
+  });
+
+  const openAiCard = card([
+    el('div', { className: 'card-head' }, [
+      el('span', { className: 'card-title', text: 'OpenAI API' }),
+      aiStatusHost,
+    ]),
+  ]);
+  // Both cards carry a "Test connection" and a "Remove". Naming the card is what
+  // lets a test — or an assistive technology — tell them apart.
+  openAiCard.setAttribute('data-integration', 'openai');
+  openAiCard.append(...[
+    el('p', { className: 'card-sub', text: 'Cyflow writes your post copy through your own OpenAI API account. Your key is encrypted before it is stored and is never shown again after saving.' }),
+    el('div', { className: 'grid grid-2' }, [
+      // Always empty. The stored key is never returned by the API and is never
+      // put back into this box — "replace" means type a new one.
+      field({
+        id: 'openaiApiKey',
+        label: openAi.configured ? 'New OpenAI API key' : 'OpenAI API key',
+        type: 'password',
+        attrs: { autocomplete: 'new-password', spellcheck: 'false', placeholder: 'sk-…' },
+      }),
+      modelSelect,
+    ]),
+    el('div', { className: 'row', attrs: { style: 'gap:.5rem' } }, [
+      aiSaveBtn, aiTestBtn, el('span', { className: 'spacer' }), aiRemoveBtn,
+    ]),
+    aiResultHost,
+    /*
+     * The billing sentence, verbatim and deliberately prominent.
+     *
+     * The single most likely misunderstanding is "I pay for ChatGPT, so this is
+     * covered". It is not: they are separate products with separate billing, and
+     * a customer who learns that from a surprise invoice learns it the worst way.
+     *
+     * Nothing here claims a balance, a credit total or a limit — the API does not
+     * tell us any of that, and inventing it would be a lie about someone's money.
+     */
+    notice('ChatGPT subscriptions and OpenAI API billing are separate. Cyflow AI requests are billed to your OpenAI API account.', 'info'),
+    el('p', { className: 'hint', text: 'Create a key at platform.openai.com under API keys. Cyflow uses it only to write your posts.' }),
+  ]);
+  refreshAi();
+
   root.appendChild(el('div', { className: 'page' }, [
     pageHead('Integrations', 'Connect the services Cyflow uses to build your posts.'),
     card([
@@ -137,16 +317,7 @@ export async function render(root, ctx) {
       resultHost,
       el('p', { className: 'hint', text: 'Find both values in your HCTI dashboard. Cyflow only uses them to render your images.' }),
     ]),
-    card([
-      el('div', { className: 'card-head' }, [
-        el('span', { className: 'card-title', text: 'Post copy generation' }),
-        badge(caps.openai?.available ? 'Available' : 'Unavailable', caps.openai?.available ? 'ok' : 'warn'),
-      ]),
-      el('p', { className: 'card-sub', text: 'Post copy is generated using Cyflow’s own managed provider account. There is nothing for you to configure, and Cyflow never asks you for an AI provider key.' }),
-      typeof caps.generations?.usedToday === 'number'
-        ? el('p', { className: 'hint', text: `Generations used today: ${caps.generations.usedToday} of ${caps.generations.dailyLimit}.` })
-        : null,
-    ]),
+    openAiCard,
     card([
       el('div', { className: 'card-head' }, [el('span', { className: 'card-title', text: 'Social accounts' })]),
       el('p', { className: 'card-sub', text: 'Facebook Pages, Instagram Professional, and Threads are connected on the Connections page.' }),

@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS `users` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------------------------------
--- B. user_integrations  (per-user HCTI credentials — encrypted only)
+-- B. user_integrations  (per-user HCTI + OpenAI credentials — encrypted only)
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `user_integrations` (
   `id`                       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -42,7 +42,11 @@ CREATE TABLE IF NOT EXISTS `user_integrations` (
   `hcti_user_id_encrypted`   VARCHAR(512)    NULL DEFAULT NULL,
   `hcti_api_key_encrypted`   VARCHAR(512)    NULL DEFAULT NULL,
   `hcti_encryption_version`  SMALLINT UNSIGNED NOT NULL DEFAULT 1,
-  `hcti_verified_at`         DATETIME        NULL DEFAULT NULL,
+  `hcti_verified_at`          DATETIME        NULL DEFAULT NULL,
+  `openai_api_key_encrypted`  VARCHAR(512)    NULL DEFAULT NULL,
+  `openai_encryption_version` SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+  `openai_model`              VARCHAR(128)    NULL DEFAULT NULL,
+  `openai_verified_at`        DATETIME        NULL DEFAULT NULL,
   `created_at`               DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`               DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -182,7 +186,6 @@ CREATE TABLE IF NOT EXISTS `media_assets` (
   `source_url`         VARCHAR(1024)   NULL DEFAULT NULL,
   `source_asset_id`    VARCHAR(255)    NULL DEFAULT NULL,
   `mime_type`          VARCHAR(128)    NULL DEFAULT NULL,
-  `file_extension`     VARCHAR(16)     NULL DEFAULT NULL,
   `status`             ENUM('pending','ready','expired','failed') NOT NULL DEFAULT 'pending',
   `expires_at`         DATETIME        NULL DEFAULT NULL,
   `created_at`         DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,

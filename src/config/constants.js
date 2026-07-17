@@ -153,6 +153,12 @@ export const EVENT_TYPES = Object.freeze({
   HCTI_CREDENTIALS_VERIFIED: 'hcti.credentials_verified',
   HCTI_CREDENTIALS_VERIFICATION_FAILED: 'hcti.credentials_verification_failed',
   HCTI_CREDENTIALS_DELETED: 'hcti.credentials_deleted',
+  // Customer OpenAI API key lifecycle. The events record THAT it happened and
+  // never what the key is — see loggingService's redaction.
+  OPENAI_CREDENTIALS_SAVED: 'openai.credentials_saved',
+  OPENAI_CREDENTIALS_VERIFIED: 'openai.credentials_verified',
+  OPENAI_CREDENTIALS_VERIFICATION_FAILED: 'openai.credentials_verification_failed',
+  OPENAI_CREDENTIALS_DELETED: 'openai.credentials_deleted',
   // OAuth + social account lifecycle
   OAUTH_STARTED: 'oauth.started',
   OAUTH_AUTHORIZATION_DENIED: 'oauth.authorization_denied',
@@ -228,6 +234,18 @@ export const HCTI_LIMITS = Object.freeze({
   API_KEY_MAX: 255,
 });
 
+/**
+ * Bounds for the customer's OpenAI API key.
+ *
+ * A generous ceiling on purpose. Real keys have grown over time (sk-,
+ * sk-proj-, sk-svcacct-) and a tight bound would reject a working key the day
+ * OpenAI lengthens the format again. 400 still fits comfortably inside the
+ * VARCHAR(512) the AES-GCM envelope is stored in.
+ */
+export const OPENAI_LIMITS = Object.freeze({
+  API_KEY_MAX: 400,
+});
+
 // --- Phase 4: content generation, image templates, scheduling --------------
 
 // Platform keys used for generated content (derived from account types).
@@ -251,6 +269,23 @@ export const PLATFORM_LABELS = Object.freeze({
   instagram: 'Instagram',
   threads: 'Threads',
 });
+
+/**
+ * OpenAI models a customer may select for their own API key.
+ *
+ * An allow-list, not a free-text field. The key is theirs; the model still has
+ * to be one this application's prompts and strict JSON schemas are written
+ * against. An unrecognised string would fail at generation time — after the
+ * request, on their bill.
+ */
+export const OPENAI_MODELS = Object.freeze([
+  'gpt-5',
+  'gpt-5-mini',
+  'gpt-4.1',
+  'gpt-4.1-mini',
+  'gpt-4o',
+  'gpt-4o-mini',
+]);
 
 /**
  * The DESTINATION's full name, for lists of where a post is going.

@@ -523,8 +523,12 @@ export function createPlannerService({
    * worse outcome than a plan the user can still read and approve.
    */
   async function generatePlan(userId, options = {}, { req } = {}) {
-    if (!openaiContentService.isAvailable()) {
-      throw new ConflictError('Content generation is not available');
+    // Per-user now: availability is a fact about THIS customer's key, not about
+    // the process. Checked before any spend.
+    if (!(await openaiContentService.isAvailable(userId))) {
+      throw new ConflictError(
+        'Add and verify your OpenAI API key in Integrations before using AI generation.',
+      );
     }
 
     const prefs = await getPreferences(userId);
@@ -1648,7 +1652,9 @@ export function createPlannerService({
       if (edited.has('caption') && !force) {
         throw new ConflictError('You have edited this caption. Regenerating would discard your changes — confirm to continue.');
       }
-      if (!openaiContentService.isAvailable()) throw new ConflictError('Content generation is not available');
+      if (!(await openaiContentService.isAvailable(userId))) {
+        throw new ConflictError('Add and verify your OpenAI API key in Integrations before using AI generation.');
+      }
       await assertUnderDailyLimit(userId, 1);
 
       const siblings = await runsRepo.listItemsForRun(item.plannerRunId, userId);

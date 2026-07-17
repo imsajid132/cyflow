@@ -28,6 +28,7 @@ import { createBusinessProfileController } from './controllers/businessProfileCo
 import { createLoggingService } from './services/loggingService.js';
 import { createAuthService } from './services/authService.js';
 import { hctiService as realHctiService } from './services/hctiService.js';
+import { openAiVerifier as realOpenAiVerifier } from './services/openAiVerifier.js';
 import { createOAuthService } from './services/oauthService.js';
 import { createThreadsCallbackService } from './services/threadsCallbackService.js';
 import { createPostService } from './services/postService.js';
@@ -46,7 +47,7 @@ import { withTransaction as realWithTransaction } from './db/transactions.js';
 /**
  * @param {{
  *   userRepository?, integrationRepository?, logRepository?,
- *   loggingService?, hctiService?, authService?, withTransaction?
+ *   loggingService?, hctiService?, openAiVerifier?, authService?, withTransaction?
  * }} [overrides]
  */
 export function buildContainer(overrides = {}) {
@@ -57,6 +58,7 @@ export function buildContainer(overrides = {}) {
 
   const logging = overrides.loggingService ?? createLoggingService({ logRepository: logRepo });
   const hctiService = overrides.hctiService ?? realHctiService;
+  const openAiVerifier = overrides.openAiVerifier ?? realOpenAiVerifier;
 
   const authService =
     overrides.authService ?? createAuthService({ users, integrations, logging, withTransaction });
@@ -79,6 +81,7 @@ export function buildContainer(overrides = {}) {
   const integrationController = createIntegrationController({
     integrations,
     hctiService,
+    openAiVerifier,
     logging,
     withTransaction,
   });

@@ -21,7 +21,11 @@ import './setup-env.mjs';
 
 import { pathToFileURL } from 'node:url';
 import { createApp } from '../src/app.js';
-import { createFakeOverrides, createFakePlannerOpenAI, createFakeSocialImageService } from '../tests/helpers/fakes.js';
+import { encryptSecret } from '../src/services/encryptionService.js';
+import {
+  createFakeOverrides, createFakePlannerOpenAI, createFakeSocialImageService,
+  createFakeOpenAiVerifier,
+} from '../tests/helpers/fakes.js';
 
 export const REVIEW_USER = Object.freeze({
   name: 'Sam Rivers',
@@ -84,6 +88,18 @@ const PROVIDER_ACCOUNTS = Object.freeze([
  *        retry exercises a genuine repair rather than a stubbed success.
  */
 export function buildReviewApp(opts = {}) {
+  /*
+   * The fake writer is told to ask the REAL credential check whether a given
+   * user may generate.
+   *
+   * Without this the fake answers "yes, always" and a browser test watching for
+   * "generation is blocked with no key" watches a path the harness has disabled.
+   * It reported 201 on a plan for a user with no key — the harness passing over
+   * the exact behaviour under test.
+   *
+   * Assigned after the overrides exist, because it closes over the repository.
+   */
+  let credentialCheck = async () => true;
   const openaiContentService = opts.repairChecklist
     ? createFakePlannerOpenAI({
       validate: true,
@@ -94,11 +110,16 @@ export function buildReviewApp(opts = {}) {
       validate: true,
       platformScript: { threads: [REPAIRED_THREADS] },
     })
-    : createFakePlannerOpenAI();
+    : createFakePlannerOpenAI({ isAvailableForUser: (u) => credentialCheck(u) });
   const overrides = createFakeOverrides({
     openaiContentService,
     socialImageService: { ...createFakeSocialImageService(), isReadyForUser: async () => true },
+    // Test connection must not make a real network call from a review server.
+    openAiVerifier: createFakeOpenAiVerifier(),
   });
+  // Now the repository exists: point the fake's availability at the real check.
+  credentialCheck = (userId) =>
+    (userId == null ? false : overrides.integrationRepository.hasConfiguredOpenAiCredentials(userId));
   const app = createApp(overrides);
   return { app, overrides };
 }
@@ -107,7 +128,7 @@ export function buildReviewApp(opts = {}) {
  * Seed everything a review needs for one user id: brand, connections, a plan,
  * queued posts, verified image credentials.
  */
-export async function seedWorld(overrides, userId) {
+export async function seedWorld(overrides, userId, { withOpenAiKey = true } = {}) {
   const {
     businessProfileRepository, socialAccountRepository, plannerPreferenceRepository,
     integrationRepository, mediaAssetRepository, postRepository,
@@ -153,6 +174,29 @@ export async function seedWorld(overrides, userId) {
       encryptedUserId: 'v1:fake', encryptedApiKey: 'v1:fake',
     });
     if (integrationRepository.markHctiVerified) await integrationRepository.markHctiVerified(userId);
+  }
+
+  /*
+   * A verified OpenAI key, because a customer without one can no longer
+   * generate — and this seed represents a working customer.
+   *
+   * Found by running the existing browser suites after C1: every retry started
+   * failing with "Add and verify your OpenAI API key", which was the new rule
+   * doing exactly its job against a seeded user who had never configured one.
+   * Before C1 the global application key covered for them silently. That is the
+   * whole point of the change, visible in the harness.
+   *
+   * A REAL envelope, not the 'v1:fake' the HCTI seed uses: the resolver decrypts
+   * this one, so it has to actually open. It encrypts a fake key that is valid
+   * for nothing, under the test encryption key.
+   */
+  if (withOpenAiKey) {
+    await integrationRepository.upsertEncryptedOpenAiCredentials({
+      userId,
+      encryptedApiKey: encryptSecret('sk-review-fake-not-a-real-key-000000000000000000000000'),
+      model: 'gpt-4o-mini',
+    });
+    await integrationRepository.markOpenAiVerified(userId, '2026-07-12 09:00:00');
   }
 
   return { mediaAssetRepository, postRepository };
@@ -316,7 +360,7 @@ export async function seedFailedPlan(overrides, userId, plannerService, { scenar
 }
 
 /** Register the review user + seed their world. Uses the real password hashing. */
-export async function seedReviewUser(overrides) {
+export async function seedReviewUser(overrides, opts = {}) {
   const bcrypt = (await import('bcrypt')).default;
   const passwordHash = await bcrypt.hash(REVIEW_USER.password, 4);
   const user = await overrides.userRepository.createUser({
@@ -325,7 +369,7 @@ export async function seedReviewUser(overrides) {
     passwordHash,
     timezone: REVIEW_USER.timezone,
   });
-  await seedWorld(overrides, user.id);
+  await seedWorld(overrides, user.id, opts);
   return user;
 }
 
@@ -344,8 +388,16 @@ if (isMain) {
   const withDuplicate = process.argv.includes('--with-duplicate-plan');
   // --with-checklist-plan  the live Checklist case (tools/checklist-smoke.mjs)
   const withChecklist = process.argv.includes('--with-checklist-plan');
+  /*
+   * --without-openai-key  seed a customer who has NOT configured OpenAI.
+   *
+   * The default seed has a key, because the default seed represents a working
+   * customer and every AI action needs one now. The OpenAI integration smoke
+   * test needs the opposite: someone starting from nothing.
+   */
+  const withoutOpenAiKey = process.argv.includes('--without-openai-key');
   const { app, overrides } = buildReviewApp({ repairThreads: withPlan, repairChecklist: withChecklist });
-  const user = await seedReviewUser(overrides);
+  const user = await seedReviewUser(overrides, { withOpenAiKey: !withoutOpenAiKey });
 
   let seeded = '';
   if (withPlan || withDuplicate || withChecklist) {

@@ -163,8 +163,8 @@ export function createPostService({
 
   async function generateContent(userId, postId, { req } = {}) {
     const post = await requireOwnedPost(userId, postId);
-    if (!openaiContentService.isAvailable()) {
-      throw new ConflictError('Content generation is not available');
+    if (!(await openaiContentService.isAvailable(userId))) {
+      throw new ConflictError('Add and verify your OpenAI API key in Integrations before using AI generation.');
     }
     const targets = await posts.listPostTargets(postId, userId);
     const platforms = platformsForTargets(targets);
@@ -397,7 +397,9 @@ export function createPostService({
     const since = addSecondsUtc(-24 * 3600);
     const used = await apiUsage.countUserOperationsSince(userId, since, { operations: DAILY_OPS });
     return {
-      openai: { available: openaiContentService.isAvailable() },
+      // Reports whether THIS user can generate, so the UI can disable an
+      // action rather than let them discover it by failing.
+      openai: { available: await openaiContentService.isAvailable(userId) },
       hcti: {
         configured: Boolean(hcti && hcti.configured),
         verified: Boolean(hcti && hcti.verifiedAt),

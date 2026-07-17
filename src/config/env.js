@@ -176,12 +176,32 @@ export function buildConfig(raw = process.env) {
    * exposed to a normal user.
    */
   const openaiPlannerModel = optionalString('OPENAI_PLANNER_MODEL');
+  /*
+   * ALLOW_LEGACY_GLOBAL_OPENAI_KEY — a development and test convenience, and
+   * nothing else.
+   *
+   * OPENAI_API_KEY used to serve every customer silently. It now serves nobody
+   * unless an operator turns this on AND the process is not production (see
+   * openaiClientResolver.legacyGlobalKeyAllowed). Default false, because the
+   * safe state has to be the one you get by doing nothing.
+   *
+   * This is NOT a customer integration and is never presented as one. A
+   * customer's key lives encrypted in user_integrations, per user.
+   */
+  const allowLegacyGlobalKey = optionalString('ALLOW_LEGACY_GLOBAL_OPENAI_KEY') === 'true';
+  if (allowLegacyGlobalKey && IS_PROD) {
+    errors.push(
+      'ALLOW_LEGACY_GLOBAL_OPENAI_KEY must not be enabled in production. '
+      + 'Each customer supplies their own OpenAI API key in Integrations.',
+    );
+  }
   const openai = {
     apiKey: openaiKey,
     // No invented default — empty string until configured.
     textModel: openaiModel,
     // Falls back to the text model rather than to a guess.
     plannerModel: openaiPlannerModel || openaiModel,
+    allowLegacyGlobalKey,
     available: openaiKey !== '' && openaiModel !== '',
     requestTimeoutMs: toNumber('OPENAI_REQUEST_TIMEOUT_MS', {
       required: false,
