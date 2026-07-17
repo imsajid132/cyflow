@@ -893,6 +893,30 @@ export const POST_COPY_TARGETS = Object.freeze({
 });
 
 /**
+ * What a LIST-shaped post should aim for, per platform.
+ *
+ * Guidance, not a hard rule, and deliberately so. The hard bands are words and
+ * PROSE paragraphs; a post with six good checks instead of five is not broken,
+ * and adding a rule that rejects it would be inventing a new way to fail. This
+ * is what the writer is asked for — the number that stops a checklist coming
+ * back with one item or with fourteen.
+ *
+ * The prose counts here are the same POST_COPY_RULES bands, restated at the
+ * point of use so a checklist prompt can say "2 to 4 paragraphs AND 4 to 7
+ * items" in one breath. That sentence is the fix: the old prompt could only
+ * talk about paragraphs, the validator counted items as paragraphs, and a
+ * checklist post was asked for and then rejected for being one.
+ */
+export const POST_LIST_TARGETS = Object.freeze({
+  facebook: Object.freeze({ MIN_ITEMS: 3, MAX_ITEMS: 6 }),
+  instagram: Object.freeze({ MIN_ITEMS: 4, MAX_ITEMS: 7 }),
+  threads: Object.freeze({ MIN_ITEMS: 3, MAX_ITEMS: 5 }),
+});
+
+/** Formats whose post copy is expected to carry a list. */
+export const LIST_SHAPED_FORMATS = Object.freeze(['checklist', 'process', 'tips', 'numbered_steps']);
+
+/**
  * The smallest gap allowed between a target edge and the validator's edge.
  *
  * Asserted by the target-band test rather than merely documented, so a future

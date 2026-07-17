@@ -155,7 +155,7 @@ test('a single block that meets the word count is still rejected as one paragrap
   const oneBlock = 'word '.repeat(120).trim();
   const issues = postCopyIssues(oneBlock, 'facebook');
   assert.ok(
-    issues.includes('Facebook has 1 paragraph; it needs 2 to 4'),
+    issues.includes('Facebook has 1 prose paragraph; it needs 2 to 4'),
     `a 120-word wall of text must not pass: ${JSON.stringify(issues)}`,
   );
 });
@@ -163,7 +163,7 @@ test('a single block that meets the word count is still rejected as one paragrap
 test('too many paragraphs is rejected, and says how many there are', () => {
   const many = Array.from({ length: 6 }, () => 'word '.repeat(20).trim()).join('\n\n');
   const issues = postCopyIssues(many, 'facebook');
-  assert.ok(issues.includes('Facebook has 6 paragraphs; it needs 2 to 4'), JSON.stringify(issues));
+  assert.ok(issues.includes('Facebook has 6 prose paragraphs; it needs 2 to 4'), JSON.stringify(issues));
 });
 
 test('one enormous paragraph is rejected even when the paragraph count passes', () => {
@@ -171,7 +171,7 @@ test('one enormous paragraph is rejected even when the paragraph count passes', 
   const issues = postCopyIssues(lopsided, 'facebook');
   assert.ok(
     issues.includes(
-      `Facebook has a paragraph of ${PARAGRAPH_MAX_WORDS + 10} words; `
+      `Facebook has a prose paragraph of ${PARAGRAPH_MAX_WORDS + 10} words; `
       + `the maximum for one paragraph is ${PARAGRAPH_MAX_WORDS}`,
     ),
     JSON.stringify(issues),
@@ -182,7 +182,7 @@ test('hashtags inside the post copy are rejected', () => {
   const withTags = `${PLAN[0].facebook}\n\nFollow along #seo #localseo`;
   const issues = postCopyIssues(withTags, 'facebook');
   assert.ok(
-    issues.includes('Facebook has hashtags inside the post copy; they belong at the end'),
+    issues.includes('Facebook has 2 hashtags inside the post copy; they belong in the hashtags field'),
     JSON.stringify(issues),
   );
 });
@@ -192,7 +192,7 @@ test('a singular count reads as a sentence, not as a row in a table', () => {
   // these are read by users now.
   assert.ok(postCopyIssues('word', 'threads').includes('Threads has 1 word; the minimum is 45'));
   assert.ok(postCopyIssues('word '.repeat(120).trim(), 'facebook')
-    .includes('Facebook has 1 paragraph; it needs 2 to 4'));
+    .includes('Facebook has 1 prose paragraph; it needs 2 to 4'));
 });
 
 test('empty post copy names the platform rather than saying "empty post copy"', () => {

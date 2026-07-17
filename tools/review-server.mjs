@@ -84,7 +84,12 @@ const PROVIDER_ACCOUNTS = Object.freeze([
  *        retry exercises a genuine repair rather than a stubbed success.
  */
 export function buildReviewApp(opts = {}) {
-  const openaiContentService = opts.repairThreads
+  const openaiContentService = opts.repairChecklist
+    ? createFakePlannerOpenAI({
+      validate: true,
+      platformScript: { instagram: [REPAIRED_INSTAGRAM_CHECKLIST] },
+    })
+    : opts.repairThreads
     ? createFakePlannerOpenAI({
       validate: true,
       platformScript: { threads: [REPAIRED_THREADS] },
@@ -179,6 +184,58 @@ export const REPAIRED_THREADS = [
   'You do not need the vocabulary to judge a straight answer. That is the whole test.',
 ].join('\n\n');
 
+/*
+ * The live CHECKLIST case, exactly as reported.
+ *
+ * Friday, Actionable Tips, format Checklist, family Checklist Guide, Instagram
+ * Professional and Threads, Facebook unselected:
+ *
+ *   Threads had 6 paragraphs; allowed 1 to 3
+ *   Instagram had 100 words; minimum 120
+ *   Instagram had 11 paragraphs; allowed 2 to 4
+ *
+ * Both posts are GOOD checklists. Under the old line-splitting paragraph count
+ * every item was a paragraph, so neither could ever pass.
+ */
+export const CHECKLIST_ITEM_COPY = Object.freeze({
+  threads: [
+    'Before you pay for another SEO audit, check these yourself. It takes ten minutes and it tells you whether the audit is worth buying.',
+    '- Does every service page say what the job involves?',
+    '- Can you find your phone number without scrolling?',
+    '- Does the homepage name the town you work in?',
+    '- Do your images have alt text?',
+    '- Does anything load slower than three seconds?',
+  ].join('\n'),
+  // 106 words: genuinely under Instagram's 120 floor, and 3 prose paragraphs,
+  // which is valid. Only the word count is really wrong.
+  instagram: [
+    'Most people paying for search work cannot say what they got for it last month.',
+    'Here is what to check before you pay for another audit:',
+    '- Does every service page say what the job involves?',
+    '- Can a visitor find your phone number without scrolling?',
+    '- Does the homepage name the town you actually work in?',
+    '- Do your images carry alt text?',
+    '- Does any page take longer than three seconds?',
+    '- Is the same phone number on every page?',
+    '- Does your title tag say what you do?',
+    'If most of those fail, an audit will only tell you what you just read.',
+  ].join('\n'),
+});
+
+/** The Instagram repair: the LIST grows, the prose count stays valid. */
+export const REPAIRED_INSTAGRAM_CHECKLIST = [
+  'Most people paying for search work cannot say what they got for it last month. That is not a failure of attention on their part; it is what happens when a report is built to look busy rather than to be read.',
+  'Before you buy another audit, run these checks yourself. Each takes a minute and none of them needs any technical knowledge:',
+  '- Does every service page say what the job actually involves, in plain words?',
+  '- Can a visitor find your phone number without scrolling?',
+  '- Does the homepage name the town you actually work in?',
+  '- Do your images carry alt text that describes them?',
+  '- Does any page take longer than three seconds to load?',
+  '- Is the same phone number on every single page?',
+  '- Does your title tag say what you do, or just your business name?',
+  'If most of those fail, an audit will tell you what you have just read for yourself, and charge you to hear it again.',
+].join('\n');
+
 /**
  * Seed a real plan whose first item is planner item 31, so the retry can be
  * driven in a browser.
@@ -223,19 +280,31 @@ export async function seedFailedPlan(overrides, userId, plannerService, { scenar
    *               anything.
    */
   const duplicate = scenario === 'duplicate';
+  const checklist = scenario === 'checklist';
+
+  const copy = checklist ? CHECKLIST_ITEM_COPY : FAILED_ITEM_COPY;
   await overrides.plannerRunRepository.updateItem(target.id, userId, {
     ...(duplicate ? {} : {
-      caption: FAILED_ITEM_COPY.instagram,
+      caption: copy.instagram,
+      contentFormat: checklist ? 'checklist' : undefined,
       platformCaptions: {
-        instagram: { caption: FAILED_ITEM_COPY.instagram, hashtags: ['#seo'] },
-        threads: { caption: FAILED_ITEM_COPY.threads, hashtags: [] },
+        instagram: { caption: copy.instagram, hashtags: ['#seo'] },
+        threads: { caption: copy.threads, hashtags: [] },
       },
     }),
     approvalStatus: 'generation_failed',
     qualityStatus: 'generation_failed',
     qualityFailures: duplicate
       ? ['this post is a near-duplicate of another one']
-      : ['Threads has 44 words; the minimum is 45'],
+      : checklist
+        // The reported failures, verbatim. Under the fixed validator only the
+        // Instagram word count is real; the paragraph counts were list items.
+        ? [
+          'Threads has 6 paragraphs; allowed 1 to 3',
+          'Instagram has 100 words; minimum 120',
+          'Instagram has 11 paragraphs; allowed 2 to 4',
+        ]
+        : ['Threads has 44 words; the minimum is 45'],
     duplicationScore: duplicate ? 0.91 : 0.157,
     duplicationNotes: duplicate
       ? 'Too similar to a recent post: a similar angle, the same hashtags.'
@@ -273,14 +342,16 @@ if (isMain) {
   // --with-duplicate-plan the 4.8 failure: a near-duplicate  (tools/retry-smoke.mjs)
   const withPlan = process.argv.includes('--with-failed-plan');
   const withDuplicate = process.argv.includes('--with-duplicate-plan');
-  const { app, overrides } = buildReviewApp({ repairThreads: withPlan });
+  // --with-checklist-plan  the live Checklist case (tools/checklist-smoke.mjs)
+  const withChecklist = process.argv.includes('--with-checklist-plan');
+  const { app, overrides } = buildReviewApp({ repairThreads: withPlan, repairChecklist: withChecklist });
   const user = await seedReviewUser(overrides);
 
   let seeded = '';
-  if (withPlan || withDuplicate) {
+  if (withPlan || withDuplicate || withChecklist) {
     const { buildPlannerService } = await import('./review-planner.mjs');
     const info = await seedFailedPlan(overrides, user.id, buildPlannerService(overrides), {
-      scenario: withDuplicate ? 'duplicate' : 'repair',
+      scenario: withDuplicate ? 'duplicate' : withChecklist ? 'checklist' : 'repair',
     });
     seeded = ` run=${info.runId} failedItem=${info.failedItemId} scenario=${info.scenario}`;
   }

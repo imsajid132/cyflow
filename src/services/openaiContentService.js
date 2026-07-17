@@ -27,6 +27,8 @@ import {
   GENERATION_LIMITS,
   POST_COPY_RULES,
   POST_COPY_TARGETS,
+  POST_LIST_TARGETS,
+  LIST_SHAPED_FORMATS,
   ERROR_CODES,
 } from '../config/constants.js';
 import { AppError } from '../utils/errors.js';
@@ -610,10 +612,37 @@ export function createOpenAIContentService({
       'whole post as one line. Never use a bullet or a numbered list in the caption.',
     ];
 
+    /*
+     * A list-shaped post has TWO structural budgets, and they must be stated
+     * together or they contradict each other.
+     *
+     * The prompt could previously only talk about paragraphs, while the
+     * validator counted every checklist item as one. So the model was asked for
+     * a checklist and then told it had eleven paragraphs and needed four — an
+     * instruction it could only obey by deleting the checklist. Saying "2 to 4
+     * PROSE paragraphs AND 4 to 7 items" is what makes the two satisfiable at
+     * the same time.
+     */
+    if (LIST_SHAPED_FORMATS.includes(format)) {
+      const list = POST_LIST_TARGETS[platform];
+      const rules = POST_COPY_RULES[platform];
+      if (list && rules) {
+        lines.push(
+          `LIST SHAPE for ${platform}: ${rules.MIN_PARAGRAPHS} to ${rules.MAX_PARAGRAPHS} PROSE paragraphs`,
+          `PLUS ${list.MIN_ITEMS} to ${list.MAX_ITEMS} list items. The items are NOT paragraphs and do not`,
+          'count towards the paragraph range. Write a short lead-in paragraph, then the',
+          'items, then a closing paragraph. Each item is one line beginning with "- ",',
+          'is one concrete check a reader can actually do, and is not a sentence of',
+          'marketing. If the post is short, make the items say more or add ONE more',
+          'item. Never add paragraphs to reach the word count.',
+        );
+      }
+    }
     if (format === 'checklist' || format === 'process') {
       lines.push(
         'bullets: 3 to 5 concrete items, <= 55 characters each, no numbering and',
-        'no leading dashes (the design adds the marks).',
+        'no leading dashes (the design adds the marks). These are for the IMAGE and',
+        'are separate from the list inside the post copy.',
       );
     }
     if (format === 'authority') {

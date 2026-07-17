@@ -235,15 +235,122 @@ export function wordCount(value) {
 }
 
 /**
- * The paragraphs of a post.
+ * The raw blocks of a post: every non-empty line, trimmed.
  *
  * Any run of newlines is a break, not just a blank line: Facebook, Instagram
  * and Threads all render a single newline as a new line, so that is what a
  * reader sees regardless of which the model emitted.
+ *
+ * This is a LINE splitter and nothing more. It cannot tell a paragraph from a
+ * checklist item, and using it to count paragraphs is the defect that made
+ * every checklist post unpublishable — see analyzeStructure below. Kept for
+ * what it is actually good for: proving a repair did not weld a post's line
+ * breaks together.
  */
-export function paragraphsOf(text) {
+export function blocksOf(text) {
   if (typeof text !== 'string') return [];
   return text.split(/\n+/).map((p) => p.trim()).filter(Boolean);
+}
+
+/** @deprecated Misleading name for a line splitter. Use blocksOf or analyzeStructure. */
+export const paragraphsOf = blocksOf;
+
+/**
+ * Bullet and number markers a model actually emits.
+ *
+ * Deliberately broad: the model is told not to add markers and adds them
+ * anyway, in whichever glyph it feels like. An en/em dash marker is included
+ * because the model emits them despite the dash ban, and a line that opens with
+ * one is a list item, not a sentence with bad punctuation.
+ */
+const LIST_MARKER = /^\s*(?:[-*•·‣▪◦–—]|\d+[.)]|\(\d+\)|[a-z][.)])\s+/i;
+
+/** A line that is nothing but hashtags. */
+const HASHTAG_ONLY_LINE = /^\s*(?:#[\p{L}\p{N}_]+[\s,]*)+$/u;
+const HASHTAG_TOKEN = /#[\p{L}\p{N}_]{2,}/gu;
+
+/**
+ * Normalize generated copy to one deterministic shape before anything measures it.
+ *
+ * A model returns CRLF, lone CR, trailing spaces, whitespace-only "blank" lines
+ * that are not actually empty, and three blank lines where it meant one break.
+ * Measuring any of that directly makes the verdict depend on invisible
+ * characters, which makes a repair loop chase noise.
+ */
+export function normalizeCopy(text) {
+  if (typeof text !== 'string') return '';
+  return text
+    .replace(/\r\n?/g, '\n')
+    // A line of spaces or tabs is a blank line. It does not look like content
+    // and must not count as one.
+    .split('\n')
+    .map((line) => line.replace(/[^\S\n]+$/, ''))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * What this post actually IS, structurally.
+ *
+ * THE DEFECT THIS EXISTS TO FIX: everything counted paragraphs with a line
+ * splitter, so a checklist item was a paragraph. A good Threads checklist — one
+ * intro and five bullets, 68 words, mid-band — measured as "6 paragraphs"
+ * against an allowed 1 to 3, and could never pass however well it was written.
+ *
+ * Worse, it made the repair loop incoherent. A short checklist was told "add
+ * 40 words" and "cut to 2 to 4 paragraphs" in the same breath. The only way to
+ * add words to a checklist is more items, and every item counted as a
+ * paragraph, so the two instructions contradicted each other. The observed
+ * result was a retry that fixed the word count and drove the paragraph count
+ * from 11 to 14 — not a bad model, an impossible instruction.
+ *
+ * Five different things live in a post and are counted separately:
+ *
+ *   prose     — a real paragraph, the thing the band is about
+ *   list      — a contiguous run of bullets or numbered items: ONE block
+ *   listItem  — an individual bullet inside a list block
+ *   hashtags  — a line that is only tags (they belong in their own field)
+ *   cta       — a closing line; still prose, but reported so a repair can see it
+ *
+ * @returns {{ blocks, words, proseParagraphs, listBlocks, listItems,
+ *             longestProseParagraph, hashtagsInCopy, normalized }}
+ */
+export function analyzeStructure(caption) {
+  const normalized = normalizeCopy(caption);
+  const lines = normalized.split('\n').map((l) => l.trim()).filter(Boolean);
+
+  const blocks = [];
+  for (const line of lines) {
+    if (HASHTAG_ONLY_LINE.test(line)) {
+      blocks.push({ type: 'hashtags', text: line });
+      continue;
+    }
+    if (LIST_MARKER.test(line)) {
+      const text = line.replace(LIST_MARKER, '').trim();
+      const last = blocks[blocks.length - 1];
+      // Contiguous items are ONE list block. A five-item checklist is one
+      // structural element in a post, not five.
+      if (last?.type === 'list') last.items.push(text);
+      else blocks.push({ type: 'list', items: [text] });
+      continue;
+    }
+    blocks.push({ type: 'prose', text: line });
+  }
+
+  const prose = blocks.filter((b) => b.type === 'prose');
+  const lists = blocks.filter((b) => b.type === 'list');
+
+  return {
+    blocks,
+    normalized,
+    words: wordCount(normalized),
+    proseParagraphs: prose.length,
+    listBlocks: lists.length,
+    listItems: lists.reduce((n, b) => n + b.items.length, 0),
+    longestProseParagraph: prose.reduce((max, b) => Math.max(max, wordCount(b.text)), 0),
+    hashtagsInCopy: (normalized.match(HASHTAG_TOKEN) || []).length,
+  };
 }
 
 /** How a platform is named in a message a person reads. */
@@ -266,11 +373,16 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 export function measurePostCopy(caption, platform) {
   const rules = POST_COPY_RULES[platform];
   if (!rules) return null;
-  const paragraphs = paragraphsOf(caption);
+  const s = analyzeStructure(caption);
   return {
-    words: wordCount(caption),
-    paragraphs: paragraphs.length,
-    longestParagraph: paragraphs.reduce((max, p) => Math.max(max, wordCount(p)), 0),
+    words: s.words,
+    // PROSE paragraphs. Counting list items here is what made every checklist
+    // post fail on structure no matter how well it was written.
+    paragraphs: s.proseParagraphs,
+    longestParagraph: s.longestProseParagraph,
+    listBlocks: s.listBlocks,
+    listItems: s.listItems,
+    hashtagsInCopy: s.hashtagsInCopy,
     rules,
   };
 }
@@ -305,26 +417,37 @@ export function postCopyIssues(caption, platform) {
   if (m.words > rules.MAX_WORDS) {
     issues.push(`${who} has ${plural(m.words, 'word', 'words')}; the maximum is ${rules.MAX_WORDS}`);
   }
+  /*
+   * PROSE paragraphs. The word is load-bearing now and appears in the message,
+   * because "Instagram has 11 paragraphs" over a post with two paragraphs and
+   * nine bullets was not just wrong, it was an instruction the writer could not
+   * follow: cutting to 4 meant deleting the checklist it had been asked for.
+   */
   if (m.paragraphs < rules.MIN_PARAGRAPHS || m.paragraphs > rules.MAX_PARAGRAPHS) {
     issues.push(
-      `${who} has ${plural(m.paragraphs, 'paragraph', 'paragraphs')}; `
-      + `it needs ${rules.MIN_PARAGRAPHS} to ${rules.MAX_PARAGRAPHS}`,
+      `${who} has ${plural(m.paragraphs, 'prose paragraph', 'prose paragraphs')}; `
+      + `it needs ${rules.MIN_PARAGRAPHS} to ${rules.MAX_PARAGRAPHS}`
+      + (m.listItems ? ` (its ${plural(m.listItems, 'list item', 'list items')} are not counted)` : ''),
     );
   }
 
   // Word count alone does not make a post readable: 160 words in one lump
-  // satisfies the band and is still a wall of text.
+  // satisfies the band and is still a wall of text. Applies to prose only — a
+  // list is meant to be scanned, and its length is governed by the word band.
   if (m.longestParagraph > PARAGRAPH_MAX_WORDS) {
     issues.push(
-      `${who} has a paragraph of ${plural(m.longestParagraph, 'word', 'words')}; `
+      `${who} has a prose paragraph of ${plural(m.longestParagraph, 'word', 'words')}; `
       + `the maximum for one paragraph is ${PARAGRAPH_MAX_WORDS}`,
     );
   }
 
   // Hashtags belong in the hashtags array, at the end, not woven into a
   // sentence. A tag inside the prose is the caption habit this replaces.
-  if (/(^|\s)#[\p{L}\p{N}_]{2,}/u.test(caption)) {
-    issues.push(`${who} has hashtags inside the post copy; they belong at the end`);
+  if (m.hashtagsInCopy > 0) {
+    issues.push(
+      `${who} has ${plural(m.hashtagsInCopy, 'hashtag', 'hashtags')} inside the post copy; `
+      + 'they belong in the hashtags field',
+    );
   }
   return issues;
 }
@@ -521,28 +644,63 @@ export function repairGuidance(caption, platform, attempt = 0) {
   const who = label(platform);
   const { rules } = m;
 
-  const lines = [
-    `your last ${who} attempt measured ${plural(m.words, 'word', 'words')} `
-    + `in ${plural(m.paragraphs, 'paragraph', 'paragraphs')}`,
-  ];
+  /*
+   * The measurement, stated so the two halves cannot contradict each other.
+   *
+   * The old guidance said "you have N paragraphs" while counting bullets as
+   * paragraphs, and then asked for more words. For a checklist those are
+   * opposite instructions: more words means more items means more "paragraphs".
+   * Naming prose and list items separately is what makes the pair satisfiable —
+   * "keep your 2 paragraphs, add 2 more items" is an instruction that works.
+   */
+  const shape = [
+    `${plural(m.words, 'word', 'words')}`,
+    `${plural(m.paragraphs, 'prose paragraph', 'prose paragraphs')}`,
+    ...(m.listItems ? [`${plural(m.listItems, 'list item', 'list items')}`] : []),
+  ].join(', ');
+  const lines = [`your last ${who} attempt measured ${shape}`];
 
   if (m.words < rules.MIN_WORDS) {
     const short = rules.MIN_WORDS - m.words;
     lines.push(
       `that is ${plural(short, 'word', 'words')} below the ${rules.MIN_WORDS} minimum: `
-      + 'add a useful sentence (a concrete example, a clarification, or a practical '
-      + 'detail). Do NOT pad with filler, restatement, or a longer sign-off',
+      + (m.listItems
+        // A checklist grows by saying more in each item, or by adding one real
+        // check. Telling it to "add a sentence" produces a stray paragraph and
+        // breaks the prose band it is already passing.
+        ? 'make each list item say something concrete, or add ONE more genuinely '
+          + 'useful check. Do NOT add prose paragraphs and do NOT pad with filler'
+        : 'add a useful sentence (a concrete example, a clarification, or a practical '
+          + 'detail). Do NOT pad with filler, restatement, or a longer sign-off'),
     );
   } else if (m.words > rules.MAX_WORDS) {
     lines.push(
       `that is ${plural(m.words - rules.MAX_WORDS, 'word', 'words')} over the ${rules.MAX_WORDS} maximum: `
-      + 'cut a whole point rather than trimming every sentence',
+      + (m.listItems
+        ? 'drop a whole list item, or tighten each one. Do not delete the intro'
+        : 'cut a whole point rather than trimming every sentence'),
     );
   }
   if (m.paragraphs < rules.MIN_PARAGRAPHS || m.paragraphs > rules.MAX_PARAGRAPHS) {
     lines.push(
-      `use ${rules.MIN_PARAGRAPHS} to ${rules.MAX_PARAGRAPHS} paragraphs `
-      + '(separate each with a blank line)',
+      `use ${rules.MIN_PARAGRAPHS} to ${rules.MAX_PARAGRAPHS} PROSE paragraphs `
+      + '(separate each with a blank line)'
+      + (m.listItems
+        ? `. Your ${plural(m.listItems, 'list item', 'list items')} are not paragraphs `
+          + 'and do not count towards this: keep the list'
+        : ''),
+    );
+  }
+  if (m.longestParagraph > PARAGRAPH_MAX_WORDS) {
+    lines.push(
+      `one prose paragraph runs to ${plural(m.longestParagraph, 'word', 'words')}; `
+      + `split it, or move part of it into the list. The maximum is ${PARAGRAPH_MAX_WORDS}`,
+    );
+  }
+  if (m.hashtagsInCopy > 0) {
+    lines.push(
+      `remove the ${plural(m.hashtagsInCopy, 'hashtag', 'hashtags')} from the post copy: `
+      + 'they are returned in the hashtags field, not written into the text',
     );
   }
   lines.push(`return approximately ${band.min} to ${band.max} words for ${who}`);
@@ -560,6 +718,9 @@ export default {
   headlineIssues,
   postCopyIssues,
   measurePostCopy,
+  analyzeStructure,
+  normalizeCopy,
+  blocksOf,
   targetBandFor,
   repairGuidance,
   paragraphsOf,

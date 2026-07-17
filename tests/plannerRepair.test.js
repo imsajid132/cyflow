@@ -334,7 +334,7 @@ test('an Instagram post in one block is told its paragraph count and the range',
   const { r, item } = await failedItem({
     instagram: IG_ONE_PARAGRAPH,
     threads: TH_VALID,
-    failures: ['Instagram has 1 paragraph; it needs 2 to 4'],
+    failures: ['Instagram has 1 prose paragraph; it needs 2 to 4'],
   });
   const { svc, openai } = repairService(r, { instagram: [IG_REPAIRED] });
   await retry(svc, item);
@@ -342,7 +342,9 @@ test('an Instagram post in one block is told its paragraph count and the range',
   const request = openai._calls.find((c) => c.platform === 'instagram');
   const seen = [...(request.styleIssues ?? []), ...(request.repairNotes ?? [])].join(' | ');
 
-  assert.match(seen, /1 paragraph/, seen);
+  // "prose paragraph", not "paragraph": the count is of prose, and a writer told
+  // it has 11 paragraphs when 9 of them are checklist items cannot act on it.
+  assert.match(seen, /1 prose paragraph/, seen);
   assert.match(seen, /2 to 4/, seen);
 });
 

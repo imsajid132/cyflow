@@ -33,6 +33,18 @@ import {
   PLATFORM_COPY_MAX_SIMILARITY,
   PLATFORM_OPENING_MAX_SIMILARITY,
 } from '../config/constants.js';
+// Safe: contentStyleGuard imports only from config/constants, so there is no
+// cycle. The structural analysis lives there because that is where the
+// prose-versus-list distinction is defined and tested.
+import { analyzeStructure } from './contentStyleGuard.js';
+
+/**
+ * Below this, two lists are too short to compare honestly.
+ *
+ * One shared item between two two-item lists is a coincidence, not a duplicate.
+ * The axis stays silent rather than inventing a signal from it.
+ */
+const MIN_COMPARABLE_LIST_ITEMS = 2;
 
 /** Words too common to carry meaning when comparing marketing copy. */
 const STOP_WORDS = new Set([
@@ -174,6 +186,26 @@ function normalizeHashtagSet(hashtags) {
  * @param {{ caption?, headline?, subheadline?, cta?, hashtags?, contentType?,
  *           goal?, serviceEmphasis?, templateKey? }} post
  */
+/**
+ * The normalized set of a post's list items.
+ *
+ * Normalized so that "Do your images have alt text?" and "do your images have
+ * alt text" are the same check, which they are. Kept as text rather than
+ * trigrams because the comparison that matters is set overlap ("are these the
+ * same checks?"), not string similarity.
+ */
+function listItemSet(caption) {
+  const out = new Set();
+  for (const block of analyzeStructure(caption).blocks) {
+    if (block.type !== 'list') continue;
+    for (const item of block.items) {
+      const norm = normalizeText(item);
+      if (norm) out.add(norm);
+    }
+  }
+  return out;
+}
+
 export function fingerprint(post = {}) {
   const caption = typeof post.caption === 'string' ? post.caption : '';
   const opening = firstSentence(caption);
@@ -197,6 +229,22 @@ export function fingerprint(post = {}) {
      * short — the caption itself is still never stored here.
      */
     openingText: normalizeText(opening).slice(0, 60),
+    /*
+     * The post's list items, as an unordered SET.
+     *
+     * A checklist is its checks. Two posts carrying the same five checks are the
+     * same post, however different the prose around them is and whatever order
+     * they arrive in — and every text axis above is blind to that, because they
+     * all compare sequences. Measured, the reordered case scored 0.512 and went
+     * to "review": a human asked to make a judgement about two identical
+     * checklists, which is not a judgement, it is a chore.
+     *
+     * Order-independent by construction (a Set), so shuffling is not a disguise.
+     * Only available now that analyzeStructure can tell an item from a
+     * paragraph — before that, list items were paragraphs and this axis could
+     * not have been computed at all.
+     */
+    listItems: [...listItemSet(caption)],
     ctaNormalized: normalizeText(post.cta),
     hashtags: [...normalizeHashtagSet(post.hashtags)],
     contentType: typeof post.contentType === 'string' ? post.contentType : null,
@@ -224,6 +272,7 @@ export function compareFingerprints(a, b) {
     cta: 0,
     topic: 0,
     structure: 0,
+    listItems: 0,
     hashtags: jaccard(a.hashtags, b.hashtags),
   };
   const reasons = [];
@@ -240,6 +289,25 @@ export function compareFingerprints(a, b) {
   if (a.captionTokens.length && b.captionTokens.length && axes.caption >= 0.98) {
     axes.caption = DUPLICATION_THRESHOLDS.EXACT;
     reasons.push('near-identical caption');
+  }
+
+  /*
+   * List items, compared as sets.
+   *
+   * Only when BOTH posts have a real list. A single shared item between two
+   * two-item lists is noise, so two items each is the floor; below that this
+   * axis stays silent rather than inventing a signal from a coincidence.
+   */
+  const aItems = a.listItems ?? [];
+  const bItems = b.listItems ?? [];
+  if (aItems.length >= MIN_COMPARABLE_LIST_ITEMS && bItems.length >= MIN_COMPARABLE_LIST_ITEMS) {
+    axes.listItems = jaccard(aItems, bItems);
+    if (axes.listItems >= 0.98) {
+      axes.listItems = DUPLICATION_THRESHOLDS.EXACT;
+      reasons.push('the same checklist, reordered');
+    } else if (axes.listItems >= 0.6) {
+      reasons.push('most of the same list items');
+    }
   }
 
   if (a.ctaNormalized && b.ctaNormalized) {
@@ -304,9 +372,20 @@ export function compareFingerprints(a, b) {
   const SOFT_WEIGHTS = {
     topic: 0.5, hashtags: 0.22, cta: 0.15, structure: 0.1, conclusion: 0.1,
   };
+  /*
+   * `listItems` is STRONG, and weighted just above the hard-duplicate line.
+   *
+   * A checklist is its checks. Carrying the same set is not "a similar angle"
+   * for a human to weigh up — it is the same post with new packaging, and at
+   * 0.92 an identical set lands above HARD_DUPLICATE_SCORE (0.9) and fails
+   * outright instead of going to review. Partial overlap scales down honestly:
+   * two of five shared checks is jaccard 0.25, which contributes 0.23 and
+   * condemns nothing.
+   */
   const strong = Math.max(
     axes.caption * 1,
     axes.headline * 0.95,
+    axes.listItems * 0.92,
     axes.opening * 0.85,
     axes.openingParagraph * 0.8,
   );
