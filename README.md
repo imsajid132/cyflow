@@ -7,6 +7,82 @@ branded images for Facebook Pages, Instagram Professional and Threads.
 > queued; nothing is sent to a provider. Anywhere the UI says "queued" or
 > "scheduled", it means stored for a future publishing phase.
 
+## Milestone C3 — secure media uploads and asset library
+
+Businesses can now upload their own images (a photo, a flyer, a logo shot) and
+reuse them across posts, alongside the HCTI-generated ones. A **Media library**
+lives at `/media`; the same picker is available on Create Post and the Weekly
+Board drawer. Uploaded media needs no OpenAI or HCTI — an uploaded image is
+served straight from storage.
+
+**What an upload must be.** Only JPEG, PNG or WebP, verified from the *bytes*,
+never the filename or the browser's Content-Type. GIF, SVG, BMP, TIFF, PDF,
+archives, animated PNG/WebP, polyglots (a real PNG that lies it is a JPEG) and
+corrupt files are refused with a specific reason. Real pixel dimensions, a pixel
+cap (a decompression bomb is a tiny file claiming enormous dimensions), a byte
+ceiling and a SHA-256 checksum all come from the bytes. The parser is
+dependency-free — this is verification, not image processing, so it needs no
+native library.
+
+**Where bytes live.** One storage abstraction (`src/services/mediaStorage.js`)
+with a local-filesystem adapter today and the same shape an S3 adapter would
+satisfy. Files live under a configured root that must sit **outside** the public
+app source, under a server-generated random key (an original filename never
+becomes a path), sharded by the first two key characters. Two independent
+guards — a strict `[0-9a-f]{32}` key pattern and an assertion that the resolved
+path stays inside the root — make path traversal structurally impossible. Bytes
+only ever leave through the ownership-checked token route, with `nosniff` and an
+`inline` disposition.
+
+**Ownership and reuse.** Every read, edit, attach and delete is scoped to the
+acting user; a cross-user request gets the same *not found* as a truly missing
+asset and makes zero changes. Content dedup is user-scoped, so it can never
+reveal that another user uploaded the same file. An asset in use by a post
+cannot be deleted silently — the error says how many posts use it, without
+exposing any private id. References are a small polymorphic table
+(`media_asset_references`) bounded to genuinely supported entities
+(`planner_run_item`, `scheduled_post`).
+
+### Migration
+
+Apply
+[`013_secure_media_library.sql`](database/migrations/013_secure_media_library.sql)
+**after** 010, 011 and 012 — the order is 010 → 011 → 012 → 013. It is additive:
+it adds nullable/defaulted columns to `media_assets` (including `storage_key`,
+`checksum_sha256`, dimensions and `file_extension`) and creates the
+`media_asset_references` table. Existing HCTI assets remain readable; no column
+is dropped or retyped. `database/schema.sql` already reflects the final shape
+for fresh installs.
+
+### Media storage configuration
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `MEDIA_STORAGE_DRIVER` | `local` | Storage adapter. Only `local` is implemented; anything else fails loudly at boot rather than silently dropping uploads. |
+| `MEDIA_STORAGE_PATH` | `<os-tmpdir>/cyflow-media` | Absolute directory the bytes live under. |
+| `MAX_MEDIA_UPLOAD_BYTES` | `8388608` (8 MB) | Hard upload ceiling, enforced at parse time and again from the bytes. |
+
+**Operations.**
+
+- **Set `MEDIA_STORAGE_PATH` explicitly in production.** The default is the OS
+  temp directory, which a redeploy or reboot can wipe. Point it at a persistent,
+  writable volume that is **not** inside the deployed app source and is not
+  web-served.
+- **Permissions.** The Node process needs read/write/execute on the directory;
+  nothing else should. The app creates shard subdirectories as needed.
+- **Backups.** Back up `MEDIA_STORAGE_PATH` together with the database — the row
+  and its bytes are one asset. A backup of one without the other is incomplete.
+- **Reclaiming orphans (dry run).** After an interrupted delete a file can be
+  left on disk with no row. Reconcile with a read-only report — it deletes
+  nothing:
+
+  ```bash
+  node tools/media-orphans.mjs
+  ```
+
+  It lists orphaned byte files (on disk, no row) and rows whose bytes are
+  missing. Reclaim deliberately, with the report in hand.
+
 ## Phase 4.8 — weekly content rhythm and the Cyflow SaaS redesign
 
 **Weekly content rhythm.** Strategy follows the real calendar weekday, not the

@@ -45,6 +45,12 @@ export const idParamValidator = [
   param('id').matches(/^\d{1,20}$/).withMessage('Invalid post id'),
 ];
 
+export const selectMediaValidator = [
+  ...idParamValidator,
+  // Null clears the attached image; otherwise an owned media id.
+  body('mediaAssetId').optional({ nullable: true }).matches(/^\d{1,20}$/).withMessage('Invalid media id'),
+];
+
 export const listPostsValidator = [
   query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Invalid limit'),
   query('offset').optional().isInt({ min: 0, max: 100000 }).withMessage('Invalid offset'),

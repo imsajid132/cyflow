@@ -42,8 +42,14 @@ export async function apiRequest(path, options = {}) {
   const init = { method, credentials: 'same-origin', headers };
 
   if (options.body !== undefined) {
-    headers['Content-Type'] = 'application/json';
-    init.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
+    if (typeof FormData !== 'undefined' && options.body instanceof FormData) {
+      // A multipart upload: let the browser set the multipart boundary itself.
+      // Never force application/json, which would corrupt the body.
+      init.body = options.body;
+    } else {
+      headers['Content-Type'] = 'application/json';
+      init.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
+    }
   }
   if (STATE_CHANGING.has(method)) {
     const token = await getCsrfToken();

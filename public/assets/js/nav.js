@@ -34,6 +34,7 @@ const GROUPS = [
     label: 'Business',
     items: [
       { path: '/brand', label: 'Brand', ico: 'brand' },
+      { path: '/media', label: 'Media', ico: 'media' },
       { path: '/connections', label: 'Connections', ico: 'connections' },
     ],
   },

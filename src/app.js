@@ -30,6 +30,7 @@ import { createOAuthRoutes } from './routes/oauthRoutes.js';
 import { createSocialAccountRoutes } from './routes/socialAccountRoutes.js';
 import { createPostRoutes } from './routes/postRoutes.js';
 import { createMediaRoutes } from './routes/mediaRoutes.js';
+import { createMediaLibraryRoutes } from './routes/mediaLibraryRoutes.js';
 import { createBusinessProfileRoutes } from './routes/businessProfileRoutes.js';
 import { createPlannerRoutes } from './routes/plannerRoutes.js';
 import { buildContainer } from './container.js';
@@ -55,6 +56,8 @@ export const APP_ROUTES = Object.freeze([
   '/create',
   '/queue',
   '/calendar',
+  // C3 media library. Exact match only; /media/:token is the content route.
+  '/media',
   '/integrations',
   '/profile',
   '/settings',
@@ -257,7 +260,17 @@ export function createApp(overrides = {}) {
       requireAuth: container.requireAuth,
     }),
   );
-  // Public media proxy (no session/CSRF; opaque token + SSRF-safe upstream).
+  // Authenticated media library: upload, list, reuse, references (C3).
+  app.use(
+    '/api/media',
+    createMediaLibraryRoutes({
+      mediaLibraryController: container.mediaLibraryController,
+      requireAuth: container.requireAuth,
+      parseSingleImage: container.parseSingleImage,
+    }),
+  );
+  // Public media content by opaque token (no session/CSRF; local bytes or
+  // SSRF-safe HCTI proxy). The token is the only handle and is unguessable.
   app.use('/media', createMediaRoutes({ mediaController: container.mediaController }));
 
   // --- Frontend application shell -------------------------------------------

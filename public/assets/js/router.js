@@ -28,6 +28,7 @@ const ROUTES = {
   '/create': { layout: 'app', auth: true, load: () => import('./pages/create.js') },
   '/queue': { layout: 'app', auth: true, load: () => import('./pages/queue.js') },
   '/calendar': { layout: 'app', auth: true, load: () => import('./pages/calendar.js') },
+  '/media': { layout: 'app', auth: true, load: () => import('./pages/media.js') },
   '/integrations': { layout: 'app', auth: true, load: () => import('./pages/integrations.js') },
   '/profile': { layout: 'app', auth: true, load: () => import('./pages/profile.js') },
   '/settings': { layout: 'app', auth: true, load: () => import('./pages/settings.js') },
@@ -36,7 +37,7 @@ const ROUTES = {
 const TITLES = {
   '/login': 'Sign in', '/register': 'Create account', '/dashboard': 'Dashboard',
   '/brand': 'Brand', '/connections': 'Connections', '/create': 'Create Post',
-  '/queue': 'Queue', '/calendar': 'Calendar', '/integrations': 'Integrations',
+  '/queue': 'Queue', '/calendar': 'Calendar', '/media': 'Media library', '/integrations': 'Integrations',
   '/profile': 'Profile', '/settings': 'Settings',
   '/onboarding/business': 'Business setup', '/onboarding/brand': 'Brand review',
   '/onboarding/connections': 'Connect accounts',

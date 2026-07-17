@@ -124,6 +124,14 @@ export const hctiTestLimiter = limiter({
   message: 'Too many credential tests, please try again later',
 });
 
+/** Media upload: 30 / 15 minutes / user+IP. Uploads are cheap but not free. */
+export const mediaUploadLimiter = limiter({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  keyGenerator: userOrIpKey,
+  message: 'Too many uploads, please try again in a little while',
+});
+
 /** OAuth start: 15 / 15 minutes / user+IP. */
 export const oauthStartLimiter = limiter({
   windowMs: 15 * 60 * 1000,

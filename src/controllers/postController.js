@@ -38,6 +38,11 @@ export function createPostController({ postService = defaultPostService } = {}) 
     return sendSuccess(res, { post });
   });
 
+  const selectMedia = asyncHandler(async (req, res) => {
+    const post = await postService.selectMedia(req.user.id, req.params.id, req.body.mediaAssetId ?? null, { req });
+    return sendSuccess(res, { post });
+  });
+
   const generateImage = asyncHandler(async (req, res) => {
     const post = await postService.generateImage(req.user.id, req.params.id, { req });
     return sendSuccess(res, { post });
@@ -84,6 +89,7 @@ export function createPostController({ postService = defaultPostService } = {}) 
     getPost,
     updateDraft,
     generateContent,
+    selectMedia,
     generateImage,
     setTargets,
     schedule,

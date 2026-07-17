@@ -22,6 +22,17 @@ function sanitize(row) {
     scheduledPostId: row.scheduled_post_id == null ? null : String(row.scheduled_post_id),
     publicToken: row.public_token,
     sourceProvider: row.source_provider,
+    // Upload metadata (C3). NULL on an HCTI-proxied asset.
+    storageDriver: row.storage_driver ?? null,
+    // storage_key is deliberately NOT surfaced here — nothing outside the media
+    // service and storage adapter ever needs it, and it must never reach an API
+    // response. A dedicated internal reader below fetches it when serving bytes.
+    originalFilename: row.original_filename ?? null,
+    fileSizeBytes: row.file_size_bytes == null ? null : Number(row.file_size_bytes),
+    width: row.width == null ? null : Number(row.width),
+    height: row.height == null ? null : Number(row.height),
+    altText: row.alt_text ?? null,
+    checksumSha256: row.checksum_sha256 ?? null,
     sourceUrl: row.source_url ?? null,
     sourceAssetId: row.source_asset_id ?? null,
     mimeType: row.mime_type ?? null,
@@ -34,8 +45,9 @@ function sanitize(row) {
 }
 
 const COLUMNS =
-  'id, user_id, scheduled_post_id, public_token, source_provider, source_url, ' +
-  'source_asset_id, mime_type, file_extension, status, expires_at, created_at, updated_at';
+  'id, user_id, scheduled_post_id, public_token, source_provider, storage_driver, '
+  + 'original_filename, file_size_bytes, width, height, alt_text, checksum_sha256, '
+  + 'source_url, source_asset_id, mime_type, file_extension, status, expires_at, created_at, updated_at';
 
 /**
  * Create a media asset row.
@@ -54,15 +66,106 @@ export async function createMediaAsset(input, connection) {
     status = MEDIA_ASSET_STATUS.PENDING,
     expiresAt = null,
     scheduledPostId = null,
+    // Upload metadata (C3). All optional so the existing HCTI callers are
+    // unchanged — they simply pass none of these and store NULLs.
+    storageDriver = null,
+    storageKey = null,
+    originalFilename = null,
+    fileSizeBytes = null,
+    width = null,
+    height = null,
+    altText = null,
+    checksumSha256 = null,
   } = input;
   const [result] = await runner(connection).execute(
     `INSERT INTO media_assets
        (user_id, scheduled_post_id, public_token, source_provider, source_url,
-        source_asset_id, mime_type, file_extension, status, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [userId, scheduledPostId, publicToken, sourceProvider, sourceUrl, sourceAssetId, mimeType, fileExtension, status, expiresAt],
+        source_asset_id, mime_type, file_extension, status, expires_at,
+        storage_driver, storage_key, original_filename, file_size_bytes,
+        width, height, alt_text, checksum_sha256)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      userId, scheduledPostId, publicToken, sourceProvider, sourceUrl,
+      sourceAssetId, mimeType, fileExtension, status, expiresAt,
+      storageDriver, storageKey, originalFilename, fileSizeBytes,
+      width, height, altText, checksumSha256,
+    ],
   );
   return findMediaAssetByIdForUser(result.insertId, userId, connection);
+}
+
+/**
+ * List a user's media, newest first. Owner-scoped by construction.
+ */
+export async function listMediaAssetsForUser(userId, { limit = 200 } = {}, connection) {
+  const [rows] = await runner(connection).execute(
+    `SELECT ${COLUMNS} FROM media_assets
+      WHERE user_id = ? AND status IN ('ready', 'pending')
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?`,
+    [userId, limit],
+  );
+  return rows.map(sanitize);
+}
+
+/**
+ * The storage key for a user's asset — INTERNAL ONLY.
+ *
+ * Never surfaced through sanitize() or any API. The media content route uses it
+ * to read bytes AFTER verifying ownership (or token), and nowhere else.
+ */
+export async function findStorageKeyForAsset(assetId, userId, connection) {
+  const [rows] = await runner(connection).execute(
+    'SELECT storage_driver, storage_key, mime_type FROM media_assets WHERE id = ? AND user_id = ? LIMIT 1',
+    [assetId, userId],
+  );
+  const row = rows[0];
+  return row ? { storageDriver: row.storage_driver, storageKey: row.storage_key, mimeType: row.mime_type } : null;
+}
+
+/** The storage key behind a public token, for the token content route. */
+export async function findStorageByPublicToken(publicToken, connection) {
+  const [rows] = await runner(connection).execute(
+    `SELECT storage_driver, storage_key, mime_type, source_url FROM media_assets
+      WHERE public_token = ? AND status = 'ready'
+        AND (expires_at IS NULL OR expires_at > UTC_TIMESTAMP())
+      LIMIT 1`,
+    [publicToken],
+  );
+  const row = rows[0];
+  return row
+    ? { storageDriver: row.storage_driver, storageKey: row.storage_key, mimeType: row.mime_type, sourceUrl: row.source_url }
+    : null;
+}
+
+/** A user-scoped content dedup lookup: their asset with these exact bytes. */
+export async function findMediaAssetByChecksumForUser(checksum, userId, connection) {
+  const [rows] = await runner(connection).execute(
+    `SELECT ${COLUMNS} FROM media_assets
+      WHERE user_id = ? AND checksum_sha256 = ? AND status = 'ready'
+      ORDER BY created_at ASC LIMIT 1`,
+    [userId, checksum],
+  );
+  return sanitize(rows[0] ?? null);
+}
+
+/** Update alt text, owner-scoped. Returns the updated asset or null. */
+export async function updateMediaAltText(assetId, userId, altText, connection) {
+  const [result] = await runner(connection).execute(
+    'UPDATE media_assets SET alt_text = ? WHERE id = ? AND user_id = ?',
+    [altText, assetId, userId],
+  );
+  if ((result.affectedRows ?? 0) === 0) return null;
+  return findMediaAssetByIdForUser(assetId, userId, connection);
+}
+
+/** Hard-delete an asset row by owner. Callers must have checked references. */
+export async function deleteMediaAssetRow(assetId, userId, connection) {
+  const [result] = await runner(connection).execute(
+    'DELETE FROM media_assets WHERE id = ? AND user_id = ?',
+    [assetId, userId],
+  );
+  return (result.affectedRows ?? 0) > 0;
 }
 
 export async function findMediaAssetByIdForUser(assetId, userId, connection) {
@@ -122,6 +225,62 @@ export async function deleteUnusedMediaAsset(assetId, userId, connection) {
   return (result.affectedRows ?? 0) > 0;
 }
 
+/** Supported reference types — the schema ENUM, mirrored so callers validate. */
+export const MEDIA_REFERENCE_TYPES = Object.freeze(['planner_run_item', 'scheduled_post']);
+
+/**
+ * Attach an asset to an entity. Idempotent: the UNIQUE key makes a duplicate
+ * attach a no-op rather than a second row. Returns { created }.
+ */
+export async function attachMediaReference({ userId, mediaAssetId, referenceType, referenceId }, connection) {
+  const [result] = await runner(connection).execute(
+    `INSERT INTO media_asset_references (user_id, media_asset_id, reference_type, reference_id)
+     VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE id = id`,
+    [userId, mediaAssetId, referenceType, referenceId],
+  );
+  // affectedRows: 1 = inserted, 0 = already existed (no-op via id=id).
+  return { created: (result.affectedRows ?? 0) === 1 };
+}
+
+/** Detach one asset from one entity, owner-scoped. */
+export async function detachMediaReference({ userId, mediaAssetId, referenceType, referenceId }, connection) {
+  const [result] = await runner(connection).execute(
+    `DELETE FROM media_asset_references
+      WHERE user_id = ? AND media_asset_id = ? AND reference_type = ? AND reference_id = ?`,
+    [userId, mediaAssetId, referenceType, referenceId],
+  );
+  return (result.affectedRows ?? 0) > 0;
+}
+
+/** Remove every reference an entity holds (called when the entity is deleted). */
+export async function detachAllReferencesForEntity({ userId, referenceType, referenceId }, connection) {
+  await runner(connection).execute(
+    'DELETE FROM media_asset_references WHERE user_id = ? AND reference_type = ? AND reference_id = ?',
+    [userId, referenceType, referenceId],
+  );
+}
+
+/** How many active references an asset has — the delete-protection count. */
+export async function countReferencesForAsset(mediaAssetId, userId, connection) {
+  const [rows] = await runner(connection).execute(
+    'SELECT COUNT(*) AS n FROM media_asset_references WHERE media_asset_id = ? AND user_id = ?',
+    [mediaAssetId, userId],
+  );
+  return Number(rows[0]?.n ?? 0);
+}
+
+/** The reference rows for an asset, for a "used by" explanation (no private ids leaked upward). */
+export async function listReferencesForAsset(mediaAssetId, userId, connection) {
+  const [rows] = await runner(connection).execute(
+    `SELECT reference_type, reference_id, created_at
+       FROM media_asset_references WHERE media_asset_id = ? AND user_id = ?
+      ORDER BY created_at ASC`,
+    [mediaAssetId, userId],
+  );
+  return rows.map((r) => ({ referenceType: r.reference_type, referenceId: String(r.reference_id), createdAt: r.created_at }));
+}
+
 export default {
   createMediaAsset,
   findMediaAssetByIdForUser,
@@ -130,4 +289,16 @@ export default {
   markMediaAssetFailed,
   associateAssetWithPost,
   deleteUnusedMediaAsset,
+  listMediaAssetsForUser,
+  findStorageKeyForAsset,
+  findStorageByPublicToken,
+  findMediaAssetByChecksumForUser,
+  updateMediaAltText,
+  deleteMediaAssetRow,
+  attachMediaReference,
+  detachMediaReference,
+  detachAllReferencesForEntity,
+  countReferencesForAsset,
+  listReferencesForAsset,
+  MEDIA_REFERENCE_TYPES,
 };

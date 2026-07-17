@@ -28,6 +28,7 @@ import {
   createPostValidator,
   updatePostValidator,
   idParamValidator,
+  selectMediaValidator,
   listPostsValidator,
   setTargetsValidator,
   scheduleValidator,
@@ -59,6 +60,13 @@ export function createPostRoutes({ postController, requireAuth }) {
     csrfProtection,
     validate(idParamValidator),
     postController.generateContent,
+  );
+  router.post(
+    '/:id/select-media',
+    requireAuth,
+    csrfProtection,
+    validate(selectMediaValidator),
+    postController.selectMedia,
   );
   router.post(
     '/:id/generate-image',

@@ -37,6 +37,7 @@ import {
   itemIdParamValidator,
   updateItemValidator,
   regenerateItemValidator,
+  setItemMediaValidator,
   itemStatusValidator,
   bulkStatusValidator,
   queueValidator,
@@ -143,6 +144,14 @@ export function createPlannerRoutes({ plannerController, requireAuth }) {
     requireAuth,
     validate(itemIdParamValidator),
     plannerController.getItemRevisions,
+  );
+  router.post(
+    '/items/:itemId/media',
+    requireAuth,
+    plannerWriteLimiter,
+    csrfProtection,
+    validate(setItemMediaValidator),
+    plannerController.setItemMedia,
   );
   router.post(
     '/items/:itemId/regenerate',

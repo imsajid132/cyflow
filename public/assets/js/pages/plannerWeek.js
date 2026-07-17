@@ -19,6 +19,7 @@ import {
 } from '../components/plannerCard.js';
 import { platformEditor } from '../components/platformEditor.js';
 import { revisionTimeline } from '../components/revisionTimeline.js';
+import { pickMedia } from '../components/mediaPicker.js';
 import { deletePlanButton } from '../components/deletePlan.js';
 
 const TEMPLATE_OPTIONS = Object.entries(TEMPLATE_LABELS).map(([value, label]) => ({ value, label }));
@@ -456,6 +457,27 @@ export async function render(root, ctx) {
           el('span', { className: 'card-sub', text: 'No image yet' }),
         ]);
 
+    // Choose an image from the library. Copy-only: this changes only the image,
+    // never the post copy, schedule or timezone, and calls neither OpenAI nor
+    // HCTI (an uploaded image needs no rendering).
+    const chooseImageBtn = el('button', { className: 'btn btn-secondary btn-sm', text: item.media ? 'Replace image' : 'Choose image', attrs: { type: 'button' } });
+    chooseImageBtn.addEventListener('click', async () => {
+      const picked = await pickMedia({ allowClear: Boolean(item.media) });
+      if (picked === null) return; // cancelled
+      const mediaAssetId = picked.clear ? null : picked.id;
+      setLoading(chooseImageBtn, true, 'Updating…');
+      try {
+        const res = await api.apiRequest(`/api/planner/items/${encodeURIComponent(item.id)}/media`, {
+          method: 'POST', body: { mediaAssetId },
+        });
+        if (!res.ok) { toast(api.errorMessage(res, 'The image could not be updated.'), 'err'); return; }
+        toast(mediaAssetId ? 'Image updated.' : 'Image removed.', 'ok');
+        await load(); // refreshes the drawer preview in place
+      } finally {
+        setLoading(chooseImageBtn, false);
+      }
+    });
+
     const saveBtn = el('button', { className: 'btn btn-primary', text: 'Save changes', attrs: { type: 'button' } });
     const regenCaptionBtn = el('button', { className: 'btn btn-secondary btn-sm', text: 'Regenerate post copy', attrs: { type: 'button' } });
     const regenImageBtn = el('button', { className: 'btn btn-secondary btn-sm', text: 'Regenerate image', attrs: { type: 'button' } });
@@ -600,6 +622,7 @@ export async function render(root, ctx) {
       ]),
       el('div', { className: 'drawer-body' }, [
         preview,
+        el('div', { className: 'row', attrs: { style: 'gap:.4rem;justify-content:center' } }, [chooseImageBtn]),
         item.duplicationNotes ? notice(item.duplicationNotes, 'warn') : null,
         el('p', { className: 'card-sub', text: `${formatSlot(item.scheduledFor)} · ${platformNames(item.platformTargets).join(', ')}` }),
         // Per-platform post copy: one tab per selected platform, each editable

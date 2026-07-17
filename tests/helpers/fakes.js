@@ -587,6 +587,8 @@ export function createFakeMediaAssetRepository() {
   let nextId = 1;
   const find = (id, userId) =>
     rows.find((r) => String(r.id) === String(id) && String(r.user_id) === String(userId));
+  // Reference edges, mirroring media_asset_references.
+  const refs = [];
   function toApi(r) {
     if (!r) return null;
     return {
@@ -595,6 +597,13 @@ export function createFakeMediaAssetRepository() {
       scheduledPostId: r.scheduled_post_id == null ? null : String(r.scheduled_post_id),
       publicToken: r.public_token,
       sourceProvider: r.source_provider,
+      storageDriver: r.storage_driver ?? null,
+      originalFilename: r.original_filename ?? null,
+      fileSizeBytes: r.file_size_bytes ?? null,
+      width: r.width ?? null,
+      height: r.height ?? null,
+      altText: r.alt_text ?? null,
+      checksumSha256: r.checksum_sha256 ?? null,
       sourceUrl: r.source_url ?? null,
       sourceAssetId: r.source_asset_id ?? null,
       mimeType: r.mime_type ?? null,
@@ -607,6 +616,8 @@ export function createFakeMediaAssetRepository() {
   }
   return {
     _rows: rows,
+    _refs: refs,
+    MEDIA_REFERENCE_TYPES: ['planner_run_item', 'scheduled_post'],
     async createMediaAsset(input) {
       const row = {
         id: String(nextId++),
@@ -614,6 +625,14 @@ export function createFakeMediaAssetRepository() {
         scheduled_post_id: input.scheduledPostId ?? null,
         public_token: input.publicToken,
         source_provider: input.sourceProvider ?? 'hcti',
+        storage_driver: input.storageDriver ?? null,
+        storage_key: input.storageKey ?? null,
+        original_filename: input.originalFilename ?? null,
+        file_size_bytes: input.fileSizeBytes ?? null,
+        width: input.width ?? null,
+        height: input.height ?? null,
+        alt_text: input.altText ?? null,
+        checksum_sha256: input.checksumSha256 ?? null,
         source_url: input.sourceUrl ?? null,
         source_asset_id: input.sourceAssetId ?? null,
         mime_type: input.mimeType ?? null,
@@ -633,6 +652,59 @@ export function createFakeMediaAssetRepository() {
       if (!r) return null;
       if (r.expires_at && new Date(String(r.expires_at).replace(' ', 'T') + 'Z') <= new Date()) return null;
       return toApi(r);
+    },
+    async listMediaAssetsForUser(userId) {
+      return rows
+        .filter((r) => String(r.user_id) === String(userId) && ['ready', 'pending'].includes(r.status))
+        .slice().reverse().map(toApi);
+    },
+    async findStorageKeyForAsset(id, userId) {
+      const r = find(id, userId);
+      return r ? { storageDriver: r.storage_driver, storageKey: r.storage_key, mimeType: r.mime_type } : null;
+    },
+    async findStorageByPublicToken(token) {
+      const r = rows.find((x) => x.public_token === token && x.status === 'ready');
+      return r ? { storageDriver: r.storage_driver, storageKey: r.storage_key, mimeType: r.mime_type, sourceUrl: r.source_url } : null;
+    },
+    async findMediaAssetByChecksumForUser(checksum, userId) {
+      const r = rows.find((x) => String(x.user_id) === String(userId) && x.checksum_sha256 === checksum && x.status === 'ready');
+      return toApi(r ?? null);
+    },
+    async updateMediaAltText(id, userId, altText) {
+      const r = find(id, userId);
+      if (!r) return null;
+      r.alt_text = altText;
+      return toApi(r);
+    },
+    async deleteMediaAssetRow(id, userId) {
+      const i = rows.findIndex((r) => String(r.id) === String(id) && String(r.user_id) === String(userId));
+      if (i >= 0) { rows.splice(i, 1); return true; }
+      return false;
+    },
+    async attachMediaReference({ userId, mediaAssetId, referenceType, referenceId }) {
+      const dup = refs.find((x) => String(x.media_asset_id) === String(mediaAssetId)
+        && x.reference_type === referenceType && String(x.reference_id) === String(referenceId));
+      if (dup) return { created: false };
+      refs.push({ id: String(refs.length + 1), user_id: String(userId), media_asset_id: String(mediaAssetId), reference_type: referenceType, reference_id: String(referenceId), created_at: '2026-01-01 00:00:00' });
+      return { created: true };
+    },
+    async detachMediaReference({ userId, mediaAssetId, referenceType, referenceId }) {
+      const i = refs.findIndex((x) => String(x.user_id) === String(userId) && String(x.media_asset_id) === String(mediaAssetId)
+        && x.reference_type === referenceType && String(x.reference_id) === String(referenceId));
+      if (i >= 0) { refs.splice(i, 1); return true; }
+      return false;
+    },
+    async detachAllReferencesForEntity({ userId, referenceType, referenceId }) {
+      for (let i = refs.length - 1; i >= 0; i -= 1) {
+        if (String(refs[i].user_id) === String(userId) && refs[i].reference_type === referenceType && String(refs[i].reference_id) === String(referenceId)) refs.splice(i, 1);
+      }
+    },
+    async countReferencesForAsset(id, userId) {
+      return refs.filter((x) => String(x.media_asset_id) === String(id) && String(x.user_id) === String(userId)).length;
+    },
+    async listReferencesForAsset(id, userId) {
+      return refs.filter((x) => String(x.media_asset_id) === String(id) && String(x.user_id) === String(userId))
+        .map((r) => ({ referenceType: r.reference_type, referenceId: String(r.reference_id), createdAt: r.created_at }));
     },
     async markMediaAssetReady(id, userId, upd) {
       const r = find(id, userId);

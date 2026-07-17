@@ -1819,6 +1819,48 @@ export function createPlannerService({
   }
 
   /**
+   * Attach an owned library image to a planner item, or clear it.
+   *
+   * Copy-only fields, schedule, timezone and platform selection are untouched:
+   * this writes mediaAssetId and moves a reference, nothing else. No OpenAI, no
+   * HCTI — selecting an uploaded image is a purely local operation.
+   *
+   * A replaced generated image is NOT deleted; it stays in the library for
+   * reuse, and its planner_run_item reference is simply detached.
+   *
+   * @param {string|null} mediaAssetId the owned asset, or null to clear
+   */
+  async function setItemMedia(userId, itemId, mediaAssetId) {
+    const item = await requireItem(userId, itemId);
+    if (item.approvalStatus === PLANNER_ITEM_STATUS.QUEUED) {
+      throw new ConflictError('This post is already queued. Edit it from the queue instead.');
+    }
+
+    // Verify the new asset is the user's own. A cross-user id is a not-found,
+    // never an attach.
+    if (mediaAssetId != null) {
+      const asset = await mediaRepository.findMediaAssetByIdForUser(mediaAssetId, userId);
+      if (!asset) throw new NotFoundError('Media not found');
+    }
+
+    // Move the reference: detach the old image's, attach the new one's. The old
+    // asset itself is left in the library.
+    if (item.mediaAssetId && String(item.mediaAssetId) !== String(mediaAssetId)) {
+      await mediaRepository.detachMediaReference({
+        userId, mediaAssetId: item.mediaAssetId, referenceType: 'planner_run_item', referenceId: itemId,
+      }).catch(() => {});
+    }
+    if (mediaAssetId != null) {
+      await mediaRepository.attachMediaReference({
+        userId, mediaAssetId, referenceType: 'planner_run_item', referenceId: itemId,
+      }).catch(() => {});
+    }
+
+    const updated = await runsRepo.updateItem(itemId, userId, { mediaAssetId: mediaAssetId ?? null });
+    return decorateItem(userId, updated);
+  }
+
+  /**
    * Regenerate ONE field without losing the rest.
    *
    * Fields the user edited are preserved unless they explicitly force it —
@@ -2593,6 +2635,7 @@ export function createPlannerService({
     listPlans,
     updateItem,
     getItemRevisions,
+    setItemMedia,
     regenerateItem,
     setItemStatus,
     bulkSetStatus,

@@ -386,6 +386,42 @@ export function createPostService({
     return enrich(userId, cancelled);
   }
 
+  /**
+   * Attach an owned library image to a draft, or clear it.
+   *
+   * Copy-only: the post's captions, schedule and targets are untouched. No
+   * HCTI, no OpenAI — an uploaded image needs no rendering. A replaced generated
+   * image stays in the library; only its scheduled_post reference is moved.
+   */
+  async function selectMedia(userId, postId, mediaAssetId, { req } = {}) {
+    const post = await requireOwnedPost(userId, postId);
+    if (mediaAssetId != null) {
+      const asset = await mediaRepository.findMediaAssetByIdForUser(mediaAssetId, userId);
+      if (!asset) throw new NotFoundError('Media not found');
+    }
+    if (post.mediaAssetId && String(post.mediaAssetId) !== String(mediaAssetId)) {
+      await mediaRepository.detachMediaReference?.({
+        userId, mediaAssetId: post.mediaAssetId, referenceType: 'scheduled_post', referenceId: postId,
+      }).catch(() => {});
+    }
+    if (mediaAssetId != null) {
+      await mediaRepository.attachMediaReference?.({
+        userId, mediaAssetId, referenceType: 'scheduled_post', referenceId: postId,
+      }).catch(() => {});
+    }
+    const saved = await posts.attachMediaAsset(postId, userId, {
+      mediaAssetId: mediaAssetId ?? null,
+      template: post.templateName ?? null,
+      aspectRatio: post.aspectRatio ?? null,
+      backgroundStyle: post.backgroundStyle ?? null,
+      imageGeneratedAt: toMysqlUtc(),
+    });
+    await logging.record(EVENT_TYPES.MEDIA_ASSET_CREATED, {
+      req, userId, message: 'Media selected', context: { postId },
+    }).catch(() => {});
+    return enrich(userId, saved);
+  }
+
   async function deleteDraft(userId, postId, { req } = {}) {
     await requireOwnedPost(userId, postId);
     const result = await posts.deleteDraftPost(postId, userId);
@@ -440,6 +476,7 @@ export function createPostService({
     setTargets,
     generateContent,
     generateImage,
+    selectMedia,
     schedulePost,
     cancelPost,
     deleteDraft,

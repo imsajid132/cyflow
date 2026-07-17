@@ -14,6 +14,7 @@ import {
 } from '../ui.js';
 import { PROVIDER_LABELS, PLATFORM_LABELS } from '../icons.js';
 import { platformEditor } from '../components/platformEditor.js';
+import { pickMedia } from '../components/mediaPicker.js';
 
 const TONES = ['neutral', 'friendly', 'professional', 'playful', 'bold', 'informative'];
 const HASHTAGS = ['none', 'few', 'moderate', 'many'];
@@ -133,10 +134,31 @@ export async function render(root, ctx) {
   const imageHost = el('div', {});
   const imageBtn = el('button', { className: 'btn btn-primary', text: 'Generate image', attrs: { type: 'button' } });
   imageBtn.disabled = true;
+  // Choose an uploaded image from the library instead of rendering one. Works
+  // without HCTI — an uploaded image needs no rendering.
+  const chooseImageBtn = el('button', { className: 'btn btn-secondary', text: 'Choose from library', attrs: { type: 'button' } });
+  chooseImageBtn.addEventListener('click', async () => {
+    if (!post?.id) { toast('Generate the post copy first so there is a draft to attach to.', 'warn'); return; }
+    const picked = await pickMedia({ allowClear: Boolean(post?.media) });
+    if (picked === null) return;
+    const mediaAssetId = picked.clear ? null : picked.id;
+    setLoading(chooseImageBtn, true, 'Attaching…');
+    try {
+      const res = await api.apiRequest(`/api/posts/${encodeURIComponent(post.id)}/select-media`, {
+        method: 'POST', body: { mediaAssetId },
+      });
+      if (!res.ok) { toast(api.errorMessage(res, 'The image could not be attached.'), 'err'); return; }
+      post = api.payload(res)?.post ?? post;
+      toast(mediaAssetId ? 'Image attached.' : 'Image removed.', 'ok');
+      renderImage();
+    } finally {
+      setLoading(chooseImageBtn, false);
+    }
+  });
   const imageCard = card([
     el('div', { className: 'card-head' }, [
       el('span', { className: 'card-title', text: '4. Branded image' }),
-      imageBtn,
+      el('div', { className: 'row', attrs: { style: 'gap:.4rem' } }, [chooseImageBtn, imageBtn]),
     ]),
     el('div', { className: 'grid grid-3' }, [
       selectField({ id: 'template', label: 'Template', options: templates, value: templates[0]?.value }),

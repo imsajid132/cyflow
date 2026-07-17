@@ -122,6 +122,12 @@ export const updateItemValidator = [
   body('platformCaptions.*.hashtags.*').optional().isString().isLength({ max: 80 }).withMessage('Hashtag is too long'),
 ];
 
+export const setItemMediaValidator = [
+  ...itemIdParamValidator,
+  // Null clears the image; otherwise an owned media id.
+  body('mediaAssetId').optional({ nullable: true }).matches(idPattern).withMessage('Invalid media id'),
+];
+
 export const regenerateItemValidator = [
   ...itemIdParamValidator,
   body('target').isIn(['caption', 'image']).withMessage('Regenerate the caption or the image'),

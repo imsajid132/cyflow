@@ -13,6 +13,8 @@
  */
 
 import { Buffer } from 'node:buffer';
+import os from 'node:os';
+import path from 'node:path';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -338,6 +340,25 @@ export function buildConfig(raw = process.env) {
     }),
   };
 
+  // --- Media storage (C3) ---------------------------------------------------
+  //
+  // Uploaded image bytes live on a private filesystem path, OUTSIDE the public
+  // app source. The default sits under the OS temp dir so local dev and the
+  // test suite work with zero configuration — but a temp dir is wiped on
+  // redeploy, so PRODUCTION MUST set MEDIA_STORAGE_PATH to a persistent
+  // directory. That requirement is a deployment blocker, documented in the
+  // runbook, not enforced here (a dev machine has no persistent path to give).
+  const media = {
+    storageDriver: optionalString('MEDIA_STORAGE_DRIVER') || 'local',
+    storagePath: optionalString('MEDIA_STORAGE_PATH')
+      || path.join(os.tmpdir(), 'cyflow-media'),
+    maxUploadBytes: toNumber('MAX_MEDIA_UPLOAD_BYTES', {
+      required: false,
+      fallback: 8 * 1024 * 1024, // 8 MB — ample for a social image, mean to a bomb
+      min: 1024,
+    }),
+  };
+
   const logLevel = optionalString('LOG_LEVEL') || 'info';
 
   if (errors.length > 0) {
@@ -370,6 +391,7 @@ export function buildConfig(raw = process.env) {
     oauth: Object.freeze(oauth),
     scheduler: Object.freeze(scheduler),
     limits: Object.freeze(limits),
+    media: Object.freeze(media),
   });
 
   const providerAvailability = Object.freeze({

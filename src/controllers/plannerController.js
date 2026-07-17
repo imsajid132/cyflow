@@ -105,6 +105,11 @@ export function createPlannerController({ plannerService = defaultService } = {}
     return sendSuccess(res, { revisions });
   });
 
+  const setItemMedia = asyncHandler(async (req, res) => {
+    const item = await plannerService.setItemMedia(req.user.id, req.params.itemId, req.body.mediaAssetId ?? null);
+    return sendSuccess(res, { item });
+  });
+
   const regenerateItem = asyncHandler(async (req, res) => {
     const item = await plannerService.regenerateItem(req.user.id, req.params.itemId, req.body.target, {
       force: Boolean(req.body.force),
@@ -160,6 +165,7 @@ export function createPlannerController({ plannerService = defaultService } = {}
     deletePlan,
     updateItem,
     getItemRevisions,
+    setItemMedia,
     regenerateItem,
     setItemStatus,
     deleteItem,

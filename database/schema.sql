@@ -183,6 +183,16 @@ CREATE TABLE IF NOT EXISTS `media_assets` (
   `scheduled_post_id`  BIGINT UNSIGNED NULL DEFAULT NULL,
   `public_token`       VARCHAR(128)    NOT NULL,
   `source_provider`    ENUM('hcti','openai','upload') NOT NULL DEFAULT 'hcti',
+  -- Uploaded (locally stored) assets. NULL for HCTI-proxied assets.
+  `storage_driver`     VARCHAR(32)     NULL DEFAULT NULL,
+  `storage_key`        VARCHAR(255)    NULL DEFAULT NULL,
+  `original_filename`  VARCHAR(255)    NULL DEFAULT NULL,
+  `file_size_bytes`    INT UNSIGNED    NULL DEFAULT NULL,
+  `width`              SMALLINT UNSIGNED NULL DEFAULT NULL,
+  `height`             SMALLINT UNSIGNED NULL DEFAULT NULL,
+  `alt_text`           VARCHAR(500)    NULL DEFAULT NULL,
+  `checksum_sha256`    CHAR(64)        NULL DEFAULT NULL,
+  `file_extension`     VARCHAR(16)     NULL DEFAULT NULL,
   `source_url`         VARCHAR(1024)   NULL DEFAULT NULL,
   `source_asset_id`    VARCHAR(255)    NULL DEFAULT NULL,
   `mime_type`          VARCHAR(128)    NULL DEFAULT NULL,
@@ -195,6 +205,7 @@ CREATE TABLE IF NOT EXISTS `media_assets` (
   KEY `idx_media_assets_user` (`user_id`),
   KEY `idx_media_assets_post` (`scheduled_post_id`),
   KEY `idx_media_assets_status` (`status`),
+  KEY `idx_media_assets_user_checksum` (`user_id`, `checksum_sha256`),
   CONSTRAINT `fk_media_assets_user`
     FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
     ON DELETE CASCADE ON UPDATE CASCADE,
@@ -209,6 +220,33 @@ ALTER TABLE `scheduled_posts`
   ADD CONSTRAINT `fk_scheduled_posts_media_asset`
     FOREIGN KEY (`media_asset_id`) REFERENCES `media_assets` (`id`)
     ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- -----------------------------------------------------------------------------
+-- E2. media_asset_references  (one asset reused by many entities — C3)
+-- -----------------------------------------------------------------------------
+-- A polymorphic edge: reference_id points at planner_run_items or
+-- scheduled_posts depending on reference_type. No FK on reference_id (it targets
+-- different tables); the service removes an entity's references when the entity
+-- is deleted. The user_id FK is real and cascades.
+CREATE TABLE IF NOT EXISTS `media_asset_references` (
+  `id`               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id`          BIGINT UNSIGNED NOT NULL,
+  `media_asset_id`   BIGINT UNSIGNED NOT NULL,
+  `reference_type`   ENUM('planner_run_item','scheduled_post') NOT NULL,
+  `reference_id`     BIGINT UNSIGNED NOT NULL,
+  `created_at`       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_media_ref_asset_entity` (`media_asset_id`, `reference_type`, `reference_id`),
+  KEY `idx_media_ref_asset` (`media_asset_id`),
+  KEY `idx_media_ref_entity` (`reference_type`, `reference_id`),
+  KEY `idx_media_ref_user` (`user_id`),
+  CONSTRAINT `fk_media_ref_user`
+    FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_media_ref_asset`
+    FOREIGN KEY (`media_asset_id`) REFERENCES `media_assets` (`id`)
+    ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------------------------------
 -- F. scheduled_post_targets  (one row per (post, social account) fan-out)

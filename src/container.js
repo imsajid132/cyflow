@@ -42,6 +42,9 @@ import { createSocialAccountController } from './controllers/socialAccountContro
 import { createThreadsCallbackController } from './controllers/threadsCallbackController.js';
 import { createPostController } from './controllers/postController.js';
 import { createMediaController } from './controllers/mediaController.js';
+import { createMediaLibraryController } from './controllers/mediaLibraryController.js';
+import { createMediaLibraryService } from './services/mediaLibraryService.js';
+import { createMediaUploadMiddleware } from './middleware/mediaUpload.js';
 import { createAuthMiddleware } from './middleware/auth.js';
 import { withTransaction as realWithTransaction } from './db/transactions.js';
 
@@ -153,7 +156,12 @@ export function buildContainer(overrides = {}) {
     });
 
   const postController = createPostController({ postService });
-  const mediaController = createMediaController({ mediaAssetService });
+  // C3 media library: upload/list/reuse/references, over a local storage adapter.
+  const mediaLibraryService = overrides.mediaLibraryService
+    ?? createMediaLibraryService({ mediaRepository: mediaRepo, logging });
+  const mediaController = createMediaController({ mediaAssetService, mediaLibraryService });
+  const mediaLibraryController = createMediaLibraryController({ mediaLibraryService });
+  const parseSingleImage = overrides.parseSingleImage ?? createMediaUploadMiddleware();
   const businessProfileController = createBusinessProfileController({ businessProfileService });
   const plannerController = createPlannerController({ plannerService });
 
@@ -191,6 +199,9 @@ export function buildContainer(overrides = {}) {
     threadsCallbackController,
     postController,
     mediaController,
+    mediaLibraryService,
+    mediaLibraryController,
+    parseSingleImage,
     businessProfileController,
     plannerController,
     requireAuth,
