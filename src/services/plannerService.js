@@ -111,9 +111,11 @@ import {
   targetBandFor,
   repairGuidance,
 } from './contentStyleGuard.js';
+import { normalizePlatformCopy, applyPlatformEdit } from './platformCopy.js';
 
 import * as defaultPlannerPrefs from '../repositories/plannerPreferenceRepository.js';
 import * as defaultPlannerRuns from '../repositories/plannerRunRepository.js';
+import * as defaultPlannerRevisions from '../repositories/plannerRevisionRepository.js';
 import * as defaultBusinessProfiles from '../repositories/businessProfileRepository.js';
 import * as defaultSocialAccounts from '../repositories/socialAccountRepository.js';
 import * as defaultPostRepo from '../repositories/postRepository.js';
@@ -163,6 +165,7 @@ export function createPlannerService({
   config = defaultConfig,
   preferences: prefsRepo = defaultPlannerPrefs,
   runs: runsRepo = defaultPlannerRuns,
+  revisions: revisionsRepo = defaultPlannerRevisions,
   businessProfiles = defaultBusinessProfiles,
   socialAccounts = defaultSocialAccounts,
   posts = defaultPostRepo,
@@ -977,6 +980,9 @@ export function createPlannerService({
       editedFields: [],
     });
 
+    // The first version of each platform's copy, for the timeline.
+    await recordItemRevisions(userId, item, 'generated');
+
     // `duplicateFlagged` is reported separately from `flagged`: the run's note
     // may only claim a similarity problem when there actually is one.
     return { item, fingerprint, flagged, duplicateFlagged, hardFailed };
@@ -1298,7 +1304,15 @@ export function createPlannerService({
       if (asset) media = { publicToken: asset.publicToken, status: asset.status };
     }
     const { fingerprint, ...rest } = item;
-    return { ...rest, media };
+    /*
+     * The resolved per-platform copy the editor renders.
+     *
+     * Attached here, from the canonical platform_captions_json, so the drawer
+     * and Create Post read platformCopy directly instead of deriving every tab
+     * from item.caption — the gap C2 closes. Selected platforms only; validation
+     * and measurements included so the tabs need no second round-trip.
+     */
+    return { ...rest, media, platformCopy: normalizePlatformCopy(item) };
   }
 
   async function listPlans(userId, opts = {}) {
@@ -1352,6 +1366,73 @@ export function createPlannerService({
       changedAny = true;
     };
 
+    /*
+     * Per-platform copy edits.
+     *
+     * `patch.platformCaptions` is { platform: { postCopy, hashtags } } and is
+     * the authoritative path once the drawer has tabs. Each named platform:
+     *
+     *   - MUST be in the item's immutable platform snapshot. This is the whole
+     *     of "Facebook cannot be added to an Instagram + Threads item": a
+     *     platform not in platformTargets is rejected before anything is written,
+     *     with no OpenAI call, no HCTI call and no revision;
+     *   - is validated by the existing style guard (prose paragraphs, not list
+     *     items; hashtags separate) so a manual edit is held to the same bar as
+     *     generated copy;
+     *   - is merged so siblings are written back byte-for-byte (applyPlatformEdit).
+     *
+     * The revisions to record are collected here and written AFTER the row is
+     * saved, so a failed save cannot leave an orphan revision.
+     */
+    const platformRevisions = [];
+    let editedPlatformCaptions = null;
+    const currentCopy = normalizePlatformCopy(item);
+    if (patch.platformCaptions !== undefined) {
+      const edits = patch.platformCaptions && typeof patch.platformCaptions === 'object'
+        ? patch.platformCaptions : null;
+      if (!edits) {
+        errors.push({ field: 'platformCaptions', message: 'Invalid platform copy' });
+      } else {
+        for (const [platform, value] of Object.entries(edits)) {
+          if (!item.platformTargets.includes(platform)) {
+            // Unselected platform (or a bogus one). This is the injection guard.
+            errors.push({
+              field: `platformCaptions.${platform}`,
+              message: `${PLATFORM_LABELS[platform] ?? platform} is not one of this post's platforms`,
+            });
+            continue;
+          }
+          const postCopy = typeof value?.postCopy === 'string' ? value.postCopy.slice(0, 4000) : null;
+          if (postCopy === null || postCopy.trim() === '') {
+            errors.push({ field: `platformCaptions.${platform}`, message: 'Post copy cannot be empty' });
+            continue;
+          }
+          const hashtags = Array.isArray(value.hashtags)
+            ? value.hashtags.filter((h) => typeof h === 'string').slice(0, 30)
+            : (currentCopy[platform]?.hashtags ?? []);
+          // Only an ACTUAL change is an edit. Re-saving identical copy is a no-op
+          // and records no revision — the reopen/reload/duplicate-save case.
+          const before = currentCopy[platform];
+          if (before && same({ c: before.postCopy, h: before.hashtags }, { c: postCopy, h: hashtags })) {
+            continue;
+          }
+          editedPlatformCaptions = applyPlatformEdit(
+            editedPlatformCaptions ? { ...item, platformCaptions: editedPlatformCaptions } : item,
+            platform,
+            { postCopy, hashtags },
+            toMysqlUtc(now()),
+          );
+          const issues = postCopyIssues(postCopy, platform);
+          platformRevisions.push({
+            platform,
+            postCopy,
+            hashtags,
+            validationStatus: issues.length === 0 ? 'passed' : 'failed',
+          });
+        }
+      }
+    }
+
     if (patch.caption !== undefined) {
       if (typeof patch.caption !== 'string' || patch.caption.trim() === '') {
         errors.push({ field: 'caption', message: 'Caption cannot be empty' });
@@ -1400,6 +1481,28 @@ export function createPlannerService({
     }
 
     if (errors.length) throw new ValidationError('Invalid changes', errors);
+
+    /*
+     * Commit the per-platform edits into the fields to persist.
+     *
+     * When the PRIMARY platform's copy was edited, the canonical `caption` and
+     * `hashtags` move with it: those two fields ARE the primary platform's copy
+     * for every legacy reader (the queue's fallback, an old client), so leaving
+     * them stale would split the source of truth the moment a tab was used. A
+     * sibling edit never touches them.
+     */
+    if (editedPlatformCaptions) {
+      fields.platformCaptions = editedPlatformCaptions;
+      changedAny = true;
+      const primary = item.platformTargets[0];
+      const editedPrimary = platformRevisions.find((r) => r.platform === primary);
+      if (editedPrimary) {
+        fields.caption = editedPrimary.postCopy;
+        fields.hashtags = editedPrimary.hashtags;
+        edited.add('caption');
+      }
+    }
+
     // Re-submitting identical values is a no-op, not an "edit".
     if (!changedAny) return decorateItem(userId, item);
 
@@ -1409,23 +1512,89 @@ export function createPlannerService({
       fields.approvalStatus = PLANNER_ITEM_STATUS.DRAFT;
     }
     /*
-     * Editing a hard failure clears it. The generator could not write a valid
-     * post, but a person just did, and holding their work hostage to the
-     * machine's verdict would be absurd. The quality record is cleared with it,
-     * because it no longer describes what is there.
+     * Editing a hard failure clears it — but ONLY when every selected platform
+     * now passes.
+     *
+     * The generator could not write a valid post and a person just did, so
+     * holding their work hostage to the machine's verdict would be absurd. But
+     * clearing the failure while another platform is still invalid would let an
+     * unusable post be approved. So the failure clears only when the WHOLE item
+     * is valid: the platform just edited, and every sibling, measured against
+     * the resulting state. A caption-only edit (no tabs) keeps its old
+     * behaviour, because that path has a single platform's copy to judge.
      */
     if (item.approvalStatus === PLANNER_ITEM_STATUS.GENERATION_FAILED && edited.has('caption')) {
-      fields.approvalStatus = PLANNER_ITEM_STATUS.DRAFT;
-      fields.qualityStatus = PLANNER_QUALITY_STATUS.NEEDS_REVIEW;
-      fields.qualityFailures = null;
+      const resultingItem = {
+        ...item,
+        ...fields,
+        platformCaptions: fields.platformCaptions ?? item.platformCaptions,
+        caption: fields.caption ?? item.caption,
+      };
+      const resulting = normalizePlatformCopy(resultingItem);
+      const allPass = Object.values(resulting).every((p) => p.validationStatus === 'passed');
+      if (allPass) {
+        fields.approvalStatus = PLANNER_ITEM_STATUS.DRAFT;
+        fields.qualityStatus = PLANNER_QUALITY_STATUS.NEEDS_REVIEW;
+        fields.qualityFailures = null;
+      }
     }
 
     const updated = await runsRepo.updateItem(itemId, userId, fields);
+
+    /*
+     * Manual-edit revisions, AFTER the row is saved so a failed save leaves no
+     * orphan. One per platform whose copy actually changed; the repository
+     * suppresses an identical repeat, so a duplicate save adds nothing.
+     */
+    for (const rev of platformRevisions) {
+      // eslint-disable-next-line no-await-in-loop
+      await revisionsRepo.recordRevision({
+        userId,
+        plannerRunItemId: itemId,
+        platform: rev.platform,
+        revisionType: 'manual_edit',
+        postCopy: rev.postCopy,
+        hashtags: rev.hashtags,
+        validationStatus: rev.validationStatus,
+      }).catch(() => {});
+    }
+
     await logging.record(EVENT_TYPES.PLANNER_ITEM_UPDATED, {
       req, userId, message: 'Planned post updated',
       context: { itemId, fields: Object.keys(fields).filter((f) => f !== 'editedFields') },
     });
     return decorateItem(userId, updated);
+  }
+
+  /** The revision timeline for one item, owner-scoped. */
+  async function getItemRevisions(userId, itemId) {
+    await requireItem(userId, itemId); // ownership: throws NotFound for another user
+    return revisionsRepo.listRevisionsForItem(itemId, userId, { limit: 50 });
+  }
+
+  /**
+   * Record one revision per selected platform, from the item's resolved copy.
+   *
+   * Used for the whole-item lifecycle types (generated, approved, queued) where
+   * every platform's current copy is snapshotted at once. Per-platform types
+   * (manual_edit, retry) are recorded at their own call sites, because they know
+   * exactly which platform changed. Best-effort: a revision that fails to write
+   * must never break the generation, approval or queueing it records.
+   */
+  async function recordItemRevisions(userId, item, revisionType) {
+    const copy = normalizePlatformCopy(item);
+    for (const [platform, entry] of Object.entries(copy)) {
+      // eslint-disable-next-line no-await-in-loop
+      await revisionsRepo.recordRevision({
+        userId,
+        plannerRunItemId: item.id,
+        platform,
+        revisionType,
+        postCopy: entry.postCopy,
+        hashtags: entry.hashtags,
+        validationStatus: entry.validationStatus,
+      }).catch(() => {});
+    }
   }
 
   /*
@@ -1491,6 +1660,8 @@ export function createPlannerService({
   }) {
     const primaryPlatform = item.platformTargets[0];
     const stored = platformCaptionsFor(item);
+    // The overwrite-confirmation guard for a user-edited platform lives in
+    // runRegeneration, before this is reached, so a decline never gets here.
     const request = {
       ...postRequestFrom({
         brief: {
@@ -1513,14 +1684,19 @@ export function createPlannerService({
     };
 
     const platformCaptions = { ...(item.platformCaptions ?? {}) };
-    // Every platform that is NOT being repaired keeps its exact stored copy,
-    // written down explicitly so a passing sibling cannot be lost to a gap in
-    // the map when the column was NULL.
+    // Every platform that is NOT being repaired keeps its exact stored entry,
+    // INCLUDING its userEdited flag — a passing platform the user wrote by hand
+    // stays marked as theirs through a sibling's repair. The spread above already
+    // carries it; this only fills a genuine gap (a NULL column, a legacy item)
+    // from the resolver's fallback, and a fallback is never user-edited.
     for (const platform of item.platformTargets) {
-      if (!failing.has(platform)) platformCaptions[platform] = stored[platform];
+      if (!failing.has(platform) && !item.platformCaptions?.[platform]) {
+        platformCaptions[platform] = stored[platform];
+      }
     }
 
     const remaining = [];
+    const retryRevisions = [];
     let primary = null;
 
     for (const [platform, priorIssues] of failing) {
@@ -1549,9 +1725,16 @@ export function createPlannerService({
         continue;
       }
 
+      // A repaired platform is machine copy again: userEdited is NOT carried over.
       platformCaptions[platform] = { caption: content.caption, hashtags: content.hashtags };
       if (platform === primaryPlatform) primary = content;
       remaining.push(...issues);
+      retryRevisions.push({
+        platform,
+        postCopy: content.caption,
+        hashtags: content.hashtags,
+        validationStatus: issues.length === 0 ? 'passed' : 'failed',
+      });
     }
 
     const stillFailing = remaining.length > 0;
@@ -1611,6 +1794,21 @@ export function createPlannerService({
     }
 
     const updated = await runsRepo.updateItem(item.id, userId, fields);
+
+    // A retry revision per platform that was actually rewritten, after the save.
+    for (const rev of retryRevisions) {
+      // eslint-disable-next-line no-await-in-loop
+      await revisionsRepo.recordRevision({
+        userId,
+        plannerRunItemId: item.id,
+        platform: rev.platform,
+        revisionType: 'retry',
+        postCopy: rev.postCopy,
+        hashtags: rev.hashtags,
+        validationStatus: rev.validationStatus,
+      }).catch(() => {});
+    }
+
     await logging.record(EVENT_TYPES.PLANNER_ITEM_REGENERATED, {
       req,
       userId,
@@ -1706,6 +1904,31 @@ export function createPlannerService({
       const duplicateProblem = Boolean(item.duplicationNotes)
         || (item.duplicationScore ?? 0) >= DUPLICATION_THRESHOLDS.REGENERATE;
       const failing = isRetryOfFailure && !duplicateProblem ? failingPlatforms(item) : new Map();
+
+      /*
+       * A platform the user wrote by hand is not overwritten without a yes.
+       *
+       * This is the ONE overwrite-confirmation guard, placed where both paths
+       * pass through it. A repair rewrites only the failing platforms; a full
+       * regeneration rewrites all of them — so the set to protect is exactly the
+       * set about to be rewritten. A user-edited platform in that set, without
+       * force, throws here, BEFORE the model is reached: declining costs no
+       * OpenAI call, no usage record and no revision. A user-edited SIBLING that
+       * is not being rewritten is never in the set and never asks.
+       *
+       * The legacy edited.has('caption') guard above still covers the primary
+       * for pre-C2 items that have no per-platform userEdited flag.
+       */
+      if (!force) {
+        const rewritten = failing.size > 0 ? [...failing.keys()] : item.platformTargets;
+        const editedTargets = rewritten.filter((p) => item.platformCaptions?.[p]?.userEdited === true);
+        if (editedTargets.length) {
+          const names = editedTargets.map((p) => PLATFORM_LABELS[p] ?? p).join(' and ');
+          throw new ConflictError(
+            `You edited the ${names} copy by hand. Regenerating replaces your version. Confirm to continue.`,
+          );
+        }
+      }
 
       if (failing.size > 0) {
         return repairFailingPlatforms({
@@ -1871,6 +2094,9 @@ export function createPlannerService({
       }
 
       const updated = await runsRepo.updateItem(itemId, userId, fields);
+      // A full regeneration is a real state change per platform: record it, so
+      // the timeline shows the rewrite the same way a targeted repair does.
+      await recordItemRevisions(userId, updated, 'retry');
       await logging.record(EVENT_TYPES.PLANNER_ITEM_REGENERATED, {
         req, userId, message: 'Planned caption regenerated', context: { itemId },
       });
@@ -1961,6 +2187,8 @@ export function createPlannerService({
       );
     }
     const updated = await runsRepo.updateItem(itemId, userId, { approvalStatus: status });
+    // An approval snapshot: what each platform said at the moment it was approved.
+    if (status === PLANNER_ITEM_STATUS.APPROVED) await recordItemRevisions(userId, updated, 'approved');
     await logging.record(
       status === PLANNER_ITEM_STATUS.APPROVED ? EVENT_TYPES.PLANNER_ITEM_APPROVED : EVENT_TYPES.PLANNER_ITEM_REJECTED,
       { req, userId, message: `Planned post ${status}`, context: { itemId } },
@@ -1996,7 +2224,9 @@ export function createPlannerService({
         continue;
       }
       // eslint-disable-next-line no-await-in-loop
-      await runsRepo.updateItem(item.id, userId, { approvalStatus: status });
+      const savedItem = await runsRepo.updateItem(item.id, userId, { approvalStatus: status });
+      // eslint-disable-next-line no-await-in-loop
+      if (status === PLANNER_ITEM_STATUS.APPROVED) await recordItemRevisions(userId, savedItem, 'approved');
       results.updated.push(item.id);
     }
     await logging.record(
@@ -2271,6 +2501,10 @@ export function createPlannerService({
         postId: post.id,
         approvalStatus: PLANNER_ITEM_STATUS.QUEUED,
       });
+      // The copy as it went into the queue, per platform. `item` here still
+      // carries platformCaptions and caption, which is what was just queued.
+      // eslint-disable-next-line no-await-in-loop
+      await recordItemRevisions(userId, item, 'queued');
       queued.push({ itemId: item.id, postId: post.id });
     }
 
@@ -2358,6 +2592,7 @@ export function createPlannerService({
     getPlan,
     listPlans,
     updateItem,
+    getItemRevisions,
     regenerateItem,
     setItemStatus,
     bulkSetStatus,

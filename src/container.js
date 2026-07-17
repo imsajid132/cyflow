@@ -19,6 +19,7 @@ import * as apiUsageRepositoryModule from './repositories/apiUsageRepository.js'
 import * as businessProfileRepositoryModule from './repositories/businessProfileRepository.js';
 import * as plannerPreferenceRepositoryModule from './repositories/plannerPreferenceRepository.js';
 import * as plannerRunRepositoryModule from './repositories/plannerRunRepository.js';
+import * as plannerRevisionRepositoryModule from './repositories/plannerRevisionRepository.js';
 import { createBusinessProfileService } from './services/businessProfileService.js';
 import { createPlannerService } from './services/plannerService.js';
 import { contentUniquenessService as realUniquenessService } from './services/contentUniquenessService.js';
@@ -130,12 +131,14 @@ export function buildContainer(overrides = {}) {
   // Phase 4.7: auto content planner.
   const plannerPreferences = overrides.plannerPreferenceRepository ?? plannerPreferenceRepositoryModule;
   const plannerRuns = overrides.plannerRunRepository ?? plannerRunRepositoryModule;
+  const plannerRevisions = overrides.plannerRevisionRepository ?? plannerRevisionRepositoryModule;
   const uniquenessService = overrides.contentUniquenessService ?? realUniquenessService;
   const plannerService =
     overrides.plannerService ??
     createPlannerService({
       preferences: plannerPreferences,
       runs: plannerRuns,
+      revisions: plannerRevisions,
       businessProfiles,
       socialAccounts,
       posts: postRepo,

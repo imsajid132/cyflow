@@ -100,7 +100,9 @@ export function buildReviewApp(opts = {}) {
    * Assigned after the overrides exist, because it closes over the repository.
    */
   let credentialCheck = async () => true;
-  const openaiContentService = opts.repairChecklist
+  const openaiContentService = opts.repairEditorThreads
+    ? createFakePlannerOpenAI({ validate: true, platformScript: { threads: [REPAIRED_EDITOR_THREADS] } })
+    : opts.repairChecklist
     ? createFakePlannerOpenAI({
       validate: true,
       platformScript: { instagram: [REPAIRED_INSTAGRAM_CHECKLIST] },
@@ -229,6 +231,29 @@ export const REPAIRED_THREADS = [
 ].join('\n\n');
 
 /*
+ * A PASSING item with genuinely different Instagram and Threads copy, for the
+ * platform-editor browser test. Both are valid, so the test drives editing,
+ * saving and per-platform independence rather than repair.
+ */
+export const EDITOR_ITEM_COPY = Object.freeze({
+  instagram: [
+    'Search visibility is not one thing you buy once. It is a set of small, boring habits that compound, and most of them cost nothing but attention to the pages you already have.',
+    'Start with the three pages you would be most annoyed to lose a customer over. Read them as a stranger would. Do they say what the job involves, what it costs to look into, and who it is for, in the first two lines?',
+    'If they do, you are ahead of most of your competition already. If they do not, that is a free afternoon of work that beats any audit you could pay for this month.',
+  ].join('\n\n'),
+  threads: [
+    'Most SEO advice is just "write pages a person would actually want to read." Everything else is downstream of that.',
+    'Pick your top service page. Does it answer what the job is, what it costs to look into, and who it is for, before a visitor has to scroll? That is the whole test.',
+  ].join('\n\n'),
+});
+
+/** The Threads copy the writer returns when the editor test retries Threads. */
+export const REPAIRED_EDITOR_THREADS = [
+  'Rewritten by the machine on request: your service page is your best salesperson, so read it as a stranger would once a month.',
+  'Does it say what the job involves, what it costs to look into, and who it is for, before anyone scrolls? If not, that is your afternoon.',
+].join('\n\n');
+
+/*
  * The live CHECKLIST case, exactly as reported.
  *
  * Friday, Actionable Tips, format Checklist, family Checklist Guide, Instagram
@@ -325,6 +350,28 @@ export async function seedFailedPlan(overrides, userId, plannerService, { scenar
    */
   const duplicate = scenario === 'duplicate';
   const checklist = scenario === 'checklist';
+  const editor = scenario === 'editor';
+
+  if (editor) {
+    /*
+     * A PASSING item with distinct valid per-platform copy. The platform-editor
+     * test edits Threads, saves, reloads and verifies independence, then retries
+     * Threads with an overwrite confirmation — none of which needs a failure.
+     */
+    await overrides.plannerRunRepository.updateItem(target.id, userId, {
+      caption: EDITOR_ITEM_COPY.instagram,
+      platformCaptions: {
+        instagram: { caption: EDITOR_ITEM_COPY.instagram, hashtags: ['#seo', '#smallbusiness'] },
+        threads: { caption: EDITOR_ITEM_COPY.threads, hashtags: [] },
+      },
+      approvalStatus: 'needs_review',
+      qualityStatus: 'passed',
+      qualityFailures: null,
+      duplicationScore: 0.1,
+      duplicationNotes: null,
+    });
+    return { runId: plan.run.id, failedItemId: target.id, scenario };
+  }
 
   const copy = checklist ? CHECKLIST_ITEM_COPY : FAILED_ITEM_COPY;
   await overrides.plannerRunRepository.updateItem(target.id, userId, {
@@ -388,6 +435,7 @@ if (isMain) {
   const withDuplicate = process.argv.includes('--with-duplicate-plan');
   // --with-checklist-plan  the live Checklist case (tools/checklist-smoke.mjs)
   const withChecklist = process.argv.includes('--with-checklist-plan');
+  const withEditor = process.argv.includes('--with-editor-plan');
   /*
    * --without-openai-key  seed a customer who has NOT configured OpenAI.
    *
@@ -396,14 +444,14 @@ if (isMain) {
    * test needs the opposite: someone starting from nothing.
    */
   const withoutOpenAiKey = process.argv.includes('--without-openai-key');
-  const { app, overrides } = buildReviewApp({ repairThreads: withPlan, repairChecklist: withChecklist });
+  const { app, overrides } = buildReviewApp({ repairThreads: withPlan, repairChecklist: withChecklist, repairEditorThreads: withEditor });
   const user = await seedReviewUser(overrides, { withOpenAiKey: !withoutOpenAiKey });
 
   let seeded = '';
-  if (withPlan || withDuplicate || withChecklist) {
+  if (withPlan || withDuplicate || withChecklist || withEditor) {
     const { buildPlannerService } = await import('./review-planner.mjs');
     const info = await seedFailedPlan(overrides, user.id, buildPlannerService(overrides), {
-      scenario: withDuplicate ? 'duplicate' : withChecklist ? 'checklist' : 'repair',
+      scenario: withDuplicate ? 'duplicate' : withChecklist ? 'checklist' : withEditor ? 'editor' : 'repair',
     });
     seeded = ` run=${info.runId} failedItem=${info.failedItemId} scenario=${info.scenario}`;
   }

@@ -51,6 +51,40 @@ export function providerIcon(provider) {
 }
 
 /**
+ * Which provider mark a PLATFORM uses.
+ *
+ * The planner speaks in platforms (facebook/instagram/threads); the marks are
+ * stored by provider (meta/instagram/threads). Facebook's mark is Meta's `f`.
+ * Keyed here so a platform id resolves to the right official mark and nothing
+ * falls through to a blank.
+ */
+const PLATFORM_PROVIDER = Object.freeze({ facebook: 'meta', instagram: 'instagram', threads: 'threads' });
+
+/**
+ * The official mark for a platform, as an <svg> element.
+ *
+ * Local inline SVG — never a runtime hotlink. `label` gives the mark an
+ * accessible name where it stands for the platform on its own (a tab); pass
+ * null where adjacent text already names it, so a screen reader is not told the
+ * name twice.
+ */
+export function platformMark(platform, { label = null, size = 20 } = {}) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 34 34');
+  svg.setAttribute('class', 'platform-mark');
+  svg.setAttribute('width', String(size));
+  svg.setAttribute('height', String(size));
+  if (label) {
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', label);
+  } else {
+    svg.setAttribute('aria-hidden', 'true');
+  }
+  svg.innerHTML = PROVIDER_SVG[PLATFORM_PROVIDER[platform]] || ''; // trusted local constant only
+  return svg;
+}
+
+/**
  * Labels for a PROVIDER: the thing a user connects on the Connections page.
  *
  * Keyed by provider id (`meta`), not platform id (`facebook`). See
@@ -88,4 +122,4 @@ export function platformNames(platforms) {
   return (platforms || []).map((p) => PLATFORM_LABELS[p] || p);
 }
 
-export default { icon, providerIcon, PROVIDER_LABELS, PLATFORM_LABELS, platformNames };
+export default { icon, providerIcon, platformMark, PROVIDER_LABELS, PLATFORM_LABELS, platformNames };

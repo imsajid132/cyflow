@@ -68,8 +68,10 @@ test('no user-facing string in the app says "caption"', () => {
 test('the internal caption field names are untouched, because the API uses them', () => {
   const create = FRONTEND.find((f) => f.file === 'assets/js/pages/create.js');
   const week = FRONTEND.find((f) => f.file === 'assets/js/pages/plannerWeek.js');
-  assert.match(create.source, /platformCaptions|\.caption/, 'create.js still reads the caption field');
-  assert.match(week.source, /caption/, 'plannerWeek.js still sends the caption field');
+  // C2: both now read the resolved per-platform copy. create.js renders
+  // post.platformCopy; plannerWeek sends platformCaptions on save.
+  assert.match(create.source, /platformCopy|platformCaptions|\.caption/, 'create.js reads the resolved platform copy');
+  assert.match(week.source, /platformCaptions/, 'plannerWeek.js sends per-platform copy');
 });
 
 test('the planner and create pages say "post copy" to the user', () => {

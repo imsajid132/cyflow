@@ -13,6 +13,7 @@ import {
   setLoading, setFieldError, clearFieldErrors, emptyState, skeleton,
 } from '../ui.js';
 import { PROVIDER_LABELS, PLATFORM_LABELS } from '../icons.js';
+import { platformEditor } from '../components/platformEditor.js';
 
 const TONES = ['neutral', 'friendly', 'professional', 'playful', 'bold', 'informative'];
 const HASHTAGS = ['none', 'few', 'moderate', 'many'];
@@ -249,26 +250,25 @@ export async function render(root, ctx) {
 
   function renderCaptions() {
     captionHost.textContent = '';
-    const captions = post?.platformCaptions || {};
-    const entries = Object.entries(captions);
-    if (!entries.length) {
+    // The server resolves per-platform copy for the SELECTED platforms (derived
+    // from the post's target accounts). Rendered through the SAME shared editor
+    // the Weekly Board uses, so tabs, official marks, measurements and
+    // selected-platforms-only behaviour are identical across the two surfaces.
+    const platformCopy = post?.platformCopy || {};
+    const platforms = post?.platformTargets || Object.keys(platformCopy);
+    if (!platforms.length || !Object.keys(platformCopy).length) {
       captionHost.appendChild(el('p', { className: 'hint', text: 'Post copy appears here once generated.' }));
       return;
     }
-    for (const [platform, value] of entries) {
-      captionHost.appendChild(card([
-        el('div', { className: 'card-head' }, [
-          // Keyed by platform, not provider: PROVIDER_LABELS has no `facebook`.
-          el('span', { className: 'card-title', text: PLATFORM_LABELS[platform] || platform }),
-          value?.caption ? badge(`${value.caption.length} chars`, 'neutral') : null,
-        ]),
-        el('p', { attrs: { style: 'white-space:pre-wrap' }, text: value?.caption || '' }),
-        Array.isArray(value?.hashtags) && value.hashtags.length
-          ? el('div', { className: 'row', attrs: { style: 'gap:.35rem;flex-wrap:wrap;margin-top:.5rem' } },
-              value.hashtags.map((h) => badge(h, 'neutral')))
-          : null,
-      ]));
-    }
+    /*
+     * Read-only here in C2. Create Post's full per-platform manual editing and
+     * save is part of Milestone E (the Publish/Draft workspace), where a
+     * scheduled-post platform-copy save path is built. Showing an editable field
+     * with no save behind it would be a worse affordance than an honest,
+     * consistent read-only view.
+     */
+    const editor = platformEditor({ platforms, platformCopy, idPrefix: 'c', readOnly: true });
+    captionHost.appendChild(editor.node);
     if (post?.imageHeadline) {
       captionHost.appendChild(el('p', { className: 'hint', text: `Image headline: ${post.imageHeadline}` }));
       imageBtn.disabled = false;

@@ -31,6 +31,7 @@ import * as defaultApiUsage from '../repositories/apiUsageRepository.js';
 import * as defaultIntegrationRepo from '../repositories/integrationRepository.js';
 import * as defaultBusinessProfiles from '../repositories/businessProfileRepository.js';
 import { openaiContentService as defaultOpenAI } from './openaiContentService.js';
+import { normalizePlatformCopy } from './platformCopy.js';
 import { socialImageService as defaultImage } from './socialImageService.js';
 import { mediaAssetService as defaultMedia } from './mediaAssetService.js';
 import { loggingService as defaultLogging } from './loggingService.js';
@@ -86,7 +87,29 @@ export function createPostService({
         media = { publicToken: asset.publicToken, status: asset.status };
       }
     }
-    return { ...post, targets, media };
+    /*
+     * The resolved per-platform copy, so Create Post can render the same shared
+     * platform editor the Weekly Board uses — one tab per SELECTED platform,
+     * with real measurements and validation.
+     *
+     * A scheduled post's selected platforms come from its target accounts (not a
+     * planner snapshot), so they are derived from the targets' account types.
+     * Only platforms with an active account appear, deduped, which is exactly
+     * "an unselected platform is never shown" for this surface.
+     */
+    const platformTargets = [...new Set(
+      (targets || []).map((t) => ACCOUNT_TYPE_TO_PLATFORM[t.accountType]).filter(Boolean),
+    )];
+    const platformCopy = platformTargets.length
+      ? normalizePlatformCopy({
+        platformTargets,
+        platformCaptions: post.platformCaptions ?? null,
+        caption: post.baseCaption ?? null,
+        hashtags: [],
+        editedFields: [],
+      })
+      : {};
+    return { ...post, targets, media, platformTargets, platformCopy };
   }
 
   // --- drafts --------------------------------------------------------------

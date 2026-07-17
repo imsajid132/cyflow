@@ -100,6 +100,11 @@ export function createPlannerController({ plannerService = defaultService } = {}
     return sendSuccess(res, { item });
   });
 
+  const getItemRevisions = asyncHandler(async (req, res) => {
+    const revisions = await plannerService.getItemRevisions(req.user.id, req.params.itemId);
+    return sendSuccess(res, { revisions });
+  });
+
   const regenerateItem = asyncHandler(async (req, res) => {
     const item = await plannerService.regenerateItem(req.user.id, req.params.itemId, req.body.target, {
       force: Boolean(req.body.force),
@@ -154,6 +159,7 @@ export function createPlannerController({ plannerService = defaultService } = {}
     describeDeletion,
     deletePlan,
     updateItem,
+    getItemRevisions,
     regenerateItem,
     setItemStatus,
     deleteItem,

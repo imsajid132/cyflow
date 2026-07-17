@@ -513,8 +513,15 @@ test('editing a hard-failed post clears the failure and lets it be approved', as
   assert.ok(item, 'expected a hard-failed item');
 
   // A human writes it properly. The machine's verdict no longer describes it.
+  //
+  // C2 tightened this: a manual edit clears a hard failure only when the result
+  // actually PASSES validation (invalid manual copy stays blocked). So the copy
+  // here is real Threads-length copy, not the 13-word line it used to be — which
+  // never passed and only cleared because the old rule cleared unconditionally.
   await ctx.svc.updateItem(USER, item.id, {
-    caption: 'A hand-written post that says something specific and useful about the work.',
+    caption: 'A hand-written post that says something specific and useful about the roofing work we '
+      + 'actually do, with enough detail to read as a real Threads post rather than a slogan. It '
+      + 'names the job, the season it matters in, and what a homeowner should look for themselves.',
   });
   const after = await ctx.svc.getPlan(USER, plan.run.id);
   const edited = after.items.find((i) => i.id === item.id);

@@ -112,6 +112,14 @@ export const updateItemValidator = [
   body('scheduledFor').optional({ nullable: true }).isString().isLength({ max: 40 }).withMessage('Invalid date and time'),
   body('platformTargets').optional({ nullable: true }).isArray({ min: 1, max: 3 }).withMessage('Choose at least one platform'),
   body('platformTargets.*').optional().isIn(PLATFORM_VALUES).withMessage('Unsupported platform'),
+  // Per-platform copy edits: { facebook: { postCopy, hashtags }, ... }. The
+  // object's KEYS are checked in the service against the item's immutable
+  // platform snapshot (an unselected/Facebook key is rejected there, per-item,
+  // which the validator cannot know). Here we bound the shape and sizes.
+  body('platformCaptions').optional({ nullable: true }).isObject().withMessage('Invalid platform copy'),
+  body('platformCaptions.*.postCopy').optional().isString().isLength({ max: 4000 }).withMessage('Post copy is too long'),
+  body('platformCaptions.*.hashtags').optional().isArray({ max: 30 }).withMessage('Too many hashtags'),
+  body('platformCaptions.*.hashtags.*').optional().isString().isLength({ max: 80 }).withMessage('Hashtag is too long'),
 ];
 
 export const regenerateItemValidator = [

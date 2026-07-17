@@ -65,7 +65,7 @@ const ITEM = (id) => `(async () => {
 const DRAWER_COPY = `(() => {
   const d = document.querySelector('.drawer');
   if (!d || d.hidden) return null;
-  const f = d.querySelector('#d-caption');
+  const f = d.querySelector('#d-copy-instagram') || d.querySelector('.pe-copy');
   return f ? f.value.trim() : null;
 })()`;
 

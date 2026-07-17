@@ -17,6 +17,8 @@ import { platformNames } from '../icons.js';
 import {
   plannerCard, statusChip, dayKeyOf, dayLabelOf, formatSlot, TEMPLATE_LABELS,
 } from '../components/plannerCard.js';
+import { platformEditor } from '../components/platformEditor.js';
+import { revisionTimeline } from '../components/revisionTimeline.js';
 import { deletePlanButton } from '../components/deletePlan.js';
 
 const TEMPLATE_OPTIONS = Object.entries(TEMPLATE_LABELS).map(([value, label]) => ({ value, label }));
@@ -327,10 +329,23 @@ export async function render(root, ctx) {
     retrying.add(item.id);
     setLoading(btn, true, 'Retrying…');
     try {
-      const res = await api.apiRequest(
+      const doRetry = (force) => api.apiRequest(
         `/api/planner/items/${encodeURIComponent(item.id)}/regenerate`,
-        { method: 'POST', body: { target: 'caption', force: true } },
+        { method: 'POST', body: { target: 'caption', force } },
       );
+      // force:false first, so a platform the user hand-edited still asks before
+      // it is overwritten — even from the failed-card Retry button.
+      let res = await doRetry(false);
+      if (res.status === 409 && /edited/i.test(api.errorMessage(res, ''))) {
+        const ok = await confirmModal({
+          title: 'Replace your edited copy?',
+          message: api.errorMessage(res, 'You edited some copy by hand. Regenerating replaces it.'),
+          confirmText: 'Regenerate anyway',
+          danger: true,
+        });
+        if (!ok) return;
+        res = await doRetry(true);
+      }
       if (!res.ok) {
         toast(api.errorMessage(res, 'That retry did not work. Try again shortly.'), 'err');
         return;
@@ -373,9 +388,34 @@ export async function render(root, ctx) {
    * the drawer is re-rendered from it, like the board is.
    */
   let openItemId = null;
+  // The live platform editor, and whether it has unsaved changes. A refresh
+  // driven by the app (a retry landing) is not a user close and must not warn,
+  // so this is consulted only on user-initiated closes and navigations.
+  let drawerEditor = null;
+  let drawerDirty = false;
 
-  function closeDrawer() {
+  /**
+   * Would closing lose unsaved edits? Ask, using the app's own modal.
+   *
+   * Returns true when it is safe to proceed (nothing unsaved, or the user
+   * confirmed). A raw browser confirm() is avoided; confirmModal is the app's
+   * component and works with mouse, keyboard and the mobile drawer.
+   */
+  async function confirmDiscardIfDirty() {
+    if (!drawerDirty) return true;
+    return confirmModal({
+      title: 'Discard unsaved changes?',
+      message: 'You have edited post copy that has not been saved. Closing loses those changes.',
+      confirmText: 'Discard changes',
+      danger: true,
+    });
+  }
+
+  async function closeDrawer({ force = false } = {}) {
+    if (!force && !(await confirmDiscardIfDirty())) return;
     openItemId = null;
+    drawerEditor = null;
+    drawerDirty = false;
     drawer.hidden = true;
     clear(drawer);
     document.removeEventListener('keydown', onDrawerKey);
@@ -394,7 +434,7 @@ export async function render(root, ctx) {
   function refreshDrawer() {
     if (!openItemId) return;
     const latest = plan?.items?.find((i) => i.id === openItemId);
-    if (!latest) { closeDrawer(); return; }
+    if (!latest) { closeDrawer({ force: true }); return; }
     openDrawer(latest);
   }
 
@@ -405,7 +445,7 @@ export async function render(root, ctx) {
     document.addEventListener('keydown', onDrawerKey);
 
     const closeBtn = el('button', { className: 'btn btn-ghost btn-sm', text: 'Close', attrs: { type: 'button' } });
-    closeBtn.addEventListener('click', closeDrawer);
+    closeBtn.addEventListener('click', () => closeDrawer());
 
     const preview = item.media?.publicToken
       ? el('img', {
@@ -422,23 +462,44 @@ export async function render(root, ctx) {
     const duplicateBtn = el('button', { className: 'btn btn-ghost btn-sm', text: 'Copy to manual draft', attrs: { type: 'button' } });
     const deleteBtn = el('button', { className: 'btn btn-danger btn-sm', text: 'Delete', attrs: { type: 'button' } });
 
+    /*
+     * The per-platform editor, over the SELECTED platforms only, from the
+     * canonical item.platformCopy the server resolved. This is what closes the
+     * gap: the drawer no longer shows one caption for every platform, it shows
+     * each platform's own copy, independently editable.
+     */
+    const editor = platformEditor({
+      platforms: item.platformTargets || [],
+      platformCopy: item.platformCopy || {},
+      idPrefix: 'd',
+      onDirtyChange: (dirty) => { drawerDirty = dirty; },
+    });
+    drawerEditor = editor;
+    drawerDirty = false;
+
     saveBtn.addEventListener('click', async () => {
+      const platformCaptions = editor.read();
+      const body = {
+        headline: val('d-headline'),
+        subheadline: val('d-subheadline'),
+        altText: val('d-alt'),
+        templateKey: val('d-template'),
+        backgroundStyle: val('d-background'),
+      };
+      if (Object.keys(platformCaptions).length) body.platformCaptions = platformCaptions;
+      const when = val('d-when');
+      if (when) body.scheduledFor = new Date(when).toISOString();
+
       setLoading(saveBtn, true, 'Saving…');
       try {
-        const body = {
-          caption: val('d-caption'),
-          headline: val('d-headline'),
-          subheadline: val('d-subheadline'),
-          altText: val('d-alt'),
-          templateKey: val('d-template'),
-          backgroundStyle: val('d-background'),
-        };
-        const when = val('d-when');
-        if (when) body.scheduledFor = new Date(when).toISOString();
         const res = await api.apiRequest(`/api/planner/items/${encodeURIComponent(item.id)}`, { method: 'PATCH', body });
         if (!res.ok) { toast(api.errorMessage(res, 'Your changes could not be saved.'), 'err'); return; }
+        // The save succeeded: the edits are the new baseline, so no unsaved-change
+        // warning fires on the reload/close that follows.
+        editor.markSaved(api.payload(res)?.item?.platformCopy);
+        drawerDirty = false;
         toast('Saved.', 'ok');
-        closeDrawer();
+        await closeDrawer({ force: true });
         await load();
       } finally {
         setLoading(saveBtn, false);
@@ -491,7 +552,8 @@ export async function render(root, ctx) {
         });
         if (!res.ok) { toast(api.errorMessage(res, 'The image could not be regenerated.'), 'err'); return; }
         toast('Image regenerated.', 'ok');
-        closeDrawer();
+        // Stay open so unsaved copy edits are not lost; the reload refreshes the
+        // preview in place via refreshDrawer.
         await load();
       } finally {
         setLoading(regenImageBtn, false);
@@ -515,7 +577,8 @@ export async function render(root, ctx) {
       const res = await api.apiRequest(`/api/planner/items/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
       if (!res.ok) { toast(api.errorMessage(res, 'It could not be deleted.'), 'err'); return; }
       toast('Post deleted.', 'ok');
-      closeDrawer();
+      // The post is gone: no edits to warn about.
+      await closeDrawer({ force: true });
       await load();
     });
 
@@ -539,7 +602,11 @@ export async function render(root, ctx) {
         preview,
         item.duplicationNotes ? notice(item.duplicationNotes, 'warn') : null,
         el('p', { className: 'card-sub', text: `${formatSlot(item.scheduledFor)} · ${platformNames(item.platformTargets).join(', ')}` }),
-        field({ id: 'd-caption', label: 'Post copy', type: 'textarea', value: item.caption || '', attrs: { rows: 6 } }),
+        // Per-platform post copy: one tab per selected platform, each editable
+        // and validated on its own. This is the C2 gap closed.
+        editor.node,
+        // Shared, cross-platform controls stay OUTSIDE the tabs.
+        el('h3', { className: 'drawer-section', text: 'Image and schedule' }),
         field({ id: 'd-headline', label: 'Image headline', value: item.headline || '' }),
         field({ id: 'd-subheadline', label: 'Image subheadline', value: item.subheadline || '' }),
         field({ id: 'd-alt', label: 'Image alt text', value: item.altText || '' }),
@@ -552,9 +619,8 @@ export async function render(root, ctx) {
           }),
         ]),
         field({ id: 'd-when', label: 'Scheduled for', type: 'datetime-local', value: localWhen }),
-        item.editedFields?.length
-          ? el('p', { className: 'hint', text: `You have edited: ${item.editedFields.join(', ')}. Regenerating will not overwrite these.` })
-          : null,
+        // The read-only revision timeline, loaded lazily.
+        revisionTimeline(item.id, api),
       ]),
       el('div', { className: 'drawer-foot' }, [
         saveBtn,
@@ -565,7 +631,8 @@ export async function render(root, ctx) {
         deleteBtn,
       ]),
     );
-    drawer.querySelector('#d-caption')?.focus();
+    // Focus the first platform's copy area, so keyboard users land in the editor.
+    drawer.querySelector('.pe-copy')?.focus();
   }
 
   await load();

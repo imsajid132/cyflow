@@ -513,7 +513,37 @@ CREATE TABLE IF NOT EXISTS `planner_run_items` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------------------------------
--- J. sessions  (server-side session store for express-mysql-session)
+-- J. post_revisions  (per-platform copy history — see migration 012)
+--    Stores the COPY at each state change. Never a prompt, key, token or
+--    provider response. Per-platform user-edited state lives inside
+--    planner_run_items.platform_captions_json, not here.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `post_revisions` (
+  `id`                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id`             BIGINT UNSIGNED NOT NULL,
+  `planner_run_item_id` BIGINT UNSIGNED NOT NULL,
+  `scheduled_post_id`   BIGINT UNSIGNED NULL DEFAULT NULL,
+  `platform`            ENUM('facebook','instagram','threads') NOT NULL,
+  `revision_type`       ENUM('generated','retry','manual_edit','approved','queued') NOT NULL,
+  `post_copy`           MEDIUMTEXT      NULL DEFAULT NULL,
+  `hashtags_json`       JSON            NULL DEFAULT NULL,
+  `validation_status`   VARCHAR(32)     NULL DEFAULT NULL,
+  `content_hash`        CHAR(64)        NULL DEFAULT NULL,
+  `created_at`          DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_post_revisions_item_created` (`planner_run_item_id`, `created_at`),
+  KEY `idx_post_revisions_dedup` (`planner_run_item_id`, `platform`, `content_hash`),
+  KEY `idx_post_revisions_user` (`user_id`),
+  CONSTRAINT `fk_post_revisions_user`
+    FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_post_revisions_item`
+    FOREIGN KEY (`planner_run_item_id`) REFERENCES `planner_run_items` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_post_revisions_post`
+    FOREIGN KEY (`scheduled_post_id`) REFERENCES `scheduled_posts` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------------------------------
+-- K. sessions  (server-side session store for express-mysql-session)
 --    Matches the library's default schema (utf8mb4_bin session_id).
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `sessions` (

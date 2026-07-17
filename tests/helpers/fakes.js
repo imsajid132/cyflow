@@ -995,6 +995,65 @@ export function createFakeOverrides(extra = {}) {
     websiteAnalysisService: extra.websiteAnalysisService ?? createFakeWebsiteAnalysisService(),
     plannerPreferenceRepository: extra.plannerPreferenceRepository ?? createFakePlannerPreferenceRepository(),
     plannerRunRepository: extra.plannerRunRepository ?? createFakePlannerRunRepository(),
+    plannerRevisionRepository: extra.plannerRevisionRepository ?? createFakePlannerRevisionRepository(),
+  };
+}
+
+/**
+ * Fake `plannerRevisionRepository` — in-memory, same idempotency rule as the
+ * real one: an identical immediate repeat for an item+platform writes nothing.
+ */
+export function createFakePlannerRevisionRepository() {
+  const rows = [];
+  let nextId = 1;
+  const hashOf = (postCopy, hashtags) => JSON.stringify({
+    copy: typeof postCopy === 'string' ? postCopy : '',
+    tags: Array.isArray(hashtags) ? hashtags : [],
+  });
+  return {
+    _rows: rows,
+    async recordRevision(input) {
+      const {
+        userId, plannerRunItemId, scheduledPostId = null, platform,
+        revisionType, postCopy = null, hashtags = [], validationStatus = null,
+      } = input;
+      const contentHash = hashOf(postCopy, hashtags);
+      const latest = [...rows]
+        .filter((r) => String(r.planner_run_item_id) === String(plannerRunItemId)
+          && String(r.user_id) === String(userId) && r.platform === platform)
+        .sort((a, b) => b.id - a.id)[0];
+      // Same content AND same type: a repeat of the same operation. Suppress.
+      if (latest && latest.content_hash === contentHash && latest.revision_type === revisionType) {
+        return { created: false, revision: null };
+      }
+      const row = {
+        id: nextId, user_id: String(userId), planner_run_item_id: String(plannerRunItemId),
+        scheduled_post_id: scheduledPostId == null ? null : String(scheduledPostId),
+        platform, revision_type: revisionType, post_copy: postCopy,
+        hashtags: Array.isArray(hashtags) ? hashtags : [], validation_status: validationStatus,
+        content_hash: contentHash, created_at: `2026-01-01 00:00:0${nextId % 10}`,
+      };
+      nextId += 1;
+      rows.push(row);
+      return {
+        created: true,
+        revision: {
+          id: String(row.id), plannerRunItemId: row.planner_run_item_id, scheduledPostId: row.scheduled_post_id,
+          platform, revisionType, postCopy, hashtags: row.hashtags, validationStatus, createdAt: row.created_at,
+        },
+      };
+    },
+    async listRevisionsForItem(plannerRunItemId, userId, { limit = 50 } = {}) {
+      return rows
+        .filter((r) => String(r.planner_run_item_id) === String(plannerRunItemId) && String(r.user_id) === String(userId))
+        .sort((a, b) => b.id - a.id)
+        .slice(0, limit)
+        .map((r) => ({
+          id: String(r.id), plannerRunItemId: r.planner_run_item_id, scheduledPostId: r.scheduled_post_id,
+          platform: r.platform, revisionType: r.revision_type, postCopy: r.post_copy,
+          hashtags: r.hashtags, validationStatus: r.validation_status, createdAt: r.created_at,
+        }));
+    },
   };
 }
 

@@ -64,7 +64,7 @@ const CARD_STATE = (itemId) => `(() => {
 const DRAWER_COPY = `(() => {
   const drawer = document.querySelector('.drawer');
   if (!drawer || drawer.hidden) return null;
-  const field = drawer.querySelector('#d-caption');
+  const field = drawer.querySelector('#d-copy-instagram') || drawer.querySelector('.pe-copy');
   return field ? field.value.trim() : null;
 })()`;
 

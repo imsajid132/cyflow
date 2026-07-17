@@ -138,6 +138,12 @@ export function createPlannerRoutes({ plannerController, requireAuth }) {
     validate(updateItemValidator),
     plannerController.updateItem,
   );
+  router.get(
+    '/items/:itemId/revisions',
+    requireAuth,
+    validate(itemIdParamValidator),
+    plannerController.getItemRevisions,
+  );
   router.post(
     '/items/:itemId/regenerate',
     requireAuth,

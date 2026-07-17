@@ -59,14 +59,30 @@ test('a regeneration leaves the drawer open so the result is visible', () => {
 test('a deleted item closes the drawer rather than showing a ghost', () => {
   const refresh = WEEK.slice(WEEK.indexOf('function refreshDrawer'));
   const body = refresh.slice(0, refresh.indexOf('\n  }'));
-  assert.match(body, /if \(!latest\) \{ closeDrawer\(\); return; \}/);
+  // Force-close: a deleted item has no edits worth warning about.
+  assert.match(body, /if \(!latest\) \{ closeDrawer\(\{ force: true \}\); return; \}/);
 });
 
-test('the card and the drawer read the same field', () => {
-  // Both must render `item.caption`. If one ever moves to platformCaptions and
-  // the other does not, they can disagree again.
-  assert.match(CARD, /item\.caption/, 'the card renders item.caption');
-  assert.match(WEEK, /value: item\.caption/, 'the drawer renders item.caption');
+test('the drawer edits per-platform copy, not one shared caption', () => {
+  /*
+   * C2: the drawer used to render `item.caption` in a single textarea, so a
+   * Threads-only repair changed the stored copy and the drawer showed no
+   * difference. It now renders the canonical `item.platformCopy` through the
+   * shared platform editor, one tab per selected platform.
+   */
+  assert.match(WEEK, /platformEditor\(\{/, 'the drawer builds the per-platform editor');
+  assert.match(WEEK, /platformCopy: item\.platformCopy/, 'the editor reads the canonical resolved copy');
+  assert.ok(!/value: item\.caption/.test(WEEK), 'the single shared-caption field is gone');
+  // The card still shows item.caption as the primary summary line — that is a
+  // read-only preview and stays.
+  assert.match(CARD, /item\.caption/, 'the card still previews the primary caption');
+});
+
+test('the editor submits only the platforms the user changed', () => {
+  const save = WEEK.slice(WEEK.indexOf('saveBtn.addEventListener'));
+  const body = save.slice(0, save.indexOf('setLoading(saveBtn, false)'));
+  assert.match(body, /const platformCaptions = editor\.read\(\)/, 'reads the changed platforms');
+  assert.match(body, /body\.platformCaptions = platformCaptions/, 'sends them as platformCaptions');
 });
 
 test('the retry handler reloads so both views update together', () => {
