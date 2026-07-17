@@ -241,7 +241,9 @@ export async function replacePostTargets(postId, userId, targets, connection) {
 /** List a post's targets joined with (token-free) account info. */
 export async function listPostTargets(postId, userId, connection) {
   const [rows] = await runner(connection).execute(
-    `SELECT t.id, t.social_account_id, t.caption_override, t.status, t.attempt_count,
+    `SELECT t.id, t.social_account_id, t.caption_override, t.status, t.publish_status, t.attempt_count,
+            t.remote_post_id, t.remote_post_url, t.attention_reason, t.last_error_message, t.published_at,
+            t.next_attempt_at,
             sa.provider, sa.account_type, sa.display_name, sa.username, sa.status AS account_status
        FROM scheduled_post_targets t
        JOIN scheduled_posts p ON p.id = t.scheduled_post_id
@@ -260,7 +262,15 @@ export async function listPostTargets(postId, userId, connection) {
     accountStatus: r.account_status,
     captionOverride: r.caption_override ?? null,
     status: r.status,
+    // D2: per-target publish state (safe fields only — never a token or raw body).
+    publishStatus: r.publish_status ?? null,
     attemptCount: Number(r.attempt_count ?? 0),
+    remotePostId: r.remote_post_id ?? null,
+    remotePostUrl: r.remote_post_url ?? null,
+    attentionReason: r.attention_reason ?? null,
+    lastErrorMessage: r.last_error_message ?? null,
+    publishedAt: r.published_at ?? null,
+    nextAttemptAt: r.next_attempt_at ?? null,
   }));
 }
 

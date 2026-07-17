@@ -24,6 +24,14 @@ function dayKey(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/** D2: month-pill tone from the post's publish state. */
+function pillTone(status) {
+  if (status === 'published') return 'published';
+  if (status === 'partial' || status === 'failed') return 'failed';
+  if (status === 'queued' || status === 'processing' || status === 'retrying') return 'queued';
+  return 'draft';
+}
+
 export async function render(root, ctx) {
   const res = await api.apiRequest('/api/posts?limit=100');
   if (res.unauthorized) { ctx.navigate('/login'); return; }
@@ -78,9 +86,9 @@ export async function render(root, ctx) {
       ]);
       for (const { post, date: at } of entries.slice(0, 3)) {
         cell.appendChild(el('span', {
-          className: `cal-pill cal-pill-${post.status === 'queued' ? 'queued' : 'draft'}`,
+          className: `cal-pill cal-pill-${pillTone(post.status)}`,
           text: `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')} ${post.title || '(untitled)'}`,
-          attrs: { title: post.title || '(untitled)' },
+          attrs: { title: `${post.title || '(untitled)'} — ${post.status}` },
         }));
       }
       if (entries.length > 3) {

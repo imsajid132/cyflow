@@ -621,6 +621,8 @@ legend { padding: 0; }
 }
 .cal-pill-queued { background: var(--ok-bg); color: var(--ok-fg); border-color: var(--ok-bd); }
 .cal-pill-draft { background: var(--ink-100); color: var(--ink-600); border-color: var(--ink-200); }
+.cal-pill-published { background: var(--info-bg); color: var(--info-fg); border-color: var(--info-bd); }
+.cal-pill-failed { background: var(--err-bg); color: var(--err-fg); border-color: var(--err-bd); }
 
 /* --- planner board -------------------------------------------------------- */
 .planner-bulk {

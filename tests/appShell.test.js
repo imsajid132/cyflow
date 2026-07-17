@@ -177,18 +177,25 @@ test('the frontend contains no credentials and loads nothing from a third party'
 });
 
 test('the app never claims that publishing happens', () => {
-  // Every page that mentions scheduling must say publishing is not implemented.
+  // No page may claim a blanket "posts are published now" success.
   const claims = /(now publishing|posts are published|published automatically|publishing to your accounts now)/i;
   for (const { file, source } of FRONTEND) {
     assert.equal(claims.test(source), false, `${file} must not claim posts are published`);
   }
-  const honest = ['queue', 'calendar', 'create', 'dashboard', 'planner', 'plannerWeek', 'plannerNew']
+  // Pages that mention scheduling but are NOT the publishing surface must still
+  // state publishing is not the thing they do.
+  const honest = ['create', 'dashboard', 'planner', 'plannerWeek', 'plannerNew']
     .map((p) => FRONTEND.find((f) => f.file === `assets/js/pages/${p}.js`));
   for (const page of honest) {
     assert.ok(page);
     assert.match(page.source, /later phase|future publishing phase|does not publish|not published|nothing is published/i,
       `${page.file} must state that publishing is not implemented yet`);
   }
+  // D2: the Queue is the publishing surface. It must honestly reflect the
+  // live-publishing flag being OFF (default) rather than imply posts go out.
+  const queue = FRONTEND.find((f) => f.file === 'assets/js/pages/queue.js');
+  assert.match(queue.source, /turned off|nothing is sent|not live/i,
+    'queue must honestly show when live publishing is disabled');
 });
 
 test('the planner never claims autopilot is live', () => {

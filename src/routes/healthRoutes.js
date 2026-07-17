@@ -40,6 +40,10 @@ router.get(
       }
     }
 
+    // D2: publishing readiness. liveEnabled=false means no post is being sent to
+    // any provider — a healthy web server does NOT imply publishing is operational.
+    const publishing = { liveEnabled: Boolean(config.publishing?.liveEnabled) };
+
     res.status(healthy ? 200 : 503).json({
       success: true,
       data: {
@@ -50,6 +54,7 @@ router.get(
         database: { connected: db.ok },
         scheduler: { enabled: config.scheduler.enabled },
         worker,
+        publishing,
       },
       requestId: req.id ?? null,
     });

@@ -8,7 +8,7 @@ import { sanitizeUser } from '../../src/repositories/userRepository.js';
 import { sanitizeAccount } from '../../src/repositories/socialAccountRepository.js';
 import { sanitizePost } from '../../src/repositories/postRepository.js';
 import { evaluateStateRow } from '../../src/repositories/oauthStateRepository.js';
-import { PLANNER_ITEM_STATUS } from '../../src/config/constants.js';
+import { PLANNER_ITEM_STATUS, ACCOUNT_TYPE_TO_PLATFORM } from '../../src/config/constants.js';
 import { normalizeEmail } from '../../src/utils/validation.js';
 import { OAuthError, OAUTH_ERROR_CODES } from '../../src/utils/oauthErrors.js';
 import { createMediaAssetService } from '../../src/services/mediaAssetService.js';
@@ -827,7 +827,14 @@ export function createFakePostRepository({ socialAccounts } = {}) {
           social_account_id: String(t.socialAccountId),
           caption_override: t.captionOverride ?? null,
           status: 'pending',
+          publish_status: 'scheduled',
           attempt_count: 0,
+          remote_post_id: null,
+          remote_post_url: null,
+          attention_reason: null,
+          last_error_message: null,
+          published_at: null,
+          next_attempt_at: null,
         });
       }
       return this.listPostTargets(postId, userId);
@@ -849,7 +856,14 @@ export function createFakePostRepository({ socialAccounts } = {}) {
           accountStatus: acc ? acc.status : 'revoked',
           captionOverride: t.caption_override,
           status: t.status,
+          publishStatus: t.publish_status ?? 'scheduled',
           attemptCount: t.attempt_count,
+          remotePostId: t.remote_post_id ?? null,
+          remotePostUrl: t.remote_post_url ?? null,
+          attentionReason: t.attention_reason ?? null,
+          lastErrorMessage: t.last_error_message ?? null,
+          publishedAt: t.published_at ?? null,
+          nextAttemptAt: t.next_attempt_at ?? null,
         });
       }
       return out;
@@ -1070,6 +1084,11 @@ export function createFakeOverrides(extra = {}) {
     plannerRevisionRepository: extra.plannerRevisionRepository ?? createFakePlannerRevisionRepository(),
     automationRepository: extra.automationRepository ?? createFakeAutomationRepository(),
     backgroundJobRepository: extra.backgroundJobRepository ?? createFakeBackgroundJobRepository(),
+    // D2 publishing shares the post + account fakes so the app-level publish flow
+    // works without a DB. Fake adapters never call a real provider.
+    publishRepository: extra.publishRepository
+      ?? createFakePublishRepository({ posts: postRepository, accounts: socialAccountRepository }),
+    publishAdapters: extra.publishAdapters ?? createFakePublishAdapters().adapters,
   };
 }
 
@@ -1873,4 +1892,124 @@ export function createFakeAutomationRepository() {
       return { readyDays: readyDates.size, through, byStatus };
     },
   };
+}
+
+/**
+ * Fake publishRepository (D2) — SHARES the fake postRepository's posts+targets so
+ * the app-level publish flow (queueApproved -> scheduler -> publish jobs) works
+ * end to end without a database. Holds its own in-memory publish_attempts.
+ */
+export function createFakePublishRepository({ posts, accounts } = {}) {
+  const attempts = [];
+  let nextId = 1;
+  const findTarget = (id) => posts._targets.find((t) => String(t.id) === String(id));
+  const findPost = (id) => posts._posts.find((p) => String(p.id) === String(id));
+  const toMs = (v) => (v == null ? 0 : (v instanceof Date ? v.getTime() : new Date(String(v).replace(' ', 'T') + (String(v).includes('Z') ? '' : 'Z')).getTime()));
+
+  async function shape(t) {
+    if (!t) return null;
+    const p = findPost(t.scheduled_post_id);
+    if (!p) return null;
+    const acc = accounts ? await accounts.findAccountByIdForUser(t.social_account_id, p.user_id) : null;
+    const platform = acc ? ACCOUNT_TYPE_TO_PLATFORM[acc.accountType] || null : null;
+    const captions = p.generated_platform_captions_json || {};
+    const caption = t.caption_override || captions?.[platform]?.caption || p.generated_base_caption || '';
+    return {
+      targetId: String(t.id), scheduledPostId: String(t.scheduled_post_id), userId: String(p.user_id),
+      socialAccountId: String(t.social_account_id), provider: acc?.provider ?? null, accountType: acc?.accountType ?? null,
+      platform, providerAccountId: acc?.providerAccountId ?? null, accountStatus: acc?.status ?? 'revoked',
+      status: t.status, publishStatus: t.publish_status ?? 'scheduled', attemptCount: t.attempt_count ?? 0,
+      attentionReason: t.attention_reason ?? null, lastPublishAttemptId: t.last_publish_attempt_id ?? null,
+      remotePostId: t.remote_post_id ?? null, postStatus: p.status, scheduledAtUtc: p.scheduled_at_utc ?? null,
+      mediaAssetId: p.media_asset_id == null ? null : String(p.media_asset_id), caption,
+    };
+  }
+
+  return {
+    _attempts: attempts,
+    async findTargetForPublish(id, userId) { const t = findTarget(id); const s = await shape(t); return s && s.userId === String(userId) ? s : null; },
+    async listDuePublishTargets({ now = new Date() } = {}) {
+      const out = [];
+      for (const t of posts._targets) {
+        const p = findPost(t.scheduled_post_id);
+        if (!p || !['queued', 'processing', 'partial', 'retrying'].includes(p.status)) continue;
+        if (!['scheduled', 'retry_scheduled'].includes(t.publish_status ?? 'scheduled')) continue;
+        if (!p.scheduled_at_utc || toMs(p.scheduled_at_utc) > toMs(now)) continue;
+        // eslint-disable-next-line no-await-in-loop
+        out.push(await shape(t));
+      }
+      return out;
+    },
+    async claimTargetForPublish() { return true; },
+    async createAttemptIfAbsent(input) {
+      const dup = attempts.find((a) => a.idempotency_key === input.idempotencyKey);
+      if (dup) return { attempt: sanitizeAttemptRow(dup), created: false };
+      const row = { id: String(nextId++), user_id: String(input.userId), scheduled_post_id: String(input.scheduledPostId), scheduled_post_target_id: String(input.targetId), social_account_id: input.socialAccountId ?? null, background_job_id: input.backgroundJobId ?? null, provider: input.provider, status: 'started', idempotency_key: input.idempotencyKey, provider_container_id: null, provider_post_id: null, attempt_number: input.attemptNumber ?? 1, created_at: new Date().toISOString() };
+      attempts.push(row);
+      return { attempt: sanitizeAttemptRow(row), created: true };
+    },
+    async updateAttempt(id, userId, fields) { const a = attempts.find((x) => x.id === String(id)); if (a) Object.assign(a, snakeAttempt(fields)); return a ? sanitizeAttemptRow(a) : null; },
+    async findAttemptById(id, userId) { const a = attempts.find((x) => x.id === String(id) && x.user_id === String(userId)); return a ? sanitizeAttemptRow(a) : null; },
+    async findAttemptByIdempotencyKey(k) { const a = attempts.find((x) => x.idempotency_key === k); return a ? sanitizeAttemptRow(a) : null; },
+    async listAttemptsForTarget(targetId, userId) { return attempts.filter((a) => String(a.scheduled_post_target_id) === String(targetId) && a.user_id === String(userId)).map(sanitizeAttemptRow).reverse(); },
+    async listAttemptsToReconcile() { return attempts.filter((a) => ['submitted', 'reconciling', 'unknown_result'].includes(a.status)).map(sanitizeAttemptRow); },
+    async updateTargetPublishState(id, userId, fields) {
+      const t = findTarget(id); const p = t ? findPost(t.scheduled_post_id) : null;
+      if (!t || !p || p.user_id !== String(userId)) return;
+      if (fields.publishStatus !== undefined) t.publish_status = fields.publishStatus;
+      if (fields.status !== undefined) t.status = fields.status;
+      if (fields.attentionReason !== undefined) t.attention_reason = fields.attentionReason;
+      if (fields.remotePostId !== undefined) t.remote_post_id = fields.remotePostId;
+      if (fields.remotePostUrl !== undefined) t.remote_post_url = fields.remotePostUrl;
+      if (fields.lastErrorMessage !== undefined) t.last_error_message = fields.lastErrorMessage;
+      if (fields.lastPublishAttemptId !== undefined) t.last_publish_attempt_id = fields.lastPublishAttemptId;
+      if (fields.nextAttemptAt !== undefined) t.next_attempt_at = fields.nextAttemptAt instanceof Date ? fields.nextAttemptAt.toISOString() : fields.nextAttemptAt;
+    },
+    async retryTargetForPublish(id, userId) {
+      const t = findTarget(id); const p = t ? findPost(t.scheduled_post_id) : null;
+      if (!t || !p || p.user_id !== String(userId) || !['failed', 'attention_needed'].includes(t.publish_status)) return false;
+      t.publish_status = 'retry_scheduled'; t.attention_reason = null; t.attempt_count += 1; return true;
+    },
+    async rollupPostStatus(postId, userId) {
+      const p = findPost(postId); if (!p || p.user_id !== String(userId)) return null;
+      const mine = posts._targets.filter((t) => String(t.scheduled_post_id) === String(postId));
+      const pub = mine.filter((t) => t.publish_status === 'published').length;
+      if (pub === mine.length) p.status = 'published';
+      else if (pub > 0) p.status = 'partial';
+      else if (mine.every((t) => ['failed', 'cancelled', 'skipped', 'attention_needed'].includes(t.publish_status))) p.status = 'failed';
+      else p.status = 'processing';
+      return p.status;
+    },
+  };
+}
+function sanitizeAttemptRow(a) {
+  return { id: String(a.id), userId: String(a.user_id), scheduledPostId: String(a.scheduled_post_id), targetId: String(a.scheduled_post_target_id), provider: a.provider, status: a.status, idempotencyKey: a.idempotency_key, providerContainerId: a.provider_container_id ?? null, providerPostId: a.provider_post_id ?? null, providerStatus: a.provider_status ?? null, attemptNumber: a.attempt_number ?? 1, errorCategory: a.error_category ?? null, safeErrorMessage: a.safe_error_message ?? null, nextReconcileAt: a.next_reconcile_at ?? null, createdAt: a.created_at ?? null };
+}
+function snakeAttempt(f) {
+  const m = { status: 'status', providerContainerId: 'provider_container_id', providerPostId: 'provider_post_id', providerRequestId: 'provider_request_id', providerStatus: 'provider_status', errorCategory: 'error_category', safeErrorMessage: 'safe_error_message', submittedAt: 'submitted_at', publishedAt: 'published_at', lastCheckedAt: 'last_checked_at', nextReconcileAt: 'next_reconcile_at', attemptNumber: 'attempt_number' };
+  const out = {};
+  for (const [k, col] of Object.entries(m)) if (f[k] !== undefined) out[col] = f[k] instanceof Date ? f[k].toISOString() : f[k];
+  return out;
+}
+
+/** Fake publish adapters — deterministic, record calls, scriptable per platform. */
+export function createFakePublishAdapters(script = {}) {
+  const calls = { publish: [], reconcile: [] };
+  const make = (platform) => ({
+    platform,
+    getCapabilities: () => ({ platform }),
+    async preflight({ mediaUrl }) {
+      if (platform === 'instagram' && !mediaUrl) return { ok: false, category: 'media_required' };
+      return { ok: true };
+    },
+    async publish(ctx) {
+      calls.publish.push({ platform, caption: ctx.caption });
+      const r = script[platform]?.publish;
+      const n = calls.publish.filter((c) => c.platform === platform).length;
+      if (typeof r === 'function') return r(ctx, n);
+      return r || { status: 'published', providerPostId: `${platform}_post_${n}` };
+    },
+    async reconcile() { calls.reconcile.push({ platform }); return script[platform]?.reconcile || { status: 'published', providerPostId: `${platform}_rec` }; },
+  });
+  return { calls, adapters: { facebook: make('facebook'), instagram: make('instagram'), threads: make('threads') } };
 }

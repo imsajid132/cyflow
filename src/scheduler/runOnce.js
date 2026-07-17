@@ -30,16 +30,25 @@ async function main() {
     const refills = await container.automationService.enqueueDueRefills({ limit: config.scheduler.batchSize * 5 });
     console.log(`[scheduler] due automations: ${refills.due}, refill jobs enqueued: ${refills.enqueued}`);
 
-    // 2) Reclaim jobs abandoned by a crashed worker.
+    // 2) Enqueue publish jobs for due, approved, queued targets. Skipped entirely
+    //    when ENABLE_LIVE_PROVIDER_PUBLISHING is off (no provider calls at all).
+    const publishes = await container.publishingService.enqueueDuePublishTargets({ limit: config.scheduler.batchSize * 5 });
+    if (publishes.skipped) {
+      console.log(`[scheduler] publishing: ${publishes.skipped} (ENABLE_LIVE_PROVIDER_PUBLISHING=false)`);
+    } else {
+      console.log(`[scheduler] due publish targets: ${publishes.due}, publish jobs enqueued: ${publishes.enqueued}`);
+    }
+
+    // 3) Reclaim jobs abandoned by a crashed worker.
     const recovered = await container.durableJobService.recoverStale({ limit: 100 });
     if (recovered.reclaimed || recovered.failed) {
       console.log(`[scheduler] recovered stale jobs: reclaimed=${recovered.reclaimed}, failed=${recovered.failed}`);
     }
 
-    // 3) Report the job queue (read-only). No publishing happens anywhere.
+    // 4) Report the job queue (read-only).
     const stats = await container.durableJobService.stats();
     console.log(`[scheduler] jobs pending: ${stats.pending}, running: ${stats.running}, stale: ${stats.stale}`);
-    console.log('[scheduler] posts published: 0 (provider publishing is not implemented yet — that is D2)');
+    console.log(`[scheduler] live publishing: ${config.publishing.liveEnabled ? 'ENABLED' : 'disabled (default)'}`);
   } catch (err) {
     console.log(`[scheduler] tick error: ${err?.code || err?.message || 'unknown'}`);
   }

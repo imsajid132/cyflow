@@ -257,6 +257,13 @@ CREATE TABLE IF NOT EXISTS `scheduled_post_targets` (
   `social_account_id`      BIGINT UNSIGNED NOT NULL,
   `status`                 ENUM('pending','processing','retrying','published','failed','skipped','cancelled')
                                            NOT NULL DEFAULT 'pending',
+  -- D2: the per-target PUBLISH state (a richer axis than the legacy `status`).
+  -- Publishing drives this; the UI reads it; one target succeeding never hides
+  -- another failing.
+  `publish_status`         ENUM('draft','waiting_approval','scheduled','publishing','submitted','reconciling','published','retry_scheduled','failed','cancelled','attention_needed','skipped')
+                                           NOT NULL DEFAULT 'scheduled',
+  `last_publish_attempt_id` BIGINT UNSIGNED NULL DEFAULT NULL,
+  `attention_reason`       VARCHAR(255)    NULL DEFAULT NULL,
   `provider_options_json`  JSON            NULL DEFAULT NULL,
   `caption_override`       TEXT            NULL DEFAULT NULL,
   `attempt_count`          INT UNSIGNED    NOT NULL DEFAULT 0,
@@ -275,12 +282,59 @@ CREATE TABLE IF NOT EXISTS `scheduled_post_targets` (
   KEY `idx_spt_status` (`status`),
   KEY `idx_spt_account` (`social_account_id`),
   KEY `idx_spt_retryable` (`status`, `next_attempt_at`),
+  KEY `idx_spt_publish_due` (`publish_status`, `next_attempt_at`),
   CONSTRAINT `fk_spt_post`
     FOREIGN KEY (`scheduled_post_id`) REFERENCES `scheduled_posts` (`id`)
     ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `fk_spt_account`
     FOREIGN KEY (`social_account_id`) REFERENCES `social_accounts` (`id`)
     ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------------------------------
+-- G2. publish_attempts (D2)  — one row per provider publish attempt for a target
+--     The audit + reconciliation ledger. Retains provider container/post/request
+--     ids so an uncertain result is reconciled (checked against the provider),
+--     never blindly republished. Safe fields only: no tokens, no raw bodies.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `publish_attempts` (
+  `id`                       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id`                  BIGINT UNSIGNED NOT NULL,
+  `scheduled_post_id`        BIGINT UNSIGNED NOT NULL,
+  `scheduled_post_target_id` BIGINT UNSIGNED NOT NULL,
+  `social_account_id`        BIGINT UNSIGNED NULL DEFAULT NULL,
+  `background_job_id`        BIGINT UNSIGNED NULL DEFAULT NULL,
+  `provider`                 ENUM('meta','instagram','threads') NOT NULL,
+  `status`                   ENUM('started','submitted','published','reconciling','retryable_failure','permanent_failure','unknown_result','blocked') NOT NULL DEFAULT 'started',
+  `idempotency_key`          VARCHAR(191)    NOT NULL,
+  `provider_container_id`    VARCHAR(255)    NULL DEFAULT NULL,
+  `provider_post_id`         VARCHAR(255)    NULL DEFAULT NULL,
+  `provider_request_id`      VARCHAR(255)    NULL DEFAULT NULL,
+  `provider_status`          VARCHAR(64)     NULL DEFAULT NULL,
+  `attempt_number`           INT UNSIGNED    NOT NULL DEFAULT 1,
+  `error_category`           VARCHAR(64)     NULL DEFAULT NULL,
+  `safe_error_message`       VARCHAR(1024)   NULL DEFAULT NULL,
+  `started_at`               DATETIME        NULL DEFAULT NULL,
+  `submitted_at`             DATETIME        NULL DEFAULT NULL,
+  `published_at`             DATETIME        NULL DEFAULT NULL,
+  `last_checked_at`          DATETIME        NULL DEFAULT NULL,
+  `next_reconcile_at`        DATETIME        NULL DEFAULT NULL,
+  `created_at`               DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`               DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_publish_attempts_idempotency` (`idempotency_key`),
+  KEY `idx_publish_attempts_target` (`scheduled_post_target_id`, `created_at`),
+  KEY `idx_publish_attempts_post` (`scheduled_post_id`),
+  KEY `idx_publish_attempts_reconcile` (`status`, `next_reconcile_at`),
+  KEY `idx_publish_attempts_user` (`user_id`),
+  CONSTRAINT `fk_publish_attempts_user`
+    FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_publish_attempts_post`
+    FOREIGN KEY (`scheduled_post_id`) REFERENCES `scheduled_posts` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_publish_attempts_target`
+    FOREIGN KEY (`scheduled_post_target_id`) REFERENCES `scheduled_post_targets` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_publish_attempts_account`
+    FOREIGN KEY (`social_account_id`) REFERENCES `social_accounts` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------------------------------

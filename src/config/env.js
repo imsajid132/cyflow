@@ -348,6 +348,20 @@ export function buildConfig(raw = process.env) {
     refillIntervalHours: toNumber('AUTOMATION_REFILL_INTERVAL_HOURS', { required: false, fallback: 6, min: 1, max: 168 }),
   };
 
+  // --- Publishing (D2) ------------------------------------------------------
+  // The master switch for REAL provider publishing. Default FALSE: with it off,
+  // no publish job calls a provider API — content stays queued and the UI shows
+  // that live publishing is disabled. Turning it on requires an explicit `true`.
+  // Fake-provider tests inject their own adapters and are unaffected.
+  const publishing = {
+    liveEnabled: toBoolean('ENABLE_LIVE_PROVIDER_PUBLISHING', false),
+    // How long to wait for a provider's async result (e.g. an Instagram
+    // container) before reconciling rather than blindly retrying.
+    reconcileDelaySeconds: toNumber('PUBLISH_RECONCILE_DELAY_SECONDS', { required: false, fallback: 60, min: 5 }),
+    maxReconcileAttempts: toNumber('PUBLISH_MAX_RECONCILE_ATTEMPTS', { required: false, fallback: 8, min: 1 }),
+    requestTimeoutMs: toNumber('PUBLISH_REQUEST_TIMEOUT_MS', { required: false, fallback: 30000, min: 1000 }),
+  };
+
   // --- Limits ---------------------------------------------------------------
   const limits = {
     maxPostPromptLength: toNumber('MAX_POST_PROMPT_LENGTH', { required: false, fallback: 5000, min: 1 }),
@@ -411,6 +425,7 @@ export function buildConfig(raw = process.env) {
     oauth: Object.freeze(oauth),
     scheduler: Object.freeze(scheduler),
     worker: Object.freeze(worker),
+    publishing: Object.freeze(publishing),
     limits: Object.freeze(limits),
     media: Object.freeze(media),
   });

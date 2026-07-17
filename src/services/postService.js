@@ -464,6 +464,10 @@ export function createPostService({
         verified: Boolean(hcti && hcti.verifiedAt),
       },
       generations: { usedToday: used, dailyLimit: config.limits.maxDailyGenerationsPerUser },
+      // D2: whether real provider publishing is live. Default false — the UI
+      // shows an honest "publishing is not live yet" state rather than implying
+      // a queued post will go out.
+      publishing: { liveEnabled: Boolean(config.publishing?.liveEnabled) },
       // The picker is built from this, so the UI can never drift from the
       // layouts the renderer actually has.
       templates: listTemplates(),

@@ -28,6 +28,11 @@ import * as backgroundJobRepositoryModule from './repositories/backgroundJobRepo
 import { createAutomationService } from './services/automationService.js';
 import { createDurableJobService } from './services/durableJobService.js';
 import { createAutomationController } from './controllers/automationController.js';
+import * as publishRepositoryModule from './repositories/publishRepository.js';
+import { createPublishingService } from './services/publishingService.js';
+import { createAdapters } from './publishing/adapters.js';
+import { createProviderHttp } from './utils/providerHttp.js';
+import { createPublishController } from './controllers/publishController.js';
 import { openaiContentService as realOpenAI } from './services/openaiContentService.js';
 import { socialImageService as realSocialImage } from './services/socialImageService.js';
 import { contentUniquenessService as realUniquenessService } from './services/contentUniquenessService.js';
@@ -111,6 +116,9 @@ export function buildContainer(overrides = {}) {
   // Phase 4.5: business onboarding + website brand extraction. Resolved before
   // postService, which reads the profile to brand generated images.
   const businessProfiles = overrides.businessProfileRepository ?? businessProfileRepositoryModule;
+  // Resolved here (not lower down) so postService can report publishing readiness
+  // (config.publishing.liveEnabled) through /api/posts/capabilities.
+  const config = overrides.config ?? defaultConfig;
   const postService =
     overrides.postService ??
     createPostService({
@@ -125,6 +133,7 @@ export function buildContainer(overrides = {}) {
       mediaAssetService,
       logging,
       withTransaction,
+      config,
     });
 
   const oauthController = createOAuthController({ oauthService });
@@ -176,11 +185,14 @@ export function buildContainer(overrides = {}) {
   // D1: content automations + the durable background job runtime. The automation
   // service reuses the planner for slot generation; the durable job service runs
   // the automation handlers. Neither publishes to a provider (that is D2).
-  const config = overrides.config ?? defaultConfig;
   const automationRepository = overrides.automationRepository ?? automationRepositoryModule;
   const backgroundJobRepository = overrides.backgroundJobRepository ?? backgroundJobRepositoryModule;
   const openaiContentServiceResolved = overrides.openaiContentService ?? realOpenAI;
   const socialImageServiceResolved = overrides.socialImageService ?? realSocialImage;
+  // An optional injectable clock. Defaults to real time everywhere; the review
+  // harness passes a per-tick clock so reconciliation lands on a later worker
+  // pass (as it would in production) rather than inside the same drain.
+  const now = overrides.now;
   const automationService = overrides.automationService ?? createAutomationService({
     automations: automationRepository,
     jobs: backgroundJobRepository,
@@ -191,11 +203,29 @@ export function buildContainer(overrides = {}) {
     images: socialImageServiceResolved,
     logging,
     config,
+    now,
+  });
+  // D2: provider publishing. Real adapters (fake-injectable for tests) + a
+  // publishing service whose durable job handlers run on the SAME worker as the
+  // automation handlers. Nothing calls a provider unless config.publishing.liveEnabled.
+  const publishAdapters = overrides.publishAdapters
+    ?? createAdapters({ http: createProviderHttp(), config });
+  const publishingService = overrides.publishingService ?? createPublishingService({
+    publishRepo: overrides.publishRepository ?? publishRepositoryModule,
+    socialAccounts,
+    mediaRepository: mediaRepo,
+    jobs: backgroundJobRepository,
+    adapters: publishAdapters,
+    logging,
+    config,
+    now,
   });
   const durableJobService = overrides.durableJobService ?? createDurableJobService({
     jobs: backgroundJobRepository,
-    handlers: automationService.handlers,
+    // Automation + publishing handlers share one durable job runtime.
+    handlers: { ...automationService.handlers, ...publishingService.handlers },
     logging,
+    now,
     options: {
       leaseMs: (config.worker?.leaseSeconds ?? 120) * 1000,
       heartbeatMs: (config.worker?.heartbeatSeconds ?? 30) * 1000,
@@ -204,6 +234,7 @@ export function buildContainer(overrides = {}) {
     },
   });
   const automationController = createAutomationController({ automationService });
+  const publishController = createPublishController({ publishingService });
 
   const { requireAuth, guestOnly, attachUser } = createAuthMiddleware({ users });
 
@@ -237,6 +268,8 @@ export function buildContainer(overrides = {}) {
     automationService,
     durableJobService,
     automationController,
+    publishingService,
+    publishController,
     authController,
     integrationController,
     oauthController,

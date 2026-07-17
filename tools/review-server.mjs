@@ -22,9 +22,10 @@ import './setup-env.mjs';
 import { pathToFileURL } from 'node:url';
 import { createApp } from '../src/app.js';
 import { encryptSecret } from '../src/services/encryptionService.js';
+import { config as realConfig } from '../src/config/env.js';
 import {
   createFakeOverrides, createFakePlannerOpenAI, createFakeSocialImageService,
-  createFakeOpenAiVerifier,
+  createFakeOpenAiVerifier, createFakePublishAdapters,
 } from '../tests/helpers/fakes.js';
 
 export const REVIEW_USER = Object.freeze({
@@ -113,17 +114,42 @@ export function buildReviewApp(opts = {}) {
       platformScript: { threads: [REPAIRED_THREADS] },
     })
     : createFakePlannerOpenAI({ isAvailableForUser: (u) => credentialCheck(u) });
+  // D2: scriptable fake publish adapters so the browser smoke can drive publish
+  // success, a per-platform failure (partial success), and reconciliation without
+  // touching a real provider. The `script` object is mutated by /__review endpoints.
+  const publishScript = {};
+  const { adapters: publishAdapters } = createFakePublishAdapters(publishScript);
+  // A per-tick logical clock, used ONLY for the live-publishing smoke. Time holds
+  // still within a tick and advances between ticks, so an uncertain publish result
+  // is reconciled on a LATER worker pass (as production's 60s-later reconcile job
+  // would be) instead of inside the same drain. Other review runs keep real time.
+  let clockMs = Date.parse('2026-07-18T09:00:00.000Z');
+  const now = opts.livePublishing ? () => new Date(clockMs) : undefined;
+  const advanceClock = (seconds) => { clockMs += Math.max(0, seconds) * 1000; };
   const overrides = createFakeOverrides({
     openaiContentService,
     socialImageService: { ...createFakeSocialImageService(), isReadyForUser: async () => true },
     // Test connection must not make a real network call from a review server.
     openAiVerifier: createFakeOpenAiVerifier(),
+    publishAdapters,
+    now,
+    // Live publishing runs the FAKE adapters (never a real provider) when asked.
+    config: {
+      ...realConfig,
+      publishing: {
+        ...realConfig.publishing,
+        liveEnabled: Boolean(opts.livePublishing),
+        // The real 60s reconcile spacing; the per-tick clock (advanced 120s per
+        // tick below) lands the reconcile job on the next tick, not the same one.
+        reconcileDelaySeconds: 60,
+      },
+    },
   });
   // Now the repository exists: point the fake's availability at the real check.
   credentialCheck = (userId) =>
     (userId == null ? false : overrides.integrationRepository.hasConfiguredOpenAiCredentials(userId));
   const app = createApp(overrides);
-  return { app, overrides };
+  return { app, overrides, publishScript, advanceClock };
 }
 
 /**
@@ -142,12 +168,15 @@ export async function seedWorld(overrides, userId, { withOpenAiKey = true } = {}
     sourceType: 'website',
   });
 
+  // A real AES envelope so the publishing pipeline's decryptSecret() succeeds.
+  // The plaintext is an obvious fake — no real provider is ever contacted.
+  const fakeAccessToken = encryptSecret('review-fake-access-token');
   for (const account of PROVIDER_ACCOUNTS) {
     // eslint-disable-next-line no-await-in-loop
     await socialAccountRepository.upsertSocialAccount({
       userId,
       ...account,
-      encryptedAccessToken: 'v1:fake-not-a-real-token',
+      encryptedAccessToken: fakeAccessToken,
       scopes: [],
       providerMetadata: {},
       status: 'active',
@@ -444,7 +473,8 @@ if (isMain) {
    * test needs the opposite: someone starting from nothing.
    */
   const withoutOpenAiKey = process.argv.includes('--without-openai-key');
-  const { app, overrides } = buildReviewApp({ repairThreads: withPlan, repairChecklist: withChecklist, repairEditorThreads: withEditor });
+  const livePublishing = process.argv.includes('--live-publishing');
+  const { app, overrides, publishScript, advanceClock } = buildReviewApp({ repairThreads: withPlan, repairChecklist: withChecklist, repairEditorThreads: withEditor, livePublishing });
   const user = await seedReviewUser(overrides, { withOpenAiKey: !withoutOpenAiKey });
 
   let seeded = '';
@@ -468,12 +498,73 @@ if (isMain) {
   wrapper.post('/__review/tick', express.json(), async (req, res) => {
     try {
       const refills = await container.automationService.enqueueDueRefills({ limit: 100 });
+      // D2: enqueue publish jobs for due, approved, queued targets (skipped when
+      // live publishing is off). Uses the FAKE adapters — no real provider.
+      const publishes = await container.publishingService.enqueueDuePublishTargets({ limit: 100 });
       const outcomes = await container.durableJobService.drain({ workerId: 'review-worker', max: 1000 });
       const counts = outcomes.reduce((m, o) => { m[o.outcome] = (m[o.outcome] || 0) + 1; return m; }, {});
-      res.json({ ok: true, refills, processed: outcomes.length, counts });
+      // Advance the per-tick clock (live-publishing only) so a reconcile job
+      // enqueued this tick becomes due on the NEXT tick, never inside this drain.
+      advanceClock(120);
+      res.json({ ok: true, refills, publishes, processed: outcomes.length, counts });
     } catch (err) {
       res.status(500).json({ ok: false, error: err?.message || 'tick failed' });
     }
+  });
+
+  // D2: seed a DUE queued post with Instagram + Threads targets (never Facebook),
+  // so the smoke can publish it. Optional { threadsFail, igSubmitted } scripts the
+  // fake adapters for partial-success and reconciliation scenarios.
+  wrapper.post('/__review/seed-publish', express.json(), async (req, res) => {
+    try {
+      const userId = user.id;
+      const accts = await overrides.socialAccountRepository.listAccountsForUser(userId);
+      const ig = accts.find((a) => a.accountType === 'instagram_professional');
+      const th = accts.find((a) => a.accountType === 'threads_profile');
+      // Reset then apply the requested adapter behaviour.
+      for (const k of Object.keys(publishScript)) delete publishScript[k];
+      if (req.body?.threadsFail) publishScript.threads = { publish: { status: 'permanent_failure', errorCategory: 'permission_required', safeMessage: 'Reconnect this Threads account.' } };
+      if (req.body?.igSubmitted) {
+        let n = 0;
+        publishScript.instagram = { publish: () => { n += 1; return { status: 'submitted', providerContainerId: 'cont_review' }; }, reconcile: { status: 'published', providerPostId: 'ig_reconciled' } };
+      }
+      const draft = await overrides.postRepository.createDraftPost({ userId, title: req.body?.title || 'Publish test', prompt: 'brief' });
+      await overrides.postRepository.updateGeneratedContent(draft.id, userId, { platformCaptions: { instagram: { caption: 'IG copy', hashtags: [] }, threads: { caption: 'Threads copy', hashtags: [] } }, baseCaption: 'base' });
+      // A ready image so Instagram (media required) passes preflight. The token
+      // is a harmless review fixture; no real asset is fetched by a fake adapter.
+      const asset = await overrides.mediaAssetRepository.createMediaAsset({
+        userId, publicToken: `review-media-${draft.id}`, status: 'ready',
+        sourceUrl: 'https://example.test/review-1080.jpg', sourceProvider: 'upload',
+        mimeType: 'image/jpeg', fileExtension: 'jpg', width: 1080, height: 1080,
+      });
+      await overrides.postRepository.attachMediaAsset(draft.id, userId, { mediaAssetId: asset.id });
+      await overrides.postRepository.replacePostTargets(draft.id, userId, [{ socialAccountId: ig.id }, { socialAccountId: th.id }]);
+      await overrides.postRepository.schedulePost(draft.id, userId, { scheduledAtUtc: '2020-01-01 00:00:00', originalTimezone: 'UTC' });
+      res.json({ ok: true, postId: draft.id });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err?.message || 'seed failed' });
+    }
+  });
+  // Reset/replace the fake-adapter script (e.g. clear a scripted failure before a retry).
+  wrapper.post('/__review/publish-script', express.json(), (req, res) => {
+    for (const k of Object.keys(publishScript)) delete publishScript[k];
+    Object.assign(publishScript, req.body?.script || {});
+    res.json({ ok: true });
+  });
+  // Review-only: the seed-publish fixtures reference an image by public token but
+  // there is no object store behind this DB-less harness, so serve a tiny valid
+  // PNG for those tokens. Real tokens fall through to the app's /media route.
+  const REVIEW_PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQAY3Y2wAAAAAElFTkSuQmCC',
+    'base64',
+  );
+  wrapper.get('/media/:token', (req, res, next) => {
+    if (!String(req.params.token || '').startsWith('review-media-')) return next();
+    res.status(200);
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'no-store');
+    return res.end(REVIEW_PNG);
   });
   wrapper.use(app);
 

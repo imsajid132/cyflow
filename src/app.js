@@ -34,6 +34,7 @@ import { createMediaLibraryRoutes } from './routes/mediaLibraryRoutes.js';
 import { createBusinessProfileRoutes } from './routes/businessProfileRoutes.js';
 import { createPlannerRoutes } from './routes/plannerRoutes.js';
 import { createAutomationRoutes } from './routes/automationRoutes.js';
+import { createPublishRoutes } from './routes/publishRoutes.js';
 import { buildContainer } from './container.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -268,6 +269,14 @@ export function createApp(overrides = {}) {
     '/api/automations',
     createAutomationRoutes({
       automationController: container.automationController,
+      requireAuth: container.requireAuth,
+    }),
+  );
+  // D2: per-target publishing actions (retry / cancel / attempt history).
+  app.use(
+    '/api/publish',
+    createPublishRoutes({
+      publishController: container.publishController,
       requireAuth: container.requireAuth,
     }),
   );

@@ -226,6 +226,16 @@ export const EVENT_TYPES = Object.freeze({
   AUTOMATION_ATTENTION_REQUIRED: 'automation.attention_required',
   AUTOMATION_RECOVERED: 'automation.recovered',
   JOB_STALE_RECOVERED: 'job.stale_recovered',
+  // D2: provider publishing. Never records tokens or raw provider bodies.
+  PUBLISH_TARGET_STARTED: 'publish.target_started',
+  PUBLISH_TARGET_SUBMITTED: 'publish.target_submitted',
+  PUBLISH_TARGET_PUBLISHED: 'publish.target_published',
+  PUBLISH_TARGET_FAILED: 'publish.target_failed',
+  PUBLISH_TARGET_RETRY_SCHEDULED: 'publish.target_retry_scheduled',
+  PUBLISH_TARGET_BLOCKED: 'publish.target_blocked',
+  PUBLISH_ATTEMPT_RECONCILING: 'publish.attempt_reconciling',
+  PUBLISH_ATTEMPT_RECONCILED: 'publish.attempt_reconciled',
+  PUBLISH_PREFLIGHT_FAILED: 'publish.preflight_failed',
 });
 
 // Least-privilege OAuth scopes requested per provider. Do NOT add unrelated
@@ -1389,3 +1399,78 @@ export const WORKER_LOCKS = Object.freeze({
   SCHEDULER_TICK: 'scheduler_tick',
   STALE_RECOVERY: 'stale_recovery',
 });
+
+// =============================================================================
+// D2 — Meta provider publishing, retries and reconciliation
+// =============================================================================
+
+/** Durable job types for publishing (added to the D1 job system). */
+export const PUBLISH_JOB_TYPES = Object.freeze({
+  PUBLISH_TARGET: 'publish_scheduled_post_target',
+  RECONCILE_ATTEMPT: 'reconcile_publish_attempt',
+  PUBLISH_STALE_RECOVERY: 'publish_stale_recovery',
+});
+export const PUBLISH_JOB_TYPE_VALUES = Object.freeze(Object.values(PUBLISH_JOB_TYPES));
+
+/** Per-target publish state (scheduled_post_targets.publish_status). */
+export const PUBLISH_STATUS = Object.freeze({
+  DRAFT: 'draft',
+  WAITING_APPROVAL: 'waiting_approval',
+  SCHEDULED: 'scheduled',
+  PUBLISHING: 'publishing',
+  SUBMITTED: 'submitted',
+  RECONCILING: 'reconciling',
+  PUBLISHED: 'published',
+  RETRY_SCHEDULED: 'retry_scheduled',
+  FAILED: 'failed',
+  CANCELLED: 'cancelled',
+  ATTENTION_NEEDED: 'attention_needed',
+  SKIPPED: 'skipped',
+});
+export const PUBLISH_STATUS_VALUES = Object.freeze(Object.values(PUBLISH_STATUS));
+
+/** publish_attempts.status. */
+export const PUBLISH_ATTEMPT_STATUS = Object.freeze({
+  STARTED: 'started',
+  SUBMITTED: 'submitted',
+  PUBLISHED: 'published',
+  RECONCILING: 'reconciling',
+  RETRYABLE_FAILURE: 'retryable_failure',
+  PERMANENT_FAILURE: 'permanent_failure',
+  UNKNOWN_RESULT: 'unknown_result',
+  BLOCKED: 'blocked',
+});
+
+/** Normalized adapter result kinds (what an adapter's publish/reconcile returns). */
+export const ADAPTER_RESULT = Object.freeze({
+  SUBMITTED: 'submitted',
+  PUBLISHED: 'published',
+  RETRYABLE_FAILURE: 'retryable_failure',
+  PERMANENT_FAILURE: 'permanent_failure',
+  UNKNOWN_RESULT: 'unknown_result',
+});
+
+/**
+ * Normalized, safe publish error categories. TRANSIENT-mapped ones are retried
+ * with backoff; the rest are attention-required and stop provider calls.
+ */
+export const PUBLISH_ERROR_CATEGORY = Object.freeze({
+  AUTHENTICATION_REQUIRED: 'authentication_required',
+  PERMISSION_REQUIRED: 'permission_required',
+  ACCOUNT_UNAVAILABLE: 'account_unavailable',
+  MEDIA_REQUIRED: 'media_required',
+  MEDIA_UNAVAILABLE: 'media_unavailable',
+  VALIDATION_FAILED: 'validation_failed',
+  RATE_LIMITED: 'rate_limited',
+  PROVIDER_TRANSIENT: 'provider_transient',
+  PROVIDER_PERMANENT: 'provider_permanent',
+  TIMEOUT_UNKNOWN: 'timeout_unknown',
+  CONFIGURATION_ERROR: 'configuration_error',
+});
+
+/** Which categories are transient (retry) vs permanent (attention). */
+export const TRANSIENT_PUBLISH_CATEGORIES = Object.freeze([
+  PUBLISH_ERROR_CATEGORY.RATE_LIMITED,
+  PUBLISH_ERROR_CATEGORY.PROVIDER_TRANSIENT,
+  PUBLISH_ERROR_CATEGORY.TIMEOUT_UNKNOWN,
+]);

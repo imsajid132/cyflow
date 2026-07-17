@@ -1,8 +1,55 @@
 # Cyflow Social — milestone progress
 
 An honest, append-only log of the production build, most recent first. Each
-milestone is one complete, tested, committed increment. Nothing here publishes to
-a social provider yet.
+milestone is one complete, tested, committed increment. No post has been sent to a
+live social provider yet: D2's real publishing adapters exist but are gated OFF by
+default (`ENABLE_LIVE_PROVIDER_PUBLISHING=false`) and have only ever run against
+fake providers.
+
+## Milestone D2 — Meta publishing adapters, retries and reconciliation
+
+**Branch:** `cyflow-social-v1` · **Migration:** `015_provider_publishing_and_reconciliation.sql`
+(apply after 010 → 011 → 012 → 013 → 014)
+
+- Real publishing adapters for the three supported providers ONLY — Facebook Pages
+  (`/feed` or `/photos`), Instagram Professional (`/media` → `/media_publish`
+  container flow, image required), and Threads (`/threads` → `/threads_publish`).
+  No LinkedIn, TikTok, X, Pinterest, YouTube, or personal profiles. One capability
+  registry drives generation, approval, queue readiness, publishing and failure
+  copy so the UI can never drift from what the adapters actually support.
+- Live provider calls are gated behind `ENABLE_LIVE_PROVIDER_PUBLISHING` (default
+  **false**). While off, the scheduler enqueues no publish jobs and a publish job
+  is a no-op that marks the target "attention needed — live publishing disabled";
+  ZERO provider calls. The Queue and `/health` report this honestly. **Nothing has
+  been verified against a real account** — real publishing also needs Meta app
+  review for the publishing permissions.
+- Each selected account is an independent target with its own publish state
+  (draft → scheduled → publishing → submitted → reconciling → published, or
+  retry_scheduled / failed / cancelled / attention_needed). Preflight checks
+  ownership, an active account, the capability (Instagram needs media), and a
+  present, decryptable token BEFORE any provider call. The access token is sent
+  only as an `Authorization: Bearer` header, never in a URL, and dropped from
+  memory right after the call.
+- Idempotent and reconcilable: a `publish_attempts` ledger (safe fields only — no
+  token, no raw payload) with a unique idempotency key means a duplicated tick,
+  double click, or two workers produce exactly one provider call; a known
+  `provider_post_id` blocks resubmission. An uncertain result (async container or a
+  network timeout) moves the target to `reconciling` and schedules a reconcile
+  job — never a blind republish. Reconciliation resolves to published (no
+  duplicate), fails on a real permanent failure, or gives up after the cap and
+  asks for human attention.
+- Honest partial success: if Instagram publishes and Threads fails, Instagram is
+  `published`, Threads is `failed`, and the post rolls up to `partial`. One target
+  succeeding never hides another failing. The Queue shows per-target status with
+  retry/cancel and a safe attempt history (no token or raw provider body).
+- New env (all optional, defaults): `ENABLE_LIVE_PROVIDER_PUBLISHING` (false),
+  `PUBLISH_RECONCILE_DELAY_SECONDS` (60), `PUBLISH_MAX_RECONCILE_ATTEMPTS` (8),
+  `PUBLISH_REQUEST_TIMEOUT_MS` (30000). Migration 015 is additive (new
+  `publish_attempts` table + three nullable `scheduled_post_targets` columns + one
+  index); 010–014 unchanged.
+- 1005 tests pass; `npm audit` 0 (all + prod). D2 publish browser smoke 18/18
+  (fake providers) plus all seven prior smokes green. Idempotency, ownership and
+  reconciliation guards were revert-verified (broken → test fails → restored).
 
 ## Milestone D1 — always-on automation, rolling buffer and durable jobs
 
