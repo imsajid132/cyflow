@@ -47,9 +47,11 @@
     </nav>
     <div class="scrim" id="scrim" hidden></div>
 
-    <!-- Route content -->
+    <!-- Route content. NOT an aria-live region: pages rebuild large subtrees on
+         every action, which a polite live region here would announce wholesale.
+         Status is announced through the scoped #toasts region below instead. -->
     <main class="main" id="main" tabindex="-1">
-      <div id="route-root" aria-live="polite"></div>
+      <div id="route-root"></div>
     </main>
   </div>
 

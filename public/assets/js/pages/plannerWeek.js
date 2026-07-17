@@ -389,6 +389,10 @@ export async function render(root, ctx) {
    * the drawer is re-rendered from it, like the board is.
    */
   let openItemId = null;
+  // The element focus returns to when the drawer closes — the "Edit" button that
+  // opened it. Captured only on a fresh open (not on app-driven refreshes), so a
+  // keyboard user lands back where they started instead of at the top of the page.
+  let drawerReturnFocus = null;
   // The live platform editor, and whether it has unsaved changes. A refresh
   // driven by the app (a retry landing) is not a user close and must not warn,
   // so this is consulted only on user-initiated closes and navigations.
@@ -420,6 +424,9 @@ export async function render(root, ctx) {
     drawer.hidden = true;
     clear(drawer);
     document.removeEventListener('keydown', onDrawerKey);
+    // Return focus to the control that opened the drawer (WCAG 2.4.3).
+    if (drawerReturnFocus && typeof drawerReturnFocus.focus === 'function') drawerReturnFocus.focus();
+    drawerReturnFocus = null;
   }
   function onDrawerKey(e) {
     if (e.key === 'Escape') closeDrawer();
@@ -440,6 +447,9 @@ export async function render(root, ctx) {
   }
 
   function openDrawer(item) {
+    // Capture the trigger only on a genuine open (drawer currently hidden), not
+    // on the app-driven refreshes that re-call openDrawer while it is already up.
+    if (drawer.hidden) drawerReturnFocus = document.activeElement;
     openItemId = item.id;
     clear(drawer);
     drawer.hidden = false;

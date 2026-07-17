@@ -36,7 +36,12 @@ function statusRow(status) {
   ];
   // maskedUserId is the only credential-derived value the API ever returns.
   if (status?.maskedUserId) bits.push(el('span', { className: 'card-sub', text: status.maskedUserId }));
-  return el('div', { className: 'row', attrs: { style: 'gap:.5rem' } }, bits);
+  // Same "last verified" affordance the OpenAI card carries, so the two cards
+  // report their state identically.
+  if (status?.verifiedAt) {
+    bits.push(el('span', { className: 'card-sub', text: `Last verified ${formatDate(status.verifiedAt)}` }));
+  }
+  return el('div', { className: 'row', attrs: { style: 'gap:.5rem;flex-wrap:wrap' } }, bits);
 }
 
 /**
@@ -83,6 +88,12 @@ export async function render(root, ctx) {
     statusHost.textContent = '';
     statusHost.appendChild(statusRow(status));
     removeBtn.hidden = !status.configured;
+    // Test only makes sense once something is stored — offering it on an empty
+    // card is an action that can only fail. Mirrors the OpenAI card.
+    testBtn.hidden = !status.configured;
+    // Replacing, not editing: the stored credentials are never returned, so the
+    // button says which action this is.
+    saveBtn.textContent = status.configured ? 'Replace credentials' : 'Save credentials';
   }
 
   saveBtn.addEventListener('click', async () => {
@@ -107,10 +118,13 @@ export async function render(root, ctx) {
       document.getElementById('hctiUserId').value = '';
       document.getElementById('hctiApiKey').value = '';
       refresh(api.payload(res));
-      resultHost.appendChild(notice('Saved. Test the connection to verify the credentials work.', 'ok'));
-      toast('Credentials saved and encrypted.', 'ok');
+      // One feedback per action, in the toast — the OpenAI card's pattern.
+      toast('Credentials saved. Test the connection to verify them.', 'ok');
     } finally {
+      // setLoading restores the label it cached at load-start, which would undo
+      // the Save->Replace flip refresh() just made; re-apply it after.
       setLoading(saveBtn, false);
+      refresh();
     }
   });
 
@@ -126,12 +140,12 @@ export async function render(root, ctx) {
       }
       // A failed test is a 200 with success:false — the message is already safe.
       const body = api.payload(res) || {};
-      refresh({ verified: Boolean(body.verified) });
+      refresh({ verified: Boolean(body.verified), verifiedAt: body.verifiedAt ?? null });
+      // One feedback per action: the inline result only, matching the OpenAI card.
       resultHost.appendChild(notice(
         body.message || (body.success ? 'HCTI responded successfully.' : 'The test render failed.'),
         body.success ? 'ok' : 'err',
       ));
-      toast(body.success ? 'HCTI verified.' : 'HCTI could not be verified.', body.success ? 'ok' : 'err');
     } finally {
       setLoading(testBtn, false);
     }
@@ -145,16 +159,22 @@ export async function render(root, ctx) {
       danger: true,
     });
     if (!ok) return;
-    // The API requires an explicit confirmation token on this destructive call.
-    const res = await api.apiRequest('/api/integrations/hcti', { method: 'DELETE', body: { confirm: 'DELETE' } });
-    if (res.unauthorized) { ctx.navigate('/login'); return; }
-    if (!res.ok) { toast(api.errorMessage(res, 'The credentials could not be removed.'), 'err'); return; }
-    refresh({ configured: false, verified: false, verifiedAt: null, maskedUserId: null });
     resultHost.textContent = '';
-    toast('Credentials removed.', 'ok');
+    setLoading(removeBtn, true, 'Removing…');
+    try {
+      // The API requires an explicit confirmation token on this destructive call.
+      const res = await api.apiRequest('/api/integrations/hcti', { method: 'DELETE', body: { confirm: 'DELETE' } });
+      if (res.unauthorized) { ctx.navigate('/login'); return; }
+      if (!res.ok) { toast(api.errorMessage(res, 'The credentials could not be removed.'), 'err'); return; }
+      refresh({ configured: false, verified: false, verifiedAt: null, maskedUserId: null });
+      toast('Credentials removed.', 'ok');
+    } finally {
+      setLoading(removeBtn, false);
+    }
   });
 
-  removeBtn.hidden = !status.configured;
+  // Set the initial button/label state the same way the OpenAI card does.
+  refresh();
 
   // --- OpenAI API ----------------------------------------------------------
   //
@@ -308,8 +328,10 @@ export async function render(root, ctx) {
       ]),
       el('p', { className: 'card-sub', text: 'Cyflow renders your branded images through your own HCTI account. Both values are encrypted before they are stored and are never shown again after saving.' }),
       el('div', { className: 'grid grid-2' }, [
-        field({ id: 'hctiUserId', label: 'HCTI User ID', attrs: { autocomplete: 'off', spellcheck: 'false' } }),
-        field({ id: 'hctiApiKey', label: 'HCTI API Key', type: 'password', attrs: { autocomplete: 'new-password' } }),
+        // Always empty; "replace" means typing new values. The label says so when
+        // credentials already exist, mirroring the OpenAI card.
+        field({ id: 'hctiUserId', label: status.configured ? 'New HCTI User ID' : 'HCTI User ID', attrs: { autocomplete: 'off', spellcheck: 'false' } }),
+        field({ id: 'hctiApiKey', label: status.configured ? 'New HCTI API Key' : 'HCTI API Key', type: 'password', attrs: { autocomplete: 'new-password' } }),
       ]),
       el('div', { className: 'row', attrs: { style: 'gap:.5rem' } }, [
         saveBtn, testBtn, el('span', { className: 'spacer' }), removeBtn,

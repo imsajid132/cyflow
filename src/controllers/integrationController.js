@@ -132,6 +132,7 @@ export function createIntegrationController({
       return sendSuccess(res, {
         success: true,
         verified: true,
+        verifiedAt,
         message: result.message,
       });
     }

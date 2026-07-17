@@ -25,12 +25,17 @@ export async function pickMedia({ allowClear = true } = {}) {
 
   return new Promise((resolve) => {
     let settled = false;
+    // Capture the trigger so focus returns exactly where it left, the way
+    // confirmModal does. A keyboard user must not be dropped to the top of the
+    // document when the dialog closes.
+    const previous = document.activeElement;
     const done = (value) => {
       if (settled) return;
       settled = true;
       host.textContent = '';
       host.hidden = true; // restore the shared modal host to its hidden state
-      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('keydown', onKey, true);
+      if (previous && typeof previous.focus === 'function') previous.focus();
       resolve(value);
     };
 
@@ -68,8 +73,24 @@ export async function pickMedia({ allowClear = true } = {}) {
     host.hidden = false; // the shared host defaults to [hidden]; reveal it to show the picker
     host.appendChild(dialog);
     host.addEventListener('click', (e) => { if (e.target === host) done(null); }, { once: true });
-    function onKey(e) { if (e.key === 'Escape') done(null); }
-    document.addEventListener('keydown', onKey);
+    // Escape to cancel; Tab is trapped inside the dialog so focus cannot walk
+    // out into the page/drawer behind an aria-modal dialog (WCAG 2.4.3 / 2.1.2).
+    // Registered in the CAPTURE phase and stopped immediately so the key is
+    // handled by the picker ALONE — the drawer this picker opens over also listens
+    // for Escape on document, and must not close underneath it.
+    function onKey(e) {
+      if (e.key === 'Escape') { e.stopImmediatePropagation(); done(null); return; }
+      if (e.key === 'Tab') {
+        e.stopImmediatePropagation();
+        const focusables = dialog.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+        if (!focusables.length) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    }
+    document.addEventListener('keydown', onKey, true);
     (dialog.querySelector('.media-picker-tile') || cancelBtn).focus();
   });
 }

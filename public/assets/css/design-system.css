@@ -366,6 +366,8 @@ legend { padding: 0; }
   position: fixed; inset: 0; z-index: 70;
   display: flex; align-items: center; justify-content: center; padding: 1rem;
   background: rgba(15, 23, 42, .45);
+  /* A modal taller than the viewport scrolls rather than clipping at top/bottom. */
+  overflow-y: auto;
 }
 .modal {
   background: #fff; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
@@ -773,7 +775,13 @@ legend { padding: 0; }
   padding: 0; border: 2px solid transparent; border-radius: var(--radius-sm); overflow: hidden;
   cursor: pointer; background: var(--ink-50); aspect-ratio: 1 / 1;
 }
-.media-picker-tile:hover, .media-picker-tile:focus-visible { border-color: var(--brand-primary, #1a844c); outline: none; }
+.media-picker-tile:hover { border-color: var(--brand-primary, #1a844c); }
+/* A real focus ring, not a colour-only border swap, so the keyboard position is
+   unmistakable and not reliant on colour perception. */
+.media-picker-tile:focus-visible {
+  border-color: var(--brand-primary, #1a844c);
+  outline: 2px solid var(--brand-primary, #1a844c); outline-offset: 2px;
+}
 
 /* --- per-platform editor (C2) -------------------------------------------- */
 .pe { display: flex; flex-direction: column; gap: .5rem; }
@@ -836,6 +844,11 @@ legend { padding: 0; }
   .shell { display: block; }
   .main { padding: 1rem; }
   .grid-2, .grid-3, .grid-4 { grid-template-columns: minmax(0, 1fr); }
+
+  /* The mobile topbar (sticky top:0, z-index:30) would otherwise paint over the
+     sticky bulk bar. Park the bulk bar just below it so its actions stay visible
+     when the board is scrolled. */
+  .planner-bulk { top: var(--topbar-h); }
 
   .sidebar {
     position: fixed; inset: 0 auto 0 0; z-index: 50; height: 100dvh;

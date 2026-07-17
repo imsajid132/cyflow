@@ -36,8 +36,8 @@ export const IMAGE_ERROR_CODES = Object.freeze({
 });
 
 const SAFE_MESSAGES = {
-  hcti_not_configured: 'Your HCTI credentials are not configured. Add them in HCTI Settings.',
-  hcti_not_verified: 'Your HCTI credentials are not verified. Test them in HCTI Settings.',
+  hcti_not_configured: 'Your HCTI credentials are not configured. Add them on the Integrations page.',
+  hcti_not_verified: 'Your HCTI credentials are not verified. Test them on the Integrations page.',
   image_generation_failed: 'The image could not be generated. Please try again.',
 };
 

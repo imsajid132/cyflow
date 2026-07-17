@@ -11,9 +11,9 @@ import * as api from './api.js';
 import { navigate, onRouteChange } from './router.js';
 
 /**
- * Navigation, grouped by what the user is doing rather than one flat list of
- * ten. Workspace is the daily work; Business is the setup that feeds it;
- * Account is everything you touch once a month.
+ * Navigation, grouped by what the user is doing rather than one flat list.
+ * Workspace is the daily work; Business is the setup that feeds it; Account is
+ * everything you touch once a month.
  *
  * The groups are small on purpose. Three labels cost three rows, which still
  * fits a 13-inch laptop without the sidebar scrolling.
@@ -47,9 +47,6 @@ const GROUPS = [
     ],
   },
 ];
-
-/** Flat list, for route highlighting. */
-const ITEMS = GROUPS.flatMap((group) => group.items);
 
 let drawerOpen = false;
 

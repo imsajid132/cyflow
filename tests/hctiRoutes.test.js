@@ -82,6 +82,9 @@ test('POST /hcti/test: decrypts and passes dynamic creds to the service, marks v
   assert.equal(res.status, 200);
   assert.equal(res.body.data.success, true);
   assert.equal(res.body.data.verified, true);
+  // The test response carries verifiedAt so the card can show "Last verified"
+  // without a reload — parity with the OpenAI card (C4).
+  assert.ok(res.body.data.verifiedAt, 'a successful HCTI test returns verifiedAt');
 
   // The service received the DECRYPTED, dynamic credentials.
   assert.equal(fakeHcti._calls.length, 1);

@@ -45,7 +45,10 @@ export async function render(root, ctx) {
     clear(uploaderHost);
     const fileInput = el('input', {
       className: 'sr-only',
-      attrs: { type: 'file', id: 'media-file', accept: ACCEPT },
+      // tabindex -1: the visible label (role=button, below) is the single tab
+      // stop for this control. A focusable sr-only input would be a second,
+      // invisible stop for the same action.
+      attrs: { type: 'file', id: 'media-file', accept: ACCEPT, tabindex: '-1' },
     });
     const chooseBtn = el('label', {
       className: 'btn btn-secondary', attrs: { for: 'media-file', tabindex: '0', role: 'button' },
