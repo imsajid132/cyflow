@@ -12,7 +12,9 @@
     "dev": "nodemon src/server.js",
     "test": "node --test",
     "test:watch": "node --test --watch",
-    "scheduler:once": "node src/scheduler/runOnce.js"
+    "scheduler:once": "node src/scheduler/runOnce.js",
+    "worker": "node src/workers/worker.js",
+    "worker:once": "node src/workers/runWorkerOnce.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

@@ -27,7 +27,7 @@ function safeParseJson(value, fallback) {
 }
 
 const RUN_COLUMNS =
-  'id, user_id, business_profile_id, name, status, start_date, end_date, timezone, ' +
+  'id, user_id, business_profile_id, content_automation_id, name, status, start_date, end_date, timezone, ' +
   'plan_length, posts_per_day, settings_json, resolved_rhythm_json, quality_status, ' +
   'quality_failures_json, generation_notes, archived_at, created_at, updated_at';
 
@@ -47,6 +47,7 @@ export function sanitizeRun(row) {
     id: String(row.id),
     userId: String(row.user_id),
     businessProfileId: row.business_profile_id == null ? null : String(row.business_profile_id),
+    contentAutomationId: row.content_automation_id == null ? null : String(row.content_automation_id),
     name: row.name ?? null,
     status: row.status,
     startDate: row.start_date ?? null,
@@ -119,13 +120,14 @@ export function sanitizeItem(row) {
 export async function createRun(input, connection) {
   const [result] = await runner(connection).execute(
     `INSERT INTO planner_runs
-       (user_id, business_profile_id, name, status, start_date, end_date, timezone,
+       (user_id, business_profile_id, content_automation_id, name, status, start_date, end_date, timezone,
         plan_length, posts_per_day, settings_json, resolved_rhythm_json, quality_status,
         quality_failures_json, generation_notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.userId,
       input.businessProfileId ?? null,
+      input.contentAutomationId ?? null,
       input.name ?? null,
       input.status ?? PLANNER_RUN_STATUS.GENERATING,
       input.startDate ?? null,
@@ -154,7 +156,7 @@ export async function findRunByIdForUser(runId, userId, connection) {
 export async function listRunsForUser(userId, { limit = 20, offset = 0 } = {}, connection) {
   const [rows] = await runner(connection).query(
     `SELECT ${RUN_COLUMNS} FROM planner_runs
-      WHERE user_id = ?
+      WHERE user_id = ? AND content_automation_id IS NULL
       ORDER BY created_at DESC, id DESC
       LIMIT ? OFFSET ?`,
     [userId, Number(limit), Number(offset)],

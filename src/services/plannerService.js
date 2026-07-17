@@ -2624,6 +2624,72 @@ export function createPlannerService({
     }
   }
 
+  /**
+   * Generate ONE item for a content-automation slot into an existing backing
+   * run, reusing the exact planner generation path (dedup, style guard,
+   * per-platform copy, image, revisions). The automation slot-generation worker
+   * calls this; it never queues or publishes.
+   *
+   * Ownership: the run must belong to userId. The automation's frozen settings on
+   * the run (platforms, rhythm, tone) are authoritative — a later preference
+   * change cannot rewrite it. Returns { item } (decorated) or { item: null } when
+   * generation produced nothing (a transient miss the worker retries).
+   */
+  async function generateAutomationSlotItem({ userId, runId, slot }) {
+    const run = await runsRepo.findRunByIdForUser(runId, userId);
+    if (!run) throw new NotFoundError('Automation run not found');
+    const profile = await businessProfiles.findByUserId(userId).catch(() => null);
+
+    const settings = run.settings || {};
+    const platforms = Array.isArray(settings.platforms) ? settings.platforms : [];
+    if (!platforms.length) throw new ValidationError('The automation has no selected platforms');
+
+    const rhythm = run.resolvedRhythm || resolveRhythm({ preset: settings.rhythmPreset });
+    const preferences = {
+      goals: settings.goals ?? DEFAULT_GOALS,
+      contentMix: settings.contentMix ?? DEFAULT_CONTENT_MIX,
+      tone: settings.tone ?? null,
+      ctaMode: settings.ctaMode ?? null,
+    };
+
+    const weekday = (() => {
+      const d = new Date(`${slot.localDate}T00:00:00Z`);
+      const g = d.getUTCDay();
+      return g === 0 ? 7 : g;
+    })();
+    const scheduleSlot = {
+      localDate: slot.localDate,
+      localTime: slot.localTime,
+      weekday,
+      scheduledForUtc: slot.scheduledForUtc,
+      scheduledForInstant: new Date(`${String(slot.scheduledForUtc).replace(' ', 'T')}Z`),
+    };
+
+    const briefs = buildBriefSet({ slots: [scheduleSlot], preferences, profile, platforms, rhythm });
+    if (!briefs.length) throw new ValidationError('No brief could be built for this slot');
+    const existing = await runsRepo.listItemsForRun(run.id, userId);
+    const brief = { ...briefs[0], position: existing.length };
+
+    // The same platform contract the planner enforces: an item can only target
+    // platforms the automation selected. This is the no-Facebook-injection guard.
+    assertPlatformContract(platforms, [brief]);
+
+    // Recent history (which already includes this run's committed items) drives
+    // dedup, so each independently-generated slot stays distinct.
+    const recent = await runsRepo.listRecentFingerprintsForUser(userId, {
+      limit: PLANNER_LIMITS.DUPLICATE_LOOKBACK_ITEMS,
+      sinceUtc: addSecondsUtc(-PLANNER_LIMITS.DUPLICATE_LOOKBACK_DAYS * 24 * 3600, now()),
+      excludeRunId: null,
+    });
+    const wantImages = await imageIntegrationVerified(userId);
+
+    const outcome = await generateOneItem({
+      userId, run, brief, profile, batch: [], recent, autoQueue: false, wantImages,
+    });
+    if (!outcome) return { item: null };
+    return { item: await decorateItem(userId, outcome.item) };
+  }
+
   return {
     getPreferences,
     describeWeeklyRhythm,
@@ -2631,6 +2697,7 @@ export function createPlannerService({
     summarizePlan,
     describeDeletion,
     generatePlan,
+    generateAutomationSlotItem,
     getPlan,
     listPlans,
     updateItem,

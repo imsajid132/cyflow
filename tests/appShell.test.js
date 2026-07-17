@@ -49,6 +49,8 @@ test('the app declares exactly the planned routes', () => {
     '/media',
     '/integrations',
     '/profile', '/settings',
+    // D1: always-on content automations.
+    '/automations',
     // Phase 4.7: auto content planner.
     '/planner', '/planner/new', '/planner/week', '/planner/history',
   ]);

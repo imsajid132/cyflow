@@ -206,6 +206,26 @@ export const EVENT_TYPES = Object.freeze({
   PLANNER_ITEM_DELETED: 'planner.item_deleted',
   PLANNER_ITEMS_QUEUED: 'planner.items_queued',
   PLANNER_DUPLICATE_DETECTED: 'planner.duplicate_detected',
+  // D1: always-on automation + durable background jobs. Warn/error-level events
+  // here are what the UI surfaces as "attention" — there is no separate
+  // notifications table; the automation's own status + attention_reason carry
+  // the current actionable state.
+  AUTOMATION_CREATED: 'automation.created',
+  AUTOMATION_UPDATED: 'automation.updated',
+  AUTOMATION_ACTIVATED: 'automation.activated',
+  AUTOMATION_PAUSED: 'automation.paused',
+  AUTOMATION_RESUMED: 'automation.resumed',
+  AUTOMATION_STOPPED: 'automation.stopped',
+  AUTOMATION_REFILL_STARTED: 'automation.refill_started',
+  AUTOMATION_REFILL_COMPLETED: 'automation.refill_completed',
+  AUTOMATION_SLOT_PREPARED: 'automation.slot_prepared',
+  AUTOMATION_SLOT_FAILED: 'automation.slot_failed',
+  AUTOMATION_SLOT_SKIPPED: 'automation.slot_skipped',
+  AUTOMATION_BUFFER_LOW: 'automation.buffer_low',
+  AUTOMATION_BUFFER_RECOVERED: 'automation.buffer_recovered',
+  AUTOMATION_ATTENTION_REQUIRED: 'automation.attention_required',
+  AUTOMATION_RECOVERED: 'automation.recovered',
+  JOB_STALE_RECOVERED: 'job.stale_recovered',
 });
 
 // Least-privilege OAuth scopes requested per provider. Do NOT add unrelated
@@ -1265,4 +1285,107 @@ export const DUPLICATION_THRESHOLDS = Object.freeze({
 /** api_usage operation identifiers for planner work. */
 export const PLANNER_USAGE_OPERATIONS = Object.freeze({
   GENERATE_PLAN: 'generate_plan',
+});
+
+// =============================================================================
+// D1 — always-on automation, rolling buffer, durable background jobs
+// =============================================================================
+
+/** Automation lifecycle statuses. Stored as a validated ENUM in the DB. */
+export const AUTOMATION_STATUS = Object.freeze({
+  DRAFT: 'draft',
+  ACTIVE: 'active',
+  PAUSED: 'paused',
+  ATTENTION_NEEDED: 'attention_needed',
+  STOPPED: 'stopped',
+});
+export const AUTOMATION_STATUS_VALUES = Object.freeze(Object.values(AUTOMATION_STATUS));
+
+/**
+ * Valid status transitions. A transition not listed here is rejected, so an
+ * automation can never jump to a state that skips its lifecycle (e.g. a stopped
+ * automation is terminal and cannot be resumed).
+ */
+export const AUTOMATION_STATUS_TRANSITIONS = Object.freeze({
+  draft: ['active', 'stopped'],
+  active: ['paused', 'attention_needed', 'stopped'],
+  paused: ['active', 'stopped'],
+  attention_needed: ['active', 'paused', 'stopped'],
+  stopped: [],
+});
+
+/** How an automation treats the content it prepares. */
+export const AUTOMATION_MODES = Object.freeze(['draft_only', 'review', 'autopilot']);
+
+/** What to do about a slot whose intended time passed while nothing ran. */
+export const MISSED_POST_POLICIES = Object.freeze(['skip', 'hold', 'next_safe_time']);
+
+/** What to do when a slot hits a permanent (attention-required) failure. */
+export const FAILURE_POLICIES = Object.freeze(['pause', 'continue']);
+
+/** Safe, conservative bounds for the rolling buffer. Never months at once. */
+export const AUTOMATION_LIMITS = Object.freeze({
+  MIN_HORIZON_DAYS: 3,
+  MAX_HORIZON_DAYS: 30,
+  DEFAULT_HORIZON_DAYS: 14,
+  MIN_READY_DAYS: 1,
+  DEFAULT_MIN_READY_DAYS: 7,
+  DEFAULT_LOW_BUFFER_DAYS: 3,
+  MIN_POSTS_PER_DAY: 1,
+  MAX_POSTS_PER_DAY: 5,
+  MAX_TIMES_PER_DAY: 5,
+  MAX_WEEKDAYS: 7,
+  MAX_SELECTED_ACCOUNTS: 20,
+  MAX_NAME_LENGTH: 160,
+  // A single refill run never enqueues more than this many slot jobs, so a
+  // misconfiguration cannot fan out unbounded work.
+  MAX_SLOTS_PER_REFILL: 60,
+});
+
+/** Durable job type discriminators. Free-text in the DB (like event_type). */
+export const JOB_TYPES = Object.freeze({
+  AUTOMATION_REFILL: 'automation_refill',
+  GENERATE_SLOT: 'generate_automation_slot',
+  RECONCILE_BUFFER: 'reconcile_automation_buffer',
+  STALE_JOB_RECOVERY: 'stale_job_recovery',
+});
+export const JOB_TYPE_VALUES = Object.freeze(Object.values(JOB_TYPES));
+
+/** Durable job statuses. Stored as a validated ENUM. */
+export const JOB_STATUS = Object.freeze({
+  PENDING: 'pending',
+  RUNNING: 'running',
+  RETRY_SCHEDULED: 'retry_scheduled',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+  CANCELLED: 'cancelled',
+});
+export const JOB_STATUS_VALUES = Object.freeze(Object.values(JOB_STATUS));
+
+/** Schedule-slot statuses. */
+export const SLOT_STATUS = Object.freeze({
+  PLANNED: 'planned',
+  GENERATING: 'generating',
+  READY: 'ready',
+  FAILED: 'failed',
+  SKIPPED: 'skipped',
+  CANCELLED: 'cancelled',
+});
+export const SLOT_STATUS_VALUES = Object.freeze(Object.values(SLOT_STATUS));
+
+/**
+ * Failure classification for the worker's retry policy.
+ *   TRANSIENT  — a temporary condition; retry with capped exponential backoff.
+ *   PERMANENT  — a configuration/credential/ownership problem that will not fix
+ *                itself; stop retrying, set the automation to attention_needed.
+ */
+export const JOB_ERROR_CATEGORY = Object.freeze({
+  TRANSIENT: 'transient',
+  PERMANENT: 'permanent',
+});
+
+/** Named singleton locks (worker_leases) for cross-process coordination. */
+export const WORKER_LOCKS = Object.freeze({
+  SCHEDULER_TICK: 'scheduler_tick',
+  STALE_RECOVERY: 'stale_recovery',
 });

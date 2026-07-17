@@ -32,6 +32,7 @@ const ROUTES = {
   '/integrations': { layout: 'app', auth: true, load: () => import('./pages/integrations.js') },
   '/profile': { layout: 'app', auth: true, load: () => import('./pages/profile.js') },
   '/settings': { layout: 'app', auth: true, load: () => import('./pages/settings.js') },
+  '/automations': { layout: 'app', auth: true, load: () => import('./pages/automations.js') },
 };
 
 const TITLES = {
@@ -41,6 +42,7 @@ const TITLES = {
   '/profile': 'Profile', '/settings': 'Settings',
   '/onboarding/business': 'Business setup', '/onboarding/brand': 'Brand review',
   '/onboarding/connections': 'Connect accounts',
+  '/automations': 'Automations',
   '/planner': 'Auto planner', '/planner/new': 'Generate a plan',
   '/planner/week': 'Weekly board', '/planner/history': 'Plan history',
 };

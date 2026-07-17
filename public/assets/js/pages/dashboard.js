@@ -18,11 +18,12 @@ function statCard(value, label) {
 }
 
 export async function render(root, ctx) {
-  const [state, profile, postsRes, accountsRes] = await Promise.all([
+  const [state, profile, postsRes, accountsRes, automationsRes] = await Promise.all([
     api.onboardingState(),
     api.businessProfile(),
     api.apiRequest('/api/posts?limit=50'),
     api.apiRequest('/api/social-accounts'),
+    api.apiRequest('/api/automations'),
   ]);
   if (postsRes.unauthorized || accountsRes.unauthorized) { ctx.navigate('/login'); return; }
 
@@ -78,6 +79,29 @@ export async function render(root, ctx) {
     statCard(activeAccounts.length, 'Connected accounts'),
     statCard(profile?.services?.length || 0, 'Services'),
   ]));
+
+  // Automation roll-up — REAL fields only (no reach/engagement/follower fiction).
+  const automations = api.payload(automationsRes)?.automations || [];
+  if (automations.length) {
+    const active = automations.filter((a) => a.status === 'active');
+    const attention = automations.filter((a) => a.status === 'attention_needed');
+    const nextPost = active.map((a) => a.nextPost).filter(Boolean)
+      .sort((x, y) => String(x.scheduledForUtc).localeCompare(String(y.scheduledForUtc)))[0] || null;
+    const minBuffer = active.length ? Math.min(...active.map((a) => a.readyBufferDays ?? 0)) : null;
+    page.appendChild(card([
+      el('div', { className: 'card-head' }, [
+        el('span', { className: 'card-title', text: 'Automations' }),
+        el('a', { className: 'btn btn-secondary btn-sm', text: 'Manage', attrs: { href: '/automations', 'data-link': '' } }),
+      ]),
+      el('div', { className: 'grid grid-4' }, [
+        statCard(active.length, 'Active'),
+        statCard(attention.length, 'Need attention'),
+        statCard(minBuffer == null ? '—' : minBuffer, 'Min ready days'),
+        statCard(nextPost ? `${nextPost.localDate}` : '—', 'Next prepared post'),
+      ]),
+      attention.length ? notice(`${attention.length} automation${attention.length === 1 ? '' : 's'} need your attention.`, 'warn') : null,
+    ]));
+  }
 
   // Connected accounts summary (a compact roll-up, never the full list).
   const byProvider = ['meta', 'instagram', 'threads'].map((p) => ({

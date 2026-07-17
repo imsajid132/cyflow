@@ -22,6 +22,14 @@ import * as plannerRunRepositoryModule from './repositories/plannerRunRepository
 import * as plannerRevisionRepositoryModule from './repositories/plannerRevisionRepository.js';
 import { createBusinessProfileService } from './services/businessProfileService.js';
 import { createPlannerService } from './services/plannerService.js';
+import { config as defaultConfig } from './config/env.js';
+import * as automationRepositoryModule from './repositories/automationRepository.js';
+import * as backgroundJobRepositoryModule from './repositories/backgroundJobRepository.js';
+import { createAutomationService } from './services/automationService.js';
+import { createDurableJobService } from './services/durableJobService.js';
+import { createAutomationController } from './controllers/automationController.js';
+import { openaiContentService as realOpenAI } from './services/openaiContentService.js';
+import { socialImageService as realSocialImage } from './services/socialImageService.js';
 import { contentUniquenessService as realUniquenessService } from './services/contentUniquenessService.js';
 import { createPlannerController } from './controllers/plannerController.js';
 import { websiteAnalysisService as realWebsiteAnalysisService } from './services/websiteAnalysisService.js';
@@ -165,6 +173,38 @@ export function buildContainer(overrides = {}) {
   const businessProfileController = createBusinessProfileController({ businessProfileService });
   const plannerController = createPlannerController({ plannerService });
 
+  // D1: content automations + the durable background job runtime. The automation
+  // service reuses the planner for slot generation; the durable job service runs
+  // the automation handlers. Neither publishes to a provider (that is D2).
+  const config = overrides.config ?? defaultConfig;
+  const automationRepository = overrides.automationRepository ?? automationRepositoryModule;
+  const backgroundJobRepository = overrides.backgroundJobRepository ?? backgroundJobRepositoryModule;
+  const openaiContentServiceResolved = overrides.openaiContentService ?? realOpenAI;
+  const socialImageServiceResolved = overrides.socialImageService ?? realSocialImage;
+  const automationService = overrides.automationService ?? createAutomationService({
+    automations: automationRepository,
+    jobs: backgroundJobRepository,
+    runsRepo: plannerRuns,
+    socialAccounts,
+    planner: plannerService,
+    openai: openaiContentServiceResolved,
+    images: socialImageServiceResolved,
+    logging,
+    config,
+  });
+  const durableJobService = overrides.durableJobService ?? createDurableJobService({
+    jobs: backgroundJobRepository,
+    handlers: automationService.handlers,
+    logging,
+    options: {
+      leaseMs: (config.worker?.leaseSeconds ?? 120) * 1000,
+      heartbeatMs: (config.worker?.heartbeatSeconds ?? 30) * 1000,
+      baseRetrySeconds: config.worker?.baseRetrySeconds ?? 30,
+      maxRetrySeconds: config.worker?.maxRetrySeconds ?? 3600,
+    },
+  });
+  const automationController = createAutomationController({ automationService });
+
   const { requireAuth, guestOnly, attachUser } = createAuthMiddleware({ users });
 
   return {
@@ -192,6 +232,11 @@ export function buildContainer(overrides = {}) {
     plannerRunRepository: plannerRuns,
     contentUniquenessService: uniquenessService,
     plannerService,
+    automationRepository,
+    backgroundJobRepository,
+    automationService,
+    durableJobService,
+    automationController,
     authController,
     integrationController,
     oauthController,

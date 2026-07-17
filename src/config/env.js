@@ -328,6 +328,26 @@ export function buildConfig(raw = process.env) {
     }),
   };
 
+  // --- Worker + automation (D1) ---------------------------------------------
+  // The durable background worker that tops up automation buffers. Times are in
+  // seconds/minutes for readability; the code converts to ms. Nothing here calls
+  // a provider publishing API — that is D2.
+  const worker = {
+    // How long a claimed job's lease lasts before it is considered abandoned.
+    leaseSeconds: toNumber('WORKER_LEASE_SECONDS', { required: false, fallback: 120, min: 10 }),
+    // How often a running job extends its lease during long work.
+    heartbeatSeconds: toNumber('WORKER_HEARTBEAT_SECONDS', { required: false, fallback: 30, min: 5 }),
+    // Idle poll interval for the continuous worker.
+    pollSeconds: toNumber('WORKER_POLL_SECONDS', { required: false, fallback: 5, min: 1 }),
+    // How many jobs run concurrently in one worker process.
+    concurrency: toNumber('WORKER_CONCURRENCY', { required: false, fallback: 2, min: 1, max: 16 }),
+    maxAttempts: toNumber('WORKER_MAX_ATTEMPTS', { required: false, fallback: 5, min: 1 }),
+    baseRetrySeconds: toNumber('WORKER_BASE_RETRY_SECONDS', { required: false, fallback: 30, min: 1 }),
+    maxRetrySeconds: toNumber('WORKER_MAX_RETRY_SECONDS', { required: false, fallback: 3600, min: 1 }),
+    // How often an active automation's buffer is topped up.
+    refillIntervalHours: toNumber('AUTOMATION_REFILL_INTERVAL_HOURS', { required: false, fallback: 6, min: 1, max: 168 }),
+  };
+
   // --- Limits ---------------------------------------------------------------
   const limits = {
     maxPostPromptLength: toNumber('MAX_POST_PROMPT_LENGTH', { required: false, fallback: 5000, min: 1 }),
@@ -390,6 +410,7 @@ export function buildConfig(raw = process.env) {
     }),
     oauth: Object.freeze(oauth),
     scheduler: Object.freeze(scheduler),
+    worker: Object.freeze(worker),
     limits: Object.freeze(limits),
     media: Object.freeze(media),
   });

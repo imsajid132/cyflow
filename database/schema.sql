@@ -292,6 +292,9 @@ CREATE TABLE IF NOT EXISTS `activity_logs` (
   `user_id`                   BIGINT UNSIGNED NULL DEFAULT NULL,
   `scheduled_post_id`         BIGINT UNSIGNED NULL DEFAULT NULL,
   `scheduled_post_target_id`  BIGINT UNSIGNED NULL DEFAULT NULL,
+  -- D1: attributes an event to a content automation (nullable; SET NULL so an
+  -- automation event survives the automation's deletion as an audit row).
+  `content_automation_id`     BIGINT UNSIGNED NULL DEFAULT NULL,
   `level`                     ENUM('debug','info','warn','error') NOT NULL DEFAULT 'info',
   `event_type`                VARCHAR(128)    NOT NULL,
   `message`                   VARCHAR(1024)   NULL DEFAULT NULL,
@@ -303,6 +306,7 @@ CREATE TABLE IF NOT EXISTS `activity_logs` (
   KEY `idx_activity_logs_target` (`scheduled_post_target_id`),
   KEY `idx_activity_logs_event` (`event_type`, `created_at`),
   KEY `idx_activity_logs_request` (`request_id`),
+  KEY `idx_activity_logs_automation` (`content_automation_id`, `created_at`),
   CONSTRAINT `fk_activity_logs_user`
     FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
     ON DELETE SET NULL ON UPDATE CASCADE,
@@ -311,6 +315,9 @@ CREATE TABLE IF NOT EXISTS `activity_logs` (
     ON DELETE SET NULL ON UPDATE CASCADE,
   CONSTRAINT `fk_activity_logs_target`
     FOREIGN KEY (`scheduled_post_target_id`) REFERENCES `scheduled_post_targets` (`id`)
+    ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_activity_logs_automation`
+    FOREIGN KEY (`content_automation_id`) REFERENCES `content_automations` (`id`)
     ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -456,6 +463,9 @@ CREATE TABLE IF NOT EXISTS `planner_runs` (
   `id`                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `user_id`             BIGINT UNSIGNED NOT NULL,
   `business_profile_id` BIGINT UNSIGNED NULL DEFAULT NULL,
+  -- D1: set when this run is the rolling backing run of a content automation,
+  -- so the planner history can tell it apart from an ordinary hand-made plan.
+  `content_automation_id` BIGINT UNSIGNED NULL DEFAULT NULL,
   `name`                VARCHAR(160)    NULL DEFAULT NULL,
   `status`              ENUM('generating','review','partially_queued','queued','archived','failed')
                                         NOT NULL DEFAULT 'generating',
@@ -480,10 +490,13 @@ CREATE TABLE IF NOT EXISTS `planner_runs` (
   PRIMARY KEY (`id`),
   KEY `idx_planner_runs_user_created` (`user_id`, `created_at`),
   KEY `idx_planner_runs_user_status` (`user_id`, `status`),
+  KEY `idx_planner_runs_automation` (`content_automation_id`),
   CONSTRAINT `fk_planner_runs_user`
     FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `fk_planner_runs_business_profile`
-    FOREIGN KEY (`business_profile_id`) REFERENCES `business_profiles` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
+    FOREIGN KEY (`business_profile_id`) REFERENCES `business_profiles` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_planner_runs_automation`
+    FOREIGN KEY (`content_automation_id`) REFERENCES `content_automations` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------------------------------
@@ -578,6 +591,124 @@ CREATE TABLE IF NOT EXISTS `post_revisions` (
     FOREIGN KEY (`planner_run_item_id`) REFERENCES `planner_run_items` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `fk_post_revisions_post`
     FOREIGN KEY (`scheduled_post_id`) REFERENCES `scheduled_posts` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------------------------------
+-- L. content automations + durable jobs (D1)
+--    An automation keeps a rolling buffer of future prepared content, topped up
+--    by database-backed background workers. It PREPARES/QUEUES only — no real
+--    provider publishing (that is D2). See migration 014 for the full rationale.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `content_automations` (
+  `id`                        BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+  `user_id`                   BIGINT UNSIGNED  NOT NULL,
+  `business_profile_id`       BIGINT UNSIGNED  NULL DEFAULT NULL,
+  `planner_run_id`            BIGINT UNSIGNED  NULL DEFAULT NULL,
+  `name`                      VARCHAR(160)     NULL DEFAULT NULL,
+  `status`                    ENUM('draft','active','paused','attention_needed','stopped') NOT NULL DEFAULT 'draft',
+  `mode`                      ENUM('draft_only','review','autopilot') NOT NULL DEFAULT 'review',
+  `timezone`                  VARCHAR(64)      NOT NULL,
+  `selected_weekdays_json`    JSON             NOT NULL,
+  `posting_times_json`        JSON             NOT NULL,
+  `posts_per_day`             TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  `rhythm_key`                VARCHAR(48)      NULL DEFAULT NULL,
+  `selected_platforms_json`   JSON             NOT NULL,
+  `selected_account_ids_json` JSON             NOT NULL,
+  `start_date`                DATE             NULL DEFAULT NULL,
+  `end_date`                  DATE             NULL DEFAULT NULL,
+  `generation_horizon_days`   SMALLINT UNSIGNED NOT NULL DEFAULT 14,
+  `minimum_ready_days`        SMALLINT UNSIGNED NOT NULL DEFAULT 7,
+  `low_buffer_days`           SMALLINT UNSIGNED NOT NULL DEFAULT 3,
+  `missed_post_policy`        ENUM('skip','hold','next_safe_time') NOT NULL DEFAULT 'skip',
+  `failure_policy`            ENUM('pause','continue') NOT NULL DEFAULT 'pause',
+  `config_snapshot_json`      JSON             NULL DEFAULT NULL,
+  `generated_through_date`    DATE             NULL DEFAULT NULL,
+  `attention_reason`          VARCHAR(255)     NULL DEFAULT NULL,
+  `last_refill_at`            DATETIME         NULL DEFAULT NULL,
+  `next_refill_at`            DATETIME         NULL DEFAULT NULL,
+  `created_at`                DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`                DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `stopped_at`                DATETIME         NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_content_automations_user_status` (`user_id`, `status`),
+  KEY `idx_content_automations_due_refill` (`status`, `next_refill_at`),
+  KEY `idx_content_automations_run` (`planner_run_id`),
+  CONSTRAINT `fk_content_automations_user`
+    FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_content_automations_business_profile`
+    FOREIGN KEY (`business_profile_id`) REFERENCES `business_profiles` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_content_automations_run`
+    FOREIGN KEY (`planner_run_id`) REFERENCES `planner_runs` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `automation_schedule_slots` (
+  `id`                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id`              BIGINT UNSIGNED NOT NULL,
+  `automation_id`        BIGINT UNSIGNED NOT NULL,
+  `planner_run_item_id`  BIGINT UNSIGNED NULL DEFAULT NULL,
+  `local_date`           DATE            NOT NULL,
+  `local_time`           VARCHAR(5)      NOT NULL,
+  `sequence`             TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  `scheduled_for_utc`    DATETIME        NOT NULL,
+  `status`               ENUM('planned','generating','ready','failed','skipped','cancelled') NOT NULL DEFAULT 'planned',
+  `idempotency_key`      VARCHAR(191)    NOT NULL,
+  `last_error_category`  VARCHAR(64)     NULL DEFAULT NULL,
+  `last_error_message`   VARCHAR(1024)   NULL DEFAULT NULL,
+  `created_at`           DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`           DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_slot_automation_datetime` (`automation_id`, `local_date`, `local_time`, `sequence`),
+  UNIQUE KEY `uq_slot_idempotency` (`idempotency_key`),
+  KEY `idx_slots_automation_status` (`automation_id`, `status`),
+  KEY `idx_slots_scheduled` (`scheduled_for_utc`),
+  KEY `idx_slots_item` (`planner_run_item_id`),
+  CONSTRAINT `fk_slots_user`
+    FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_slots_automation`
+    FOREIGN KEY (`automation_id`) REFERENCES `content_automations` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_slots_item`
+    FOREIGN KEY (`planner_run_item_id`) REFERENCES `planner_run_items` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `background_jobs` (
+  `id`                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id`              BIGINT UNSIGNED NULL DEFAULT NULL,
+  `automation_id`        BIGINT UNSIGNED NULL DEFAULT NULL,
+  `job_type`             VARCHAR(64)     NOT NULL,
+  `status`               ENUM('pending','running','retry_scheduled','completed','failed','cancelled') NOT NULL DEFAULT 'pending',
+  `idempotency_key`      VARCHAR(191)    NOT NULL,
+  `payload_json`         JSON            NULL DEFAULT NULL,
+  `scheduled_for`        DATETIME        NULL DEFAULT NULL,
+  `available_at`         DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `attempt_count`        INT UNSIGNED    NOT NULL DEFAULT 0,
+  `max_attempts`         INT UNSIGNED    NOT NULL DEFAULT 5,
+  `locked_by`            VARCHAR(64)     NULL DEFAULT NULL,
+  `locked_until`         DATETIME        NULL DEFAULT NULL,
+  `heartbeat_at`         DATETIME        NULL DEFAULT NULL,
+  `last_error_category`  VARCHAR(64)     NULL DEFAULT NULL,
+  `last_error_message`   VARCHAR(1024)   NULL DEFAULT NULL,
+  `completed_at`         DATETIME        NULL DEFAULT NULL,
+  `created_at`           DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`           DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_jobs_idempotency` (`idempotency_key`),
+  KEY `idx_jobs_claimable` (`status`, `available_at`),
+  KEY `idx_jobs_lease` (`status`, `locked_until`),
+  KEY `idx_jobs_automation` (`automation_id`, `status`),
+  KEY `idx_jobs_user` (`user_id`),
+  CONSTRAINT `fk_jobs_user`
+    FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_jobs_automation`
+    FOREIGN KEY (`automation_id`) REFERENCES `content_automations` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `worker_leases` (
+  `lock_name`    VARCHAR(64)  NOT NULL,
+  `owner`        VARCHAR(64)  NOT NULL,
+  `acquired_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `expires_at`   DATETIME     NOT NULL,
+  `heartbeat_at` DATETIME     NULL DEFAULT NULL,
+  PRIMARY KEY (`lock_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------------------------------

@@ -1068,6 +1068,8 @@ export function createFakeOverrides(extra = {}) {
     plannerPreferenceRepository: extra.plannerPreferenceRepository ?? createFakePlannerPreferenceRepository(),
     plannerRunRepository: extra.plannerRunRepository ?? createFakePlannerRunRepository(),
     plannerRevisionRepository: extra.plannerRevisionRepository ?? createFakePlannerRevisionRepository(),
+    automationRepository: extra.automationRepository ?? createFakeAutomationRepository(),
+    backgroundJobRepository: extra.backgroundJobRepository ?? createFakeBackgroundJobRepository(),
   };
 }
 
@@ -1199,6 +1201,7 @@ export function createFakePlannerRunRepository() {
         id,
         userId: String(input.userId),
         businessProfileId: input.businessProfileId ?? null,
+        contentAutomationId: input.contentAutomationId ?? null,
         name: input.name ?? null,
         status: input.status ?? 'generating',
         startDate: input.startDate ?? null,
@@ -1226,7 +1229,7 @@ export function createFakePlannerRunRepository() {
     },
     async listRunsForUser(userId, { limit = 20, offset = 0 } = {}) {
       return [...runs.values()]
-        .filter((r) => r.userId === String(userId))
+        .filter((r) => r.userId === String(userId) && r.contentAutomationId == null)
         .sort((a, b) => Number(b.id) - Number(a.id))
         .slice(offset, offset + limit)
         .map((r) => ({ ...r }));
@@ -1630,3 +1633,244 @@ export default {
   fakeWithTransaction,
   createFakeOverrides,
 };
+
+/**
+ * Fake `backgroundJobRepository` — in-memory, models the atomic claim: a locked,
+ * unexpired job cannot be claimed by a second worker. Times are kept as epoch ms
+ * so Date / MySQL-UTC-string / ISO inputs all compare correctly.
+ */
+export function createFakeBackgroundJobRepository() {
+  const jobs = [];
+  const leases = new Map();
+  let nextId = 1;
+  const toMs = (v) => {
+    if (v == null) return null;
+    if (v instanceof Date) return v.getTime();
+    if (typeof v === 'number') return v;
+    const s = String(v).includes('T') ? String(v) : `${String(v).replace(' ', 'T')}Z`;
+    return new Date(s).getTime();
+  };
+  const view = (j) => (j ? {
+    id: String(j.id), userId: j.user_id == null ? null : String(j.user_id),
+    automationId: j.automation_id == null ? null : String(j.automation_id),
+    jobType: j.job_type, status: j.status, idempotencyKey: j.idempotency_key,
+    payload: j.payload ?? null, scheduledFor: j.scheduled_for ?? null, availableAt: j.available_at ?? null,
+    attemptCount: j.attempt_count, maxAttempts: j.max_attempts, lockedBy: j.locked_by ?? null,
+    lockedUntil: j.locked_until ?? null, heartbeatAt: j.heartbeat_at ?? null,
+    lastErrorCategory: j.last_error_category ?? null, lastErrorMessage: j.last_error_message ?? null,
+    completedAt: j.completed_at ?? null, createdAt: j.created_at ?? null, updatedAt: j.updated_at ?? null,
+  } : null);
+  const find = (id) => jobs.find((j) => String(j.id) === String(id));
+  return {
+    _jobs: jobs,
+    sanitizeJob: view,
+    async enqueueJob(input) {
+      const existing = jobs.find((j) => j.idempotency_key === input.idempotencyKey);
+      if (existing) return { job: view(existing), created: false };
+      const row = {
+        id: nextId++, user_id: input.userId ?? null, automation_id: input.automationId ?? null,
+        job_type: input.jobType, status: 'pending', idempotency_key: input.idempotencyKey,
+        payload: input.payload ?? null, scheduled_for: input.scheduledFor ?? null,
+        available_at: input.availableAt ?? new Date(), _availMs: toMs(input.availableAt ?? new Date()),
+        attempt_count: 0, max_attempts: Number.isInteger(input.maxAttempts) ? input.maxAttempts : 5,
+        locked_by: null, locked_until: null, _lockMs: null, heartbeat_at: null,
+        last_error_category: null, last_error_message: null, completed_at: null,
+        created_at: new Date().toISOString(),
+      };
+      jobs.push(row);
+      return { job: view(row), created: true };
+    },
+    async claimNextJob({ workerId, leaseMs = 60000, now = new Date(), jobTypes = null }) {
+      const nowMs = toMs(now);
+      const candidate = jobs
+        .filter((j) => ['pending', 'retry_scheduled'].includes(j.status))
+        .filter((j) => (j._availMs ?? 0) <= nowMs)
+        .filter((j) => j._lockMs == null || j._lockMs <= nowMs)
+        .filter((j) => !jobTypes || jobTypes.includes(j.job_type))
+        .sort((a, b) => (a._availMs ?? 0) - (b._availMs ?? 0) || a.id - b.id)[0];
+      if (!candidate) return null;
+      candidate.status = 'running';
+      candidate.locked_by = workerId;
+      candidate._lockMs = nowMs + leaseMs;
+      candidate.locked_until = new Date(candidate._lockMs).toISOString();
+      candidate.heartbeat_at = new Date(nowMs).toISOString();
+      candidate.attempt_count += 1;
+      return view(candidate);
+    },
+    async heartbeatJob({ jobId, workerId, leaseMs = 60000, now = new Date() }) {
+      const j = find(jobId);
+      if (!j || j.locked_by !== workerId || j.status !== 'running') return false;
+      j._lockMs = toMs(now) + leaseMs; j.locked_until = new Date(j._lockMs).toISOString(); j.heartbeat_at = new Date(toMs(now)).toISOString();
+      return true;
+    },
+    async completeJob({ jobId, workerId, now = new Date() }) {
+      const j = find(jobId);
+      if (!j || j.locked_by !== workerId) return false;
+      j.status = 'completed'; j.completed_at = new Date(toMs(now)).toISOString(); j.locked_by = null; j._lockMs = null; j.locked_until = null;
+      return true;
+    },
+    async retryJob({ jobId, workerId, availableAt, errorCategory, errorMessage }) {
+      const j = find(jobId);
+      if (!j || j.locked_by !== workerId) return false;
+      j.status = 'retry_scheduled'; j.available_at = availableAt; j._availMs = toMs(availableAt);
+      j.locked_by = null; j._lockMs = null; j.locked_until = null;
+      j.last_error_category = errorCategory ?? null; j.last_error_message = errorMessage ?? null;
+      return true;
+    },
+    async failJob({ jobId, workerId, errorCategory, errorMessage, now = new Date() }) {
+      const j = find(jobId);
+      if (!j || j.locked_by !== workerId) return false;
+      j.status = 'failed'; j.completed_at = new Date(toMs(now)).toISOString(); j.locked_by = null; j._lockMs = null; j.locked_until = null;
+      j.last_error_category = errorCategory ?? null; j.last_error_message = errorMessage ?? null;
+      return true;
+    },
+    async cancelJobsForAutomation({ automationId, userId }) {
+      let n = 0;
+      for (const j of jobs) {
+        if (String(j.automation_id) === String(automationId) && String(j.user_id) === String(userId)
+          && ['pending', 'retry_scheduled'].includes(j.status)) { j.status = 'cancelled'; j.locked_by = null; j._lockMs = null; n += 1; }
+      }
+      return n;
+    },
+    async recoverStaleJobs({ now = new Date(), limit = 50 }) {
+      const nowMs = toMs(now);
+      let reclaimed = 0; let failed = 0;
+      for (const j of jobs) {
+        if (j.status !== 'running' || j._lockMs == null || j._lockMs >= nowMs) continue;
+        if (reclaimed + failed >= limit) break;
+        if (j.attempt_count < j.max_attempts) {
+          j.status = 'retry_scheduled'; j.available_at = new Date(nowMs).toISOString(); j._availMs = nowMs;
+          j.locked_by = null; j._lockMs = null; j.locked_until = null;
+          j.last_error_category = 'transient'; j.last_error_message = 'Recovered after a stale worker lease';
+          reclaimed += 1;
+        } else {
+          j.status = 'failed'; j.completed_at = new Date(nowMs).toISOString(); j.locked_by = null; j._lockMs = null;
+          j.last_error_category = 'transient'; j.last_error_message = 'Exhausted attempts after stale worker lease';
+          failed += 1;
+        }
+      }
+      return { reclaimed, failed };
+    },
+    async findJobByIdempotencyKey(key) { return view(jobs.find((j) => j.idempotency_key === key)); },
+    async findJobById(id) { return view(find(id)); },
+    async jobStats({ now = new Date() } = {}) {
+      const counts = {};
+      for (const j of jobs) counts[j.status] = (counts[j.status] || 0) + 1;
+      const nowMs = toMs(now);
+      const stale = jobs.filter((j) => j.status === 'running' && j._lockMs != null && j._lockMs < nowMs).length;
+      return { counts, pending: (counts.pending || 0) + (counts.retry_scheduled || 0), running: counts.running || 0, stale };
+    },
+    async acquireLease({ lockName, owner, ttlMs, now = new Date() }) {
+      const held = leases.get(lockName);
+      const nowMs = toMs(now);
+      if (held && held.owner !== owner && held.expiresMs > nowMs) return false;
+      leases.set(lockName, { owner, expiresMs: nowMs + ttlMs });
+      return true;
+    },
+    async releaseLease({ lockName, owner }) {
+      const held = leases.get(lockName);
+      if (held && held.owner === owner) { leases.delete(lockName); return true; }
+      return false;
+    },
+  };
+}
+
+/** Fake `automationRepository` — in-memory content_automations + slots. */
+export function createFakeAutomationRepository() {
+  const autos = new Map();
+  const slots = [];
+  let nextA = 1;
+  let nextS = 1;
+  const A = (a) => (a ? { ...a, selectedWeekdays: [...a.selectedWeekdays], postingTimes: [...a.postingTimes], selectedPlatforms: [...a.selectedPlatforms], selectedAccountIds: [...a.selectedAccountIds] } : null);
+  const S = (s) => (s ? { ...s } : null);
+  const findSlot = (id) => slots.find((s) => String(s.id) === String(id));
+  return {
+    _autos: autos, _slots: slots,
+    async createAutomation(input) {
+      const id = String(nextA++);
+      const row = {
+        id, userId: String(input.userId), businessProfileId: input.businessProfileId ?? null,
+        plannerRunId: null, name: input.name ?? null, status: input.status ?? 'draft', mode: input.mode ?? 'review',
+        timezone: input.timezone, selectedWeekdays: input.selectedWeekdays ?? [], postingTimes: input.postingTimes ?? [],
+        postsPerDay: input.postsPerDay ?? 1, rhythmKey: input.rhythmKey ?? null,
+        selectedPlatforms: input.selectedPlatforms ?? [], selectedAccountIds: (input.selectedAccountIds ?? []).map(String),
+        startDate: input.startDate ?? null, endDate: input.endDate ?? null,
+        generationHorizonDays: input.generationHorizonDays ?? 14, minimumReadyDays: input.minimumReadyDays ?? 7,
+        lowBufferDays: input.lowBufferDays ?? 3, missedPostPolicy: input.missedPostPolicy ?? 'skip',
+        failurePolicy: input.failurePolicy ?? 'pause', configSnapshot: input.configSnapshot ?? null,
+        generatedThroughDate: null, attentionReason: null, lastRefillAt: null, nextRefillAt: null,
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), stoppedAt: null,
+      };
+      autos.set(id, row);
+      return A(row);
+    },
+    async findAutomationByIdForUser(id, userId) {
+      const a = autos.get(String(id));
+      return a && a.userId === String(userId) ? A(a) : null;
+    },
+    async listAutomationsForUser(userId) {
+      return [...autos.values()].filter((a) => a.userId === String(userId)).reverse().map(A);
+    },
+    async updateAutomation(id, userId, fields) {
+      const a = autos.get(String(id));
+      if (!a || a.userId !== String(userId)) return null;
+      for (const [k, v] of Object.entries(fields)) a[k] = v instanceof Date ? v.toISOString() : v;
+      return A(a);
+    },
+    async listDueForRefill({ now = new Date(), limit = 50 } = {}) {
+      return [...autos.values()].filter((a) => a.status === 'active' && (a.nextRefillAt == null || new Date(a.nextRefillAt) <= now)).slice(0, limit).map(A);
+    },
+    async createSlotIfAbsent(input) {
+      const dup = slots.find((s) => String(s.automationId) === String(input.automationId) && s.localDate === input.localDate && s.localTime === input.localTime && Number(s.sequence) === Number(input.sequence ?? 0));
+      if (dup) return { slot: S(dup), created: false };
+      const row = {
+        id: String(nextS++), userId: String(input.userId), automationId: String(input.automationId),
+        plannerRunItemId: null, localDate: input.localDate, localTime: input.localTime, sequence: input.sequence ?? 0,
+        scheduledForUtc: input.scheduledForUtc instanceof Date ? input.scheduledForUtc.toISOString() : String(input.scheduledForUtc),
+        status: 'planned', idempotencyKey: input.idempotencyKey, lastErrorCategory: null, lastErrorMessage: null,
+        updatedAt: new Date().toISOString(),
+      };
+      slots.push(row);
+      return { slot: S(row), created: true };
+    },
+    async findSlotByIdForUser(id, userId) {
+      const s = findSlot(id);
+      return s && s.userId === String(userId) ? S(s) : null;
+    },
+    async listSlotsForAutomation(automationId, userId, { statuses = null, fromLocalDate = null } = {}) {
+      return slots.filter((s) => String(s.automationId) === String(automationId) && s.userId === String(userId)
+        && (!statuses || statuses.includes(s.status)) && (!fromLocalDate || s.localDate >= fromLocalDate))
+        .sort((a, b) => String(a.scheduledForUtc).localeCompare(String(b.scheduledForUtc))).map(S);
+    },
+    async claimSlotForGeneration(slotId, userId) {
+      const s = findSlot(slotId);
+      if (!s || s.userId !== String(userId) || s.status !== 'planned') return false;
+      s.status = 'generating'; return true;
+    },
+    async markSlotReady(slotId, userId, itemId) {
+      const s = findSlot(slotId);
+      if (s && s.userId === String(userId)) { s.status = 'ready'; s.plannerRunItemId = String(itemId); s.lastErrorCategory = null; s.lastErrorMessage = null; }
+    },
+    async markSlotStatus(slotId, userId, status, { category = null, message = null } = {}) {
+      const s = findSlot(slotId);
+      if (s && s.userId === String(userId)) { s.status = status; s.lastErrorCategory = category; s.lastErrorMessage = message; }
+    },
+    async resetSlotToPlanned(slotId, userId, { message = null } = {}) {
+      const s = findSlot(slotId);
+      if (s && s.userId === String(userId) && s.status === 'generating') { s.status = 'planned'; s.lastErrorCategory = 'transient'; s.lastErrorMessage = message; }
+    },
+    async cancelFutureSlots(automationId, userId, fromLocalDate) {
+      let n = 0;
+      for (const s of slots) if (String(s.automationId) === String(automationId) && s.userId === String(userId) && s.localDate >= fromLocalDate && ['planned', 'generating'].includes(s.status)) { s.status = 'cancelled'; n++; }
+      return n;
+    },
+    async bufferStats(automationId, userId, { fromLocalDate }) {
+      const mine = slots.filter((s) => String(s.automationId) === String(automationId) && s.userId === String(userId));
+      const readyDates = new Set(mine.filter((s) => s.status === 'ready' && s.localDate >= fromLocalDate).map((s) => s.localDate));
+      const byStatus = {};
+      for (const s of mine) byStatus[s.status] = (byStatus[s.status] || 0) + 1;
+      const through = [...readyDates].sort().pop() || null;
+      return { readyDays: readyDates.size, through, byStatus };
+    },
+  };
+}

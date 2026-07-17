@@ -33,6 +33,7 @@ import { createMediaRoutes } from './routes/mediaRoutes.js';
 import { createMediaLibraryRoutes } from './routes/mediaLibraryRoutes.js';
 import { createBusinessProfileRoutes } from './routes/businessProfileRoutes.js';
 import { createPlannerRoutes } from './routes/plannerRoutes.js';
+import { createAutomationRoutes } from './routes/automationRoutes.js';
 import { buildContainer } from './container.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -61,6 +62,8 @@ export const APP_ROUTES = Object.freeze([
   '/integrations',
   '/profile',
   '/settings',
+  // D1: always-on content automations.
+  '/automations',
   // Phase 4.7: auto content planner.
   '/planner',
   '/planner/new',
@@ -257,6 +260,14 @@ export function createApp(overrides = {}) {
     '/api/business-profile',
     createBusinessProfileRoutes({
       businessProfileController: container.businessProfileController,
+      requireAuth: container.requireAuth,
+    }),
+  );
+  // D1: content automations (always-on preparation + rolling buffer).
+  app.use(
+    '/api/automations',
+    createAutomationRoutes({
+      automationController: container.automationController,
       requireAuth: container.requireAuth,
     }),
   );

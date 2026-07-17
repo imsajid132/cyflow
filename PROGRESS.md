@@ -4,6 +4,42 @@ An honest, append-only log of the production build, most recent first. Each
 milestone is one complete, tested, committed increment. Nothing here publishes to
 a social provider yet.
 
+## Milestone D1 — always-on automation, rolling buffer and durable jobs
+
+**Branch:** `cyflow-social-v1` · **Migration:** `014_automation_buffer_and_durable_jobs.sql`
+(apply after 010 → 011 → 012 → 013)
+
+- A content automation prepares a rolling buffer of future posts automatically:
+  configure platforms, exact accounts, timezone, weekdays, local times and a
+  rhythm once (indefinite or with an end date), and background workers keep the
+  buffer topped up while the browser is closed. It PREPARES AND QUEUES ONLY — no
+  real Facebook/Instagram/Threads publishing (that is D2).
+- A DATABASE-BACKED durable job system: atomic claim (`SELECT ... FOR UPDATE` +
+  guarded update), per-job leases with heartbeat, deterministic idempotency keys
+  (a duplicate tick / click / worker restart creates no duplicate slot, post, or
+  provider call), exponential backoff + jitter, transient-vs-permanent failure
+  classification, and stale-lock recovery. `worker_leases` for singleton
+  coordination.
+- Rolling buffer defaults: generate 14 days ahead, keep 7 ready, warn below 3.
+  Slot times are computed DST-safely (Asia/Karachi and America/New_York verified,
+  spring-forward and fall-back). Selected platforms/accounts are authoritative —
+  a Facebook account can never join an Instagram+Threads automation. Editing
+  future settings never rewrites already-prepared items (immutable snapshot).
+- Lifecycle: draft → active → paused/attention_needed → stopped, with validated
+  transitions. Pause/stop cancel pending jobs and consume zero provider usage;
+  stop keeps prepared history. A permanent failure (missing OpenAI key) sets
+  attention_needed and stops retrying; a recovered slot self-heals to active.
+- Reuses the planner for slot generation and the Weekly Board for review; the
+  automation owns a hidden backing planner_run. New `/automations` page + create
+  wizard (exact confirmation, never auto-selects all accounts) + real Dashboard
+  roll-up (no fabricated reach/engagement). Worker commands `scheduler:once` /
+  `worker` / `worker:once` with graceful shutdown; `/health` reports the job
+  queue without asserting the worker is alive.
+- New env (all optional, defaults): `WORKER_CONCURRENCY`, `WORKER_LEASE_SECONDS`,
+  `WORKER_HEARTBEAT_SECONDS`, `WORKER_POLL_SECONDS`, `WORKER_MAX_ATTEMPTS`,
+  `WORKER_BASE_RETRY_SECONDS`, `WORKER_MAX_RETRY_SECONDS`,
+  `AUTOMATION_REFILL_INTERVAL_HOURS`. Only new dependency: none.
+
 ## Milestone C3 — secure media uploads and asset library
 
 **Branch:** `cyflow-social-v1` · **Migration:** `013_secure_media_library.sql`

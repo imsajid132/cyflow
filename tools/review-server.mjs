@@ -456,7 +456,28 @@ if (isMain) {
     seeded = ` run=${info.runId} failedItem=${info.failedItemId} scenario=${info.scenario}`;
   }
 
-  app.listen(port, '127.0.0.1', () => {
+  // D1: a review-only in-process "tick" that stands in for the separate
+  // scheduler:once + worker:once processes (which need a real DB). It drives the
+  // SAME durable pipeline — enqueue due refills, then drain the job queue — over
+  // the shared in-memory fakes, so the browser smoke can watch an automation
+  // fill its buffer without a database. Never mounted by createApp; review only.
+  const express = (await import('express')).default;
+  const { buildContainer } = await import('../src/container.js');
+  const container = buildContainer(overrides);
+  const wrapper = express();
+  wrapper.post('/__review/tick', express.json(), async (req, res) => {
+    try {
+      const refills = await container.automationService.enqueueDueRefills({ limit: 100 });
+      const outcomes = await container.durableJobService.drain({ workerId: 'review-worker', max: 1000 });
+      const counts = outcomes.reduce((m, o) => { m[o.outcome] = (m[o.outcome] || 0) + 1; return m; }, {});
+      res.json({ ok: true, refills, processed: outcomes.length, counts });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err?.message || 'tick failed' });
+    }
+  });
+  wrapper.use(app);
+
+  wrapper.listen(port, '127.0.0.1', () => {
     // eslint-disable-next-line no-console
     console.log(`review server on http://127.0.0.1:${port} (user ${user.id})${seeded}`);
   });
