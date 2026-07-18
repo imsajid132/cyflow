@@ -6,6 +6,32 @@ live social provider yet: the real publishing adapters exist but are gated OFF b
 default (`ENABLE_LIVE_PROVIDER_PUBLISHING=false`) and have only ever run against
 fake providers.
 
+## Milestone H — staging verification (blocked at the environment gate)
+
+**Branch:** `cyflow-social-v1` · **No migration** (010–017 unchanged, no 018)
+
+- **Honestly blocked.** No staging environment exists: no deployment config, no
+  `.env`, every relevant environment variable unset, no MySQL client or server,
+  nothing on port 3306, no Docker, no SSH config, and the only git remote is a
+  code host. Classified `unavailable` on that evidence, not inferred from
+  `NODE_ENV`, the branch name or an empty database. Nothing was deployed, no
+  migration was applied, no process was started and no provider was called.
+- **One real defect found and fixed.** `.env.example` — the file an operator
+  copies to provision an environment — was missing 16 variables the config layer
+  reads. Two matter acutely: `ENABLE_LIVE_PROVIDER_PUBLISHING`, the flag
+  deciding whether the app posts to Facebook, Instagram and Threads at all, and
+  `MEDIA_STORAGE_PATH`, whose default is a temp directory wiped on every
+  redeploy. The source already called that "a deployment blocker" — but only in
+  the source, not in the file people copy.
+- Root cause fixed as well: a coverage test now fails if config reads a key the
+  template does not document, and asserts the live-publishing flag ships off and
+  every credential slot is blank.
+- Migrations verified structurally: no destructive DDL, all 9 tables and 33
+  columns present in `schema.sql`, suites 014–017 green. **Not executed** — no
+  MySQL available, and a migration run is not something to simulate.
+- 1067 tests pass; `npm audit` 0 (all + prod); all nine browser suites green.
+- Eleven staging runbooks prepared as gitignored working docs.
+
 ## Milestone F2.1 — accessibility, overlay and zoom verification
 
 **Branch:** `cyflow-social-v1` · **No migration** (010–017 unchanged, no 018)
