@@ -278,6 +278,19 @@ export async function releaseLease({ lockName, owner }, connection) {
   return res.affectedRows > 0;
 }
 
+/**
+ * G: cancel every still-pending job for a user (account deletion), so the worker
+ * cannot claim one mid-delete. Running/completed jobs are left as-is. The rows
+ * themselves cascade away with the user; this just stops new work first.
+ */
+export async function cancelAllJobsForUser(userId, connection) {
+  const [res] = await runner(connection).execute(
+    "UPDATE background_jobs SET status = 'cancelled' WHERE user_id = ? AND status IN ('pending','retry_scheduled')",
+    [userId],
+  );
+  return res.affectedRows ?? 0;
+}
+
 export default {
   sanitizeJob,
   enqueueJob,
@@ -287,6 +300,7 @@ export default {
   retryJob,
   failJob,
   cancelJobsForAutomation,
+  cancelAllJobsForUser,
   recoverStaleJobs,
   findJobByIdempotencyKey,
   findJobById,

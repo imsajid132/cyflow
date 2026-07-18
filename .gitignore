@@ -33,3 +33,6 @@ temp/
 # Rendered creative review output (tests/helpers/renderPlan.mjs).
 # Regenerated on demand; the cards are build artefacts, not source.
 .render-review/
+
+# Runtime data (local export archives, etc.)
+.data/

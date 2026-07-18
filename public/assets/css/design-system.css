@@ -952,3 +952,7 @@ legend { padding: 0; }
 
 /* Buttons rendered as links must not carry the link underline. */
 .pub .btn, .pub-nav-drawer .btn { text-decoration: none; }
+
+/* G: settings danger zone. */
+.card-danger { border-color: var(--err-bd); }
+.card-title.danger { color: var(--err-fg); }

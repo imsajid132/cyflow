@@ -1361,6 +1361,31 @@ export const JOB_TYPES = Object.freeze({
 });
 export const JOB_TYPE_VALUES = Object.freeze(Object.values(JOB_TYPES));
 
+/** G: durable job types for user data export + account deletion. */
+export const ACCOUNT_JOB_TYPES = Object.freeze({
+  EXPORT: 'user_data_export',
+  DELETION: 'user_account_deletion',
+});
+
+/** G: user data export lifecycle. */
+export const EXPORT_STATUS = Object.freeze({
+  REQUESTED: 'requested',
+  PROCESSING: 'processing',
+  READY: 'ready',
+  FAILED: 'failed',
+  EXPIRED: 'expired',
+  REVOKED: 'revoked',
+});
+
+/** G: account deletion lifecycle. */
+export const DELETION_STATUS = Object.freeze({
+  REQUESTED: 'requested',
+  PROCESSING: 'processing',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+  CANCELLED: 'cancelled',
+});
+
 /** Durable job statuses. Stored as a validated ENUM. */
 export const JOB_STATUS = Object.freeze({
   PENDING: 'pending',

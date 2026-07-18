@@ -164,6 +164,80 @@ export async function render(root, ctx) {
     }
   });
 
+  // --- G: privacy & data (export) -----------------------------------------
+  const exportStatusHost = el('div', { attrs: { style: 'margin-top:.6rem' } });
+  const exportBtn = el('button', { className: 'btn btn-secondary', text: 'Prepare a copy of my data', attrs: { type: 'button' } });
+  const EXPORT_LABEL = { requested: 'Requested', processing: 'Preparing…', ready: 'Ready to download', failed: 'Could not be prepared', expired: 'Expired', revoked: 'No longer available' };
+  async function refreshExport() {
+    const res = await api.apiRequest('/api/account/export');
+    if (!res.ok) return;
+    const ex = api.payload(res)?.export;
+    exportStatusHost.textContent = '';
+    if (!ex) { exportStatusHost.appendChild(el('p', { className: 'hint', text: 'No export requested yet.' })); return; }
+    exportStatusHost.appendChild(el('div', { className: 'row' }, [
+      badge(EXPORT_LABEL[ex.status] || ex.status, ex.status === 'ready' ? 'ok' : ex.status === 'failed' ? 'err' : 'info'),
+      ex.status === 'ready'
+        ? el('a', { className: 'btn btn-primary btn-sm', text: 'Download', attrs: { href: '/api/account/export/download' } })
+        : el('span', { className: 'card-sub', text: ex.status === 'ready' ? '' : 'This is prepared in the background; check back shortly.' }),
+    ]));
+  }
+  exportBtn.addEventListener('click', async () => {
+    setLoading(exportBtn, true, 'Requesting…');
+    try {
+      const res = await api.apiRequest('/api/account/export', { method: 'POST' });
+      if (res.unauthorized) { ctx.navigate('/login'); return; }
+      if (!res.ok) { toast(api.errorMessage(res, 'The export could not be requested.'), 'err'); return; }
+      toast('Export requested. It will be ready shortly.', 'ok');
+      await refreshExport();
+    } finally { setLoading(exportBtn, false); }
+  });
+  const privacyCard = card([
+    el('div', { className: 'card-head' }, [el('span', { className: 'card-title', text: 'Privacy & your data' })]),
+    el('p', { className: 'card-sub', text: 'Download a copy of your Cyflow data. It excludes secrets: your password, your encrypted keys, and your social tokens are never included.' }),
+    el('div', { className: 'row', attrs: { style: 'margin-top:.6rem' } }, [exportBtn]),
+    exportStatusHost,
+  ]);
+
+  // --- G: danger zone (account deletion) ----------------------------------
+  const deleteReveal = el('div', { attrs: { hidden: true, style: 'margin-top:.6rem' } }, [
+    notice('This permanently deletes your account and content. Posts already published to a provider may remain on that platform; Cyflow cannot remove them. This cannot be undone.', 'warn'),
+    field({ id: 'deletePassword', label: 'Your password', type: 'password' }),
+    field({ id: 'deleteConfirm', label: 'Type DELETE to confirm', attrs: { autocomplete: 'off' } }),
+  ]);
+  const confirmDeleteBtn = el('button', { className: 'btn btn-danger', text: 'Permanently delete my account', attrs: { type: 'button', hidden: true } });
+  const startDeleteBtn = el('button', { className: 'btn btn-secondary btn-sm', text: 'Delete account…', attrs: { type: 'button' } });
+  startDeleteBtn.addEventListener('click', () => {
+    deleteReveal.hidden = false; confirmDeleteBtn.hidden = false; startDeleteBtn.hidden = true;
+    document.getElementById('deletePassword')?.focus();
+  });
+  confirmDeleteBtn.addEventListener('click', async () => {
+    clearFieldErrors(root);
+    const currentPassword = val('deletePassword');
+    const confirmText = val('deleteConfirm');
+    if (confirmText !== 'DELETE') { setFieldError('deleteConfirm', 'Type DELETE to confirm'); return; }
+    setLoading(confirmDeleteBtn, true, 'Deleting…');
+    try {
+      const res = await api.apiRequest('/api/account/delete', { method: 'POST', body: { currentPassword, confirmText } });
+      if (res.unauthorized) { ctx.navigate('/login'); return; }
+      if (!res.ok) {
+        const errors = api.fieldErrors(res);
+        for (const [f, m] of Object.entries(errors)) setFieldError(f, m);
+        toast(api.errorMessage(res, 'Your account could not be deleted.'), 'err');
+        return;
+      }
+      toast('Your account is being deleted. You will be signed out.', 'ok');
+      await api.apiRequest('/api/auth/logout', { method: 'POST' }).catch(() => {});
+      ctx.navigate('/login');
+    } finally { setLoading(confirmDeleteBtn, false); }
+  });
+  const dangerCard = card([
+    el('div', { className: 'card-head' }, [el('span', { className: 'card-title danger', text: 'Danger zone' })]),
+    el('p', { className: 'card-sub', text: 'Permanently delete your account and all of your content. This cannot be undone.' }),
+    el('div', { className: 'row', attrs: { style: 'margin-top:.6rem' } }, [startDeleteBtn]),
+    deleteReveal,
+    el('div', { className: 'row', attrs: { style: 'margin-top:.6rem' } }, [confirmDeleteBtn]),
+  ], 'card-danger');
+
   root.appendChild(el('div', { className: 'page' }, [
     pageHead('Settings', 'Defaults Cyflow applies when you create a new post.'),
 
@@ -263,6 +337,11 @@ export async function render(root, ctx) {
       el('a', { className: 'btn btn-secondary btn-sm', text: 'Open profile', attrs: { href: '/profile', 'data-link': '', style: 'margin-top:.6rem' } }),
     ]),
 
-    notice('Cyflow generates and schedules content. It does not publish to Facebook, Instagram, or Threads yet — that arrives in a later phase.', 'info'),
+    privacyCard,
+    dangerCard,
+
+    notice('Publishing runs in the background when live publishing is enabled. It is turned off by default, so nothing is sent to a provider until you enable it.', 'info'),
   ]));
+
+  refreshExport().catch(() => {});
 }

@@ -6,6 +6,30 @@ live social provider yet: the real publishing adapters exist but are gated OFF b
 default (`ENABLE_LIVE_PROVIDER_PUBLISHING=false`) and have only ever run against
 fake providers.
 
+## Milestone G — data export, account deletion, release readiness
+
+**Branch:** `cyflow-social-v1` · **Migration:** `017_user_data_export_and_deletion.sql`
+(apply after 010 → … → 016)
+
+- **Export your data**: request a copy from Settings; a durable background job builds
+  a JSON archive of your own data and you download it from a session-gated route (no
+  token in the URL). The archive contains only safe, sanitized data — your password,
+  encrypted OpenAI/HCTI keys, social tokens, storage keys and raw provider responses
+  are never included. Rate-limited, with a 24-hour expiry.
+- **Delete your account**: gated by your current password plus a typed confirmation.
+  A durable job cancels pending work, erases your credentials and tokens, deletes
+  your account (the database removes your owned rows by cascade; audit logs are
+  anonymized), and unlinks your media files. It is idempotent and crash-safe, and a
+  deleted account can no longer sign in. Posts already published to a provider may
+  remain on that platform — the UI says so honestly.
+- Migration 017 is additive (`user_data_exports` with a hashed token + private
+  storage key + expiry; `account_deletion_requests` with an opaque receipt code);
+  010–016 unchanged.
+- 1052 tests pass; `npm audit` 0 (all + prod). Account export/deletion browser smoke
+  11/11; create, D2 and automation smokes still green. The deletion password gate was
+  revert-verified. Release-readiness runbooks (export, deletion, staging, production,
+  rollback, secret rotation, data inventory) are prepared as gitignored working docs.
+
 ## Milestone F — public website + premium design system
 
 **Branch:** `cyflow-social-v1` · **No migration** (design + content only)

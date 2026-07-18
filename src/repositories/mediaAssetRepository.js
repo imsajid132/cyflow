@@ -281,9 +281,24 @@ export async function listReferencesForAsset(mediaAssetId, userId, connection) {
   return rows.map((r) => ({ referenceType: r.reference_type, referenceId: String(r.reference_id), createdAt: r.created_at }));
 }
 
+/**
+ * G: every local on-disk storage key a user owns, for byte removal during
+ * account deletion. Captured BEFORE rows are deleted. HCTI-proxied assets have
+ * no storage_key and are omitted (nothing on disk). User-scoped, so it never
+ * returns another user's files (dedup is per-user; files are physically distinct).
+ */
+export async function listStorageKeysForUser(userId, connection) {
+  const [rows] = await runner(connection).execute(
+    "SELECT id, storage_key, mime_type FROM media_assets WHERE user_id = ? AND storage_driver = 'local' AND storage_key IS NOT NULL",
+    [userId],
+  );
+  return rows.map((r) => ({ id: String(r.id), storageKey: r.storage_key, mimeType: r.mime_type ?? null }));
+}
+
 export default {
   createMediaAsset,
   findMediaAssetByIdForUser,
+  listStorageKeysForUser,
   findReadyMediaAssetByPublicToken,
   markMediaAssetReady,
   markMediaAssetFailed,

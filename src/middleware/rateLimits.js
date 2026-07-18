@@ -108,6 +108,14 @@ export const passwordChangeLimiter = limiter({
   message: 'Too many password change attempts, please try again later',
 });
 
+/** G: account export/deletion — heavy, irreversible actions. 10 / hour / user+IP. */
+export const accountActionLimiter = limiter({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  keyGenerator: userOrIpKey,
+  message: 'Too many account requests. Please try again later.',
+});
+
 /** HCTI credential save: 10 / hour / user+IP. */
 export const hctiSaveLimiter = limiter({
   windowMs: 60 * 60 * 1000,

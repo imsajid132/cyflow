@@ -35,6 +35,7 @@ import { createBusinessProfileRoutes } from './routes/businessProfileRoutes.js';
 import { createPlannerRoutes } from './routes/plannerRoutes.js';
 import { createAutomationRoutes } from './routes/automationRoutes.js';
 import { createPublishRoutes } from './routes/publishRoutes.js';
+import { createAccountRoutes } from './routes/accountRoutes.js';
 import { buildContainer } from './container.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -285,6 +286,14 @@ export function createApp(overrides = {}) {
     '/api/publish',
     createPublishRoutes({
       publishController: container.publishController,
+      requireAuth: container.requireAuth,
+    }),
+  );
+  // G: account data export + account deletion.
+  app.use(
+    '/api/account',
+    createAccountRoutes({
+      accountController: container.accountController,
       requireAuth: container.requireAuth,
     }),
   );

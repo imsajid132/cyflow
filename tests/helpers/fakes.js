@@ -29,6 +29,16 @@ export function createFakeUserRepository(seed = []) {
     async findUserById(id) {
       return rows.find((r) => String(r.id) === String(id)) ?? null;
     },
+    async getSanitizedUserById(id) {
+      const r = rows.find((x) => String(x.id) === String(id));
+      return r ? sanitizeUser(r) : null;
+    },
+    async deleteUserById(id) {
+      const i = rows.findIndex((x) => String(x.id) === String(id));
+      if (i < 0) return 0;
+      rows.splice(i, 1);
+      return 1;
+    },
     async findUserByEmail(email) {
       const e = normalizeEmail(email);
       return rows.find((r) => r.email === e) ?? null;
@@ -618,6 +628,11 @@ export function createFakeMediaAssetRepository() {
     _rows: rows,
     _refs: refs,
     MEDIA_REFERENCE_TYPES: ['planner_run_item', 'scheduled_post'],
+    async listStorageKeysForUser(userId) {
+      return rows
+        .filter((r) => String(r.user_id) === String(userId) && r.storage_driver === 'local' && r.storage_key)
+        .map((r) => ({ id: String(r.id), storageKey: r.storage_key, mimeType: r.mime_type ?? null }));
+    },
     async createMediaAsset(input) {
       const row = {
         id: String(nextId++),
@@ -1089,6 +1104,68 @@ export async function fakeWithTransaction(callback) {
 }
 
 /** Build a full override bundle for createApp/buildContainer. */
+/** Fake `accountDataRepository` — in-memory exports + deletion requests (G). */
+export function createFakeAccountDataRepository() {
+  const exports = [];
+  const deletions = [];
+  let nextExport = 1; let nextDeletion = 1;
+  const toMs = (v) => (v == null ? null : new Date(String(v).includes('T') ? v : `${String(v).replace(' ', 'T')}Z`).getTime());
+  const sanitizeExport = (r) => (r ? {
+    id: String(r.id), userId: String(r.user_id), status: r.status,
+    hasFile: Boolean(r.storage_key), fileSizeBytes: r.file_size_bytes ?? null,
+    errorMessage: r.error_message ?? null, requestedAt: r.requested_at ?? null,
+    completedAt: r.completed_at ?? null, expiresAt: r.expires_at ?? null, createdAt: r.created_at ?? null,
+  } : null);
+  const sanitizeDeletion = (r) => (r ? {
+    id: String(r.id), userId: r.user_id == null ? null : String(r.user_id),
+    status: r.status, confirmationCode: r.confirmation_code,
+    requestedAt: r.requested_at ?? null, completedAt: r.completed_at ?? null,
+  } : null);
+  return {
+    _exports: exports, _deletions: deletions,
+    async createExportRequest(userId) {
+      const r = { id: String(nextExport++), user_id: String(userId), status: 'requested', download_token_hash: null, storage_driver: null, storage_key: null, file_size_bytes: null, error_message: null, requested_at: '2026-01-01 00:00:00', completed_at: null, expires_at: null, created_at: new Date().toISOString() };
+      exports.push(r); return sanitizeExport(r);
+    },
+    async findExportById(id, userId) {
+      return sanitizeExport(exports.find((r) => String(r.id) === String(id) && String(r.user_id) === String(userId)) ?? null);
+    },
+    async findLatestExportForUser(userId) {
+      const list = exports.filter((r) => String(r.user_id) === String(userId)).sort((a, b) => Number(b.id) - Number(a.id));
+      return sanitizeExport(list[0] ?? null);
+    },
+    async countRecentExports(userId, sinceMysqlUtc) {
+      const since = toMs(sinceMysqlUtc);
+      return exports.filter((r) => String(r.user_id) === String(userId) && toMs(r.created_at) >= since).length;
+    },
+    async updateExport(id, userId, fields) {
+      const r = exports.find((x) => String(x.id) === String(id) && String(x.user_id) === String(userId));
+      if (!r) return null;
+      const map = { status: 'status', downloadTokenHash: 'download_token_hash', storageDriver: 'storage_driver', storageKey: 'storage_key', fileSizeBytes: 'file_size_bytes', errorMessage: 'error_message', completedAt: 'completed_at', expiresAt: 'expires_at' };
+      for (const [k, col] of Object.entries(map)) if (fields[k] !== undefined) r[col] = fields[k];
+      return sanitizeExport(r);
+    },
+    async findExportStorage(id, userId) {
+      const r = exports.find((x) => String(x.id) === String(id) && String(x.user_id) === String(userId) && x.status === 'ready' && x.storage_key);
+      return r ? { storageDriver: r.storage_driver, storageKey: r.storage_key } : null;
+    },
+    async createDeletionRequest({ userId, confirmationCode, reason = null }) {
+      const r = { id: String(nextDeletion++), user_id: String(userId), status: 'requested', confirmation_code: confirmationCode, reason, requested_at: '2026-01-01 00:00:00', completed_at: null };
+      deletions.push(r); return sanitizeDeletion(r);
+    },
+    async findActiveDeletionForUser(userId) {
+      const list = deletions.filter((r) => String(r.user_id) === String(userId) && ['requested', 'processing'].includes(r.status)).sort((a, b) => Number(b.id) - Number(a.id));
+      return sanitizeDeletion(list[0] ?? null);
+    },
+    async updateDeletionRequest(id, fields) {
+      const r = deletions.find((x) => String(x.id) === String(id));
+      if (!r) return;
+      if (fields.status !== undefined) r.status = fields.status;
+      if (fields.completedAt !== undefined) r.completed_at = fields.completedAt;
+    },
+  };
+}
+
 export function createFakeOverrides(extra = {}) {
   const socialAccountRepository = extra.socialAccountRepository ?? createFakeSocialAccountRepository();
   const mediaAssetRepository = extra.mediaAssetRepository ?? createFakeMediaAssetRepository();
@@ -1131,6 +1208,8 @@ export function createFakeOverrides(extra = {}) {
     publishRepository: extra.publishRepository
       ?? createFakePublishRepository({ posts: postRepository, accounts: socialAccountRepository }),
     publishAdapters: extra.publishAdapters ?? createFakePublishAdapters().adapters,
+    // G: account data export + deletion.
+    accountDataRepository: extra.accountDataRepository ?? createFakeAccountDataRepository(),
   };
 }
 
@@ -1790,6 +1869,15 @@ export function createFakeBackgroundJobRepository() {
       for (const j of jobs) {
         if (String(j.automation_id) === String(automationId) && String(j.user_id) === String(userId)
           && ['pending', 'retry_scheduled'].includes(j.status)) { j.status = 'cancelled'; j.locked_by = null; j._lockMs = null; n += 1; }
+      }
+      return n;
+    },
+    async cancelAllJobsForUser(userId) {
+      let n = 0;
+      for (const j of jobs) {
+        if (String(j.user_id) === String(userId) && ['pending', 'retry_scheduled'].includes(j.status)) {
+          j.status = 'cancelled'; j.locked_by = null; j._lockMs = null; n += 1;
+        }
       }
       return n;
     },

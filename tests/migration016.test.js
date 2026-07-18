@@ -69,7 +69,8 @@ test('migrations run in an unbroken 010..016 sequence', () => {
     .filter((f) => /^\d{3}_.*\.sql$/.test(f))
     .map((f) => Number(f.slice(0, 3)))
     .sort((a, b) => a - b);
-  assert.equal(nums[nums.length - 1], 16, 'the latest migration is 016');
+  // 016 is present and the 010..016 run is unbroken (later milestones may add 017+).
+  assert.ok(nums.includes(16), 'migration 016 exists');
   for (let n = 10; n <= 16; n += 1) {
     assert.ok(nums.includes(n), `migration ${String(n).padStart(3, '0')} exists`);
   }

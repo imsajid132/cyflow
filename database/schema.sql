@@ -785,4 +785,42 @@ CREATE TABLE IF NOT EXISTS `sessions` (
   PRIMARY KEY (`session_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
+-- G: user data export + account deletion (migration 017).
+CREATE TABLE IF NOT EXISTS `user_data_exports` (
+  `id`                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id`              BIGINT UNSIGNED NOT NULL,
+  `status`               ENUM('requested','processing','ready','failed','expired','revoked') NOT NULL DEFAULT 'requested',
+  `download_token_hash`  CHAR(64)        NULL DEFAULT NULL,
+  `storage_driver`       VARCHAR(32)     NULL DEFAULT NULL,
+  `storage_key`          VARCHAR(255)    NULL DEFAULT NULL,
+  `file_size_bytes`      BIGINT UNSIGNED NULL DEFAULT NULL,
+  `error_message`        VARCHAR(1024)   NULL DEFAULT NULL,
+  `requested_at`         DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `completed_at`         DATETIME        NULL DEFAULT NULL,
+  `expires_at`           DATETIME        NULL DEFAULT NULL,
+  `created_at`           DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`           DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_user_data_exports_token` (`download_token_hash`),
+  KEY `idx_user_data_exports_user` (`user_id`, `created_at`),
+  KEY `idx_user_data_exports_expiry` (`status`, `expires_at`),
+  CONSTRAINT `fk_user_data_exports_user`
+    FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `account_deletion_requests` (
+  `id`                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id`           BIGINT UNSIGNED NULL DEFAULT NULL,
+  `status`            ENUM('requested','processing','completed','failed','cancelled') NOT NULL DEFAULT 'requested',
+  `confirmation_code` VARCHAR(64)     NOT NULL,
+  `reason`            VARCHAR(255)    NULL DEFAULT NULL,
+  `requested_at`      DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `completed_at`      DATETIME        NULL DEFAULT NULL,
+  `created_at`        DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`        DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_account_deletion_code` (`confirmation_code`),
+  KEY `idx_account_deletion_user` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;

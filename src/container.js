@@ -33,6 +33,10 @@ import { createPublishingService } from './services/publishingService.js';
 import { createAdapters } from './publishing/adapters.js';
 import { createProviderHttp } from './utils/providerHttp.js';
 import { createPublishController } from './controllers/publishController.js';
+import { createAccountDataService } from './services/accountDataService.js';
+import { createAccountController } from './controllers/accountController.js';
+import { createMediaStorage } from './services/mediaStorage.js';
+import * as accountDataRepositoryModule from './repositories/accountDataRepository.js';
 import { openaiContentService as realOpenAI } from './services/openaiContentService.js';
 import { socialImageService as realSocialImage } from './services/socialImageService.js';
 import { contentUniquenessService as realUniquenessService } from './services/contentUniquenessService.js';
@@ -231,10 +235,29 @@ export function buildContainer(overrides = {}) {
   // Now publishingService exists: resolve the deferred reference postService uses
   // for Publish Now.
   publishingServiceRef = publishingService;
+
+  // G: user data export + account deletion. Durable jobs on the same runtime.
+  const accountDataRepo = overrides.accountDataRepository ?? accountDataRepositoryModule;
+  // A config-backed media store for byte removal during deletion. Guarded so a
+  // missing storage root (e.g. some test setups) degrades to a safe no-op.
+  let mediaByteStore = overrides.mediaStore;
+  if (!mediaByteStore) {
+    try { mediaByteStore = createMediaStorage({ root: config.media?.storagePath }); }
+    catch { mediaByteStore = { async removeStoredImage() { return false; } }; }
+  }
+  const accountDataService = overrides.accountDataService ?? createAccountDataService({
+    users, accountData: accountDataRepo, integrations, socialAccounts,
+    businessProfiles, plannerPreferences, plannerRuns, posts: postRepo,
+    media: mediaRepo, apiUsage, jobs: backgroundJobRepository,
+    verifyPassword: authService.verifyPassword, logging, withTransaction, now,
+    mediaStore: mediaByteStore,
+    ...(overrides.exportStore ? { exportStore: overrides.exportStore } : {}),
+  });
+
   const durableJobService = overrides.durableJobService ?? createDurableJobService({
     jobs: backgroundJobRepository,
-    // Automation + publishing handlers share one durable job runtime.
-    handlers: { ...automationService.handlers, ...publishingService.handlers },
+    // Automation + publishing + account handlers share one durable job runtime.
+    handlers: { ...automationService.handlers, ...publishingService.handlers, ...accountDataService.handlers },
     logging,
     now,
     options: {
@@ -246,6 +269,7 @@ export function buildContainer(overrides = {}) {
   });
   const automationController = createAutomationController({ automationService });
   const publishController = createPublishController({ publishingService });
+  const accountController = createAccountController({ accountDataService });
 
   const { requireAuth, guestOnly, attachUser } = createAuthMiddleware({ users });
 
@@ -281,6 +305,8 @@ export function buildContainer(overrides = {}) {
     automationController,
     publishingService,
     publishController,
+    accountDataService,
+    accountController,
     authController,
     integrationController,
     oauthController,

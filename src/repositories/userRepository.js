@@ -122,6 +122,19 @@ export async function getSanitizedUserById(userId, connection) {
   return sanitizeUser(row);
 }
 
+/**
+ * G: permanently delete a user. InnoDB ON DELETE CASCADE removes every
+ * user-owned table (integrations, social accounts + tokens, posts, targets,
+ * publish attempts, media rows, business/planner/automation data, jobs, oauth
+ * states); activity_logs / api_usage are SET NULL (retained, anonymized). The
+ * caller must capture on-disk media keys BEFORE calling this, and unlink the
+ * bytes afterwards. Returns the number of user rows removed (0 if already gone).
+ */
+export async function deleteUserById(userId, connection) {
+  const [res] = await runner(connection).execute('DELETE FROM users WHERE id = ?', [userId]);
+  return res.affectedRows ?? 0;
+}
+
 export default {
   sanitizeUser,
   findUserById,
@@ -132,4 +145,5 @@ export default {
   updateProfile,
   updatePassword,
   getSanitizedUserById,
+  deleteUserById,
 };
