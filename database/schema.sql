@@ -122,8 +122,14 @@ CREATE TABLE IF NOT EXISTS `scheduled_posts` (
   `prompt`                             TEXT            NULL DEFAULT NULL,
   `status`                             ENUM('draft','queued','processing','published','partial','retrying','failed','cancelled')
                                                        NOT NULL DEFAULT 'draft',
+  -- E: manual Create Post workspace (migration 016).
+  `post_origin`                        ENUM('manual_draft','manual_scheduled','manual_publish_now','planner_generated','automation_generated')
+                                                       NULL DEFAULT NULL,
+  `draft_version`                      INT UNSIGNED    NOT NULL DEFAULT 1,
   `scheduled_at_utc`                   DATETIME        NULL DEFAULT NULL,
   `original_timezone`                  VARCHAR(64)     NULL DEFAULT NULL,
+  `scheduled_local_date`               DATE            NULL DEFAULT NULL,
+  `scheduled_local_time`               TIME            NULL DEFAULT NULL,
   `generated_base_caption`             TEXT            NULL DEFAULT NULL,
   `generated_platform_captions_json`   JSON            NULL DEFAULT NULL,
   `generation_params_json`             JSON            NULL DEFAULT NULL,
@@ -134,6 +140,7 @@ CREATE TABLE IF NOT EXISTS `scheduled_posts` (
   `openai_model`                       VARCHAR(128)    NULL DEFAULT NULL,
   `openai_usage_json`                  JSON            NULL DEFAULT NULL,
   `content_generated_at`               DATETIME        NULL DEFAULT NULL,
+  `last_manual_edit_at`                DATETIME        NULL DEFAULT NULL,
   `image_generated_at`                 DATETIME        NULL DEFAULT NULL,
   `template_name`                      VARCHAR(128)    NULL DEFAULT NULL,
   `aspect_ratio`                       VARCHAR(32)     NULL DEFAULT NULL,
@@ -165,6 +172,8 @@ CREATE TABLE IF NOT EXISTS `scheduled_posts` (
   KEY `idx_sp_stale_locks` (`status`, `locked_at`),
   -- user post history
   KEY `idx_sp_user_history` (`user_id`, `created_at`),
+  -- E: the manual workspace lists a user's drafts/scheduled posts by origin+status
+  KEY `idx_sp_user_origin_status` (`user_id`, `post_origin`, `status`),
   -- scheduled time ordering
   KEY `idx_sp_scheduled_at` (`scheduled_at_utc`),
   KEY `idx_sp_media_asset` (`media_asset_id`),

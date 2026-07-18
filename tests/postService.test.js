@@ -217,7 +217,7 @@ test('schedulePost converts Asia/Karachi local time to correct UTC and queues', 
   const utc = fromMysqlUtc(scheduled.scheduledAtUtc);
   assert.equal(utc.getUTCHours(), 9);
   assert.equal(utc.getUTCMinutes(), 30);
-  assert.match(scheduled.notice, /queued/i);
+  assert.match(scheduled.notice, /scheduled|queued/i);
   // Nothing published.
   assert.equal(scheduled.targets.every((t) => t.status === 'pending'), true);
 });
@@ -228,10 +228,10 @@ test('schedulePost rejects past time, missing captions, and IG without image', a
   const post = await svc.createDraft('5', { brief: 'x' });
   await svc.setTargets('5', post.id, [{ socialAccountId: threads.id }]);
 
-  // No captions generated yet.
+  // No post copy generated yet.
   await assert.rejects(
     () => svc.schedulePost('5', post.id, { scheduledDate: '2999-06-01', scheduledTime: '10:00', timezone: 'UTC' }),
-    /caption/i,
+    /post copy|copy/i,
   );
 
   await svc.generateContent('5', post.id);

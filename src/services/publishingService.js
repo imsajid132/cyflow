@@ -280,6 +280,29 @@ export function createPublishingService({
     return { due: due.length, enqueued };
   }
 
+  /**
+   * E (Publish Now): enqueue durable publish jobs for one owned post's targets
+   * immediately. Unlike the scheduler bridge this does NOT gate on the live flag
+   * — a job is created per target and the job handler itself holds the target as
+   * "attention needed" (zero provider calls) when live publishing is off, so the
+   * user gets an honest queued state either way. Idempotent: the same target
+   * enqueued twice reuses one job (unique idempotency key).
+   */
+  async function enqueuePublishForPost(userId, postId) {
+    const targets = await publishRepo.listPublishTargetsForPost(postId, userId);
+    let enqueued = 0;
+    for (const t of targets) {
+      // eslint-disable-next-line no-await-in-loop
+      const { created } = await jobs.enqueueJob({
+        userId, jobType: PUBLISH_JOB_TYPES.PUBLISH_TARGET,
+        idempotencyKey: `publish:${t.scheduledPostId}:target:${t.targetId}:a${t.attemptCount}`,
+        payload: { targetId: t.targetId, postId: t.scheduledPostId },
+      });
+      if (created) enqueued += 1;
+    }
+    return { targets: targets.length, enqueued };
+  }
+
   // --- user actions ---------------------------------------------------------
 
   /** Manually retry a failed/attention target: bump the generation, re-schedule. */
@@ -355,7 +378,7 @@ export function createPublishingService({
   };
 
   return {
-    handlers, preflight, enqueueDuePublishTargets,
+    handlers, preflight, enqueueDuePublishTargets, enqueuePublishForPost,
     runPublishTargetJob, runReconcileJob, runPublishStaleRecoveryJob,
     retryTarget, cancelTarget, listAttempts,
     liveEnabled,

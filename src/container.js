@@ -119,6 +119,10 @@ export function buildContainer(overrides = {}) {
   // Resolved here (not lower down) so postService can report publishing readiness
   // (config.publishing.liveEnabled) through /api/posts/capabilities.
   const config = overrides.config ?? defaultConfig;
+  // E: Publish Now enqueues durable D2 jobs. publishingService is built further
+  // down (it has no dependency on postService), so postService is handed a
+  // deferred reference that resolves at request time.
+  let publishingServiceRef = null;
   const postService =
     overrides.postService ??
     createPostService({
@@ -134,6 +138,10 @@ export function buildContainer(overrides = {}) {
       logging,
       withTransaction,
       config,
+      enqueuePublish: (userId, postId) =>
+        (publishingServiceRef
+          ? publishingServiceRef.enqueuePublishForPost(userId, postId)
+          : Promise.resolve({ enqueued: 0 })),
     });
 
   const oauthController = createOAuthController({ oauthService });
@@ -220,6 +228,9 @@ export function buildContainer(overrides = {}) {
     config,
     now,
   });
+  // Now publishingService exists: resolve the deferred reference postService uses
+  // for Publish Now.
+  publishingServiceRef = publishingService;
   const durableJobService = overrides.durableJobService ?? createDurableJobService({
     jobs: backgroundJobRepository,
     // Automation + publishing handlers share one durable job runtime.

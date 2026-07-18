@@ -77,7 +77,7 @@ test('the internal caption field names are untouched, because the API uses them'
 test('the planner and create pages say "post copy" to the user', () => {
   const create = FRONTEND.find((f) => f.file === 'assets/js/pages/create.js');
   const week = FRONTEND.find((f) => f.file === 'assets/js/pages/plannerWeek.js');
-  assert.match(create.source, /Generate post copy/);
+  // E rebuilt Create Post as a workspace; the "Post copy" section is the surface.
   assert.match(create.source, /Post copy/);
   assert.match(week.source, /Post copy/);
   assert.match(week.source, /Regenerate post copy/);

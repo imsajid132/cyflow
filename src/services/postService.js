@@ -13,7 +13,6 @@ import {
   POST_STATUS,
   SOCIAL_ACCOUNT_STATUS,
   ACCOUNT_TYPE_TO_PLATFORM,
-  ACCOUNT_TYPES,
   USAGE_OPERATIONS,
   EVENT_TYPES,
 } from '../config/constants.js';
@@ -22,7 +21,8 @@ import {
   listTemplates,
 } from '../templates/socialImageTemplates.js';
 import { ValidationError, NotFoundError, ConflictError, RateLimitError } from '../utils/errors.js';
-import { toMysqlUtc, addSecondsUtc, zonedWallTimeToUtc, isValidTimezone } from '../utils/time.js';
+import { toMysqlUtc, addSecondsUtc, zonedWallTimeToUtc, isValidTimezone, nowIso } from '../utils/time.js';
+import { evaluatePostReadiness } from './publishReadiness.js';
 
 import * as defaultPostRepo from '../repositories/postRepository.js';
 import * as defaultSocialAccounts from '../repositories/socialAccountRepository.js';
@@ -31,7 +31,7 @@ import * as defaultApiUsage from '../repositories/apiUsageRepository.js';
 import * as defaultIntegrationRepo from '../repositories/integrationRepository.js';
 import * as defaultBusinessProfiles from '../repositories/businessProfileRepository.js';
 import { openaiContentService as defaultOpenAI } from './openaiContentService.js';
-import { normalizePlatformCopy } from './platformCopy.js';
+import { normalizePlatformCopy, applyPlatformEdit } from './platformCopy.js';
 import { socialImageService as defaultImage } from './socialImageService.js';
 import { mediaAssetService as defaultMedia } from './mediaAssetService.js';
 import { loggingService as defaultLogging } from './loggingService.js';
@@ -50,6 +50,10 @@ export function createPostService({
   mediaAssetService = defaultMedia,
   logging = defaultLogging,
   withTransaction = defaultWithTransaction,
+  // E: Publish Now enqueues durable D2 jobs. Injected by the container as a
+  // deferred reference to publishingService.enqueuePublishForPost (default no-op
+  // so the service is usable standalone / in unit tests that do not publish).
+  enqueuePublish = async () => ({ enqueued: 0 }),
 } = {}) {
   const DAILY_OPS = [
     USAGE_OPERATIONS.OPENAI_GENERATE_CONTENT,
@@ -143,6 +147,166 @@ export function createPostService({
     await logging.record(EVENT_TYPES.POST_DRAFT_UPDATED, {
       req, userId, message: 'Draft updated', context: { postId } });
     return enrich(userId, updated);
+  }
+
+  // --- E: manual workspace (Save Draft / readiness / Publish Now) ----------
+
+  // A generous hard cap that stops abuse without rewriting user copy (the
+  // per-platform provider limits are enforced as readiness, not truncation).
+  const HARD_COPY_MAX = 100000;
+  const HASHTAG_MAX = 30;
+
+  // Narrow normalization: consistent line endings only. Paragraph breaks,
+  // checklist lines, Unicode and emoji are preserved; copy is never rewritten.
+  const normalizeCopy = (s) => String(s ?? '').replace(/\r\n?/g, '\n');
+
+  /** Provider-bound edits are refused once any target is in flight or published. */
+  function assertEditable(enriched) {
+    const blocked = (enriched.targets || []).find((t) =>
+      ['publishing', 'submitted', 'reconciling', 'published'].includes(t.publishStatus));
+    if (blocked) {
+      throw new ConflictError('This post is already publishing and can no longer be edited.');
+    }
+  }
+
+  /** The one readiness verdict, from the shared evaluator. */
+  function resolveReadiness(enriched) {
+    return evaluatePostReadiness({
+      targets: enriched.targets,
+      platformCopy: enriched.platformCopy,
+      hasMedia: Boolean(enriched.mediaAssetId),
+      mediaAvailable: enriched.media ? enriched.media.status === 'ready' : false,
+      liveEnabled: Boolean(config.publishing?.liveEnabled),
+    });
+  }
+
+  /**
+   * Merge hand-edited per-platform copy onto the post's canonical store, one
+   * platform at a time (siblings byte-preserved). Selected platforms only.
+   * Returns the full platform_captions_json to persist plus which platforms
+   * actually changed (an identical re-save changes nothing).
+   */
+  function mergePlatformEdits(enriched, post, edits) {
+    const selected = new Set(enriched.platformTargets);
+    const ts = nowIso();
+    let item = {
+      platformTargets: enriched.platformTargets,
+      platformCaptions: post.platformCaptions ?? {},
+      caption: post.baseCaption ?? null, hashtags: [], editedFields: [],
+    };
+    const before = normalizePlatformCopy(item);
+    const changed = [];
+    let working = item.platformCaptions;
+    for (const [platform, raw] of Object.entries(edits)) {
+      if (!selected.has(platform)) {
+        throw new ValidationError('This post does not target that platform.');
+      }
+      const postCopy = normalizeCopy(raw?.postCopy);
+      if (postCopy.length > HARD_COPY_MAX) throw new ValidationError('That post copy is too long.');
+      const hashtags = Array.isArray(raw?.hashtags)
+        ? raw.hashtags.map((h) => String(h).trim()).filter(Boolean).slice(0, HASHTAG_MAX)
+        : [];
+      const prev = before[platform];
+      const sameCopy = (prev?.postCopy ?? '') === postCopy
+        && JSON.stringify(prev?.hashtags ?? []) === JSON.stringify(hashtags);
+      working = applyPlatformEdit({ ...item, platformCaptions: working }, platform, { postCopy, hashtags }, ts);
+      item = { ...item, platformCaptions: working };
+      if (!sameCopy) changed.push(platform);
+    }
+    return { platformCaptions: working, changedPlatforms: changed };
+  }
+
+  /**
+   * Save Draft — persist the brief, params and/or hand-edited per-platform copy
+   * in one versioned write. Never requires readiness (a draft may be incomplete),
+   * never publishes, never calls a provider. Optimistic concurrency: a stale
+   * `expectedVersion` is rejected with a conflict, not a silent overwrite. An
+   * identical re-save is a true no-op (no version bump, no activity).
+   */
+  async function saveDraft(userId, postId, { fields = {}, platformCaptions: edits, expectedVersion } = {}, { req } = {}) {
+    const post = await requireOwnedPost(userId, postId);
+    const enriched = await enrich(userId, post);
+    assertEditable(enriched);
+
+    let mergedCaptions; let changedPlatforms = [];
+    if (edits && typeof edits === 'object' && Object.keys(edits).length) {
+      ({ platformCaptions: mergedCaptions, changedPlatforms } = mergePlatformEdits(enriched, post, edits));
+    }
+
+    const fieldUpdate = {};
+    if (fields.title !== undefined) fieldUpdate.title = fields.title || null;
+    if (fields.brief !== undefined) fieldUpdate.prompt = fields.brief || null;
+    if (fields.template !== undefined) fieldUpdate.templateName = fields.template;
+    if (fields.aspectRatio !== undefined) fieldUpdate.aspectRatio = fields.aspectRatio;
+    if (fields.backgroundStyle !== undefined) fieldUpdate.backgroundStyle = fields.backgroundStyle;
+    const generationParams = (hasGenParams(fields) || fields.brief !== undefined)
+      ? buildGenerationParams(fields) : undefined;
+
+    const nothingChanged = changedPlatforms.length === 0
+      && Object.keys(fieldUpdate).length === 0 && generationParams === undefined;
+    if (nothingChanged) return enriched; // no-op: no version bump, no revision
+
+    const saved = await withTransaction(async (conn) => posts.saveManualDraft(postId, userId, {
+      fields: fieldUpdate, generationParams,
+      platformCaptions: changedPlatforms.length ? mergedCaptions : undefined,
+      expectedVersion,
+    }, conn));
+    if (saved == null) throw new NotFoundError('Post not found');
+    if (saved.conflict) throw new ConflictError('This post changed in another tab. Reload it before saving.');
+    await logging.record(EVENT_TYPES.POST_DRAFT_UPDATED, {
+      req, userId, message: 'Draft saved', context: { postId, platforms: changedPlatforms } });
+    return enrich(userId, saved.post);
+  }
+
+  /** Per-target readiness for the workspace and worker preflight (compute, never store). */
+  async function getReadiness(userId, postId) {
+    const post = await requireOwnedPost(userId, postId);
+    const enriched = await enrich(userId, post);
+    return resolveReadiness(enriched);
+  }
+
+  /**
+   * Publish Now — validate readiness, save nothing new (the caller saves first),
+   * queue the post immediately and enqueue one durable D2 job per ready target.
+   * Never calls a provider in-request; returns an honest queued state. Respects
+   * ENABLE_LIVE_PROVIDER_PUBLISHING (jobs hold as attention-needed when off).
+   * Idempotent: the durable idempotency key means repeated clicks make one job
+   * per target.
+   */
+  async function publishNow(userId, postId, { expectedVersion } = {}, { req } = {}) {
+    const post = await requireOwnedPost(userId, postId);
+    if (expectedVersion != null && Number(expectedVersion) !== Number(post.draftVersion)) {
+      throw new ConflictError('This post changed in another tab. Reload it before publishing.');
+    }
+    const enriched = await enrich(userId, post);
+    assertEditable(enriched);
+    if (!enriched.targets.length) throw new ValidationError('Select at least one connected account');
+    const readiness = resolveReadiness(enriched);
+    if (!readiness.ready) {
+      const err = new ValidationError(readiness.blockers[0]?.reason || 'This post is not ready to publish yet.');
+      err.details = { readiness };
+      throw err;
+    }
+
+    const nowUtc = new Date();
+    const queued = await withTransaction(async (conn) => posts.markPublishNow(postId, userId, {
+      scheduledAtUtc: toMysqlUtc(nowUtc), originalTimezone: 'UTC',
+    }, conn));
+    // Immediate durable enqueue; the scheduler is the backstop for a queued+due
+    // post, so a rare enqueue hiccup never leaves it with no path to a job.
+    const enqueue = await enqueuePublish(userId, postId).catch(() => ({ enqueued: 0 }));
+    await logging.record(EVENT_TYPES.POST_SCHEDULED, {
+      req, userId, message: 'Publish now queued',
+      context: { postId, targets: enriched.targets.length, enqueued: enqueue.enqueued ?? 0 } });
+
+    const result = await enrich(userId, queued);
+    return {
+      ...result,
+      readiness: resolveReadiness(result),
+      notice: config.publishing?.liveEnabled
+        ? 'Queued for publishing. Each account publishes independently in the background.'
+        : 'Queued. Live publishing is turned off, so nothing is sent to a provider yet.',
+    };
   }
 
   // --- targets -------------------------------------------------------------
@@ -314,8 +478,11 @@ export function createPostService({
 
   // --- scheduling ----------------------------------------------------------
 
-  async function schedulePost(userId, postId, { scheduledDate, scheduledTime, timezone }, { req } = {}) {
+  async function schedulePost(userId, postId, { scheduledDate, scheduledTime, timezone, expectedVersion }, { req } = {}) {
     const post = await requireOwnedPost(userId, postId);
+    if (expectedVersion != null && Number(expectedVersion) !== Number(post.draftVersion)) {
+      throw new ConflictError('This post changed in another tab. Reload it before scheduling.');
+    }
 
     if (!isValidTimezone(timezone)) {
       throw new ValidationError('A valid IANA timezone is required');
@@ -331,46 +498,39 @@ export function createPostService({
       throw new ValidationError('The scheduled time must be in the future');
     }
 
-    const targets = await posts.listPostTargets(postId, userId);
-    const activeTargets = targets.filter((t) => t.accountStatus === SOCIAL_ACCOUNT_STATUS.ACTIVE);
-    if (activeTargets.length === 0) {
-      throw new ValidationError('Select at least one active connected account');
+    const enriched = await enrich(userId, post);
+    assertEditable(enriched);
+    if (!enriched.targets.length) throw new ValidationError('Select at least one connected account');
+    // One readiness authority: active account + copy + provider capability + style.
+    const readiness = resolveReadiness(enriched);
+    if (!readiness.ready) {
+      const err = new ValidationError(readiness.blockers[0]?.reason || 'This post is not ready to schedule yet.');
+      err.details = { readiness };
+      throw err;
     }
 
-    // Every target must have caption content (override or generated platform caption).
-    for (const t of activeTargets) {
-      const platform = ACCOUNT_TYPE_TO_PLATFORM[t.accountType];
-      const generated = post.platformCaptions?.[platform]?.caption;
-      const caption = t.captionOverride || generated;
-      if (!caption || String(caption).trim() === '') {
-        throw new ValidationError('Every selected account needs caption content before scheduling');
-      }
-    }
-
-    // Instagram requires an image for the future publishing phase.
-    const needsImage = activeTargets.some((t) => t.accountType === ACCOUNT_TYPES.INSTAGRAM_PROFESSIONAL);
-    if (needsImage && !post.mediaAssetId) {
-      throw new ValidationError('Instagram scheduling requires a generated image');
-    }
-
-    const scheduled = await withTransaction(async (conn) => {
-      return posts.schedulePost(
-        postId,
-        userId,
-        { scheduledAtUtc: toMysqlUtc(utcInstant), originalTimezone: timezone },
-        conn,
-      );
-    });
+    const scheduled = await withTransaction(async (conn) => posts.schedulePost(
+      postId,
+      userId,
+      {
+        scheduledAtUtc: toMysqlUtc(utcInstant), originalTimezone: timezone,
+        scheduledLocalDate: scheduledDate, scheduledLocalTime: scheduledTime,
+      },
+      conn,
+    ));
 
     await logging.record(EVENT_TYPES.POST_SCHEDULED, {
       req, userId, message: 'Post scheduled',
-      context: { postId, targets: activeTargets.length, scheduledAtUtc: toMysqlUtc(utcInstant) } });
+      context: { postId, targets: enriched.targets.length, scheduledAtUtc: toMysqlUtc(utcInstant) } });
 
-    const enriched = await enrich(userId, scheduled);
+    const result = await enrich(userId, scheduled);
     return {
-      ...enriched,
-      // Honest message — nothing is published in this phase.
-      notice: 'Your post is queued. Automatic publishing to providers will be enabled in a later phase.',
+      ...result,
+      readiness: resolveReadiness(result),
+      // Honest: scheduled + queued, but publishing is gated by the live flag.
+      notice: config.publishing?.liveEnabled
+        ? 'Your post is scheduled. It will publish in the background at the scheduled time.'
+        : 'Your post is scheduled. Live publishing is turned off, so nothing is sent to a provider yet.',
     };
   }
 
@@ -477,6 +637,9 @@ export function createPostService({
   return {
     createDraft,
     updateDraft,
+    saveDraft,
+    getReadiness,
+    publishNow,
     setTargets,
     generateContent,
     generateImage,

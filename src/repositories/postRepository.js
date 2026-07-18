@@ -34,8 +34,14 @@ export function sanitizePost(row) {
     title: row.title ?? null,
     brief: row.prompt ?? null,
     status: row.status,
+    // E: manual-workspace metadata.
+    postOrigin: row.post_origin ?? null,
+    draftVersion: Number(row.draft_version ?? 1),
     scheduledAtUtc: row.scheduled_at_utc ?? null,
     originalTimezone: row.original_timezone ?? null,
+    scheduledLocalDate: row.scheduled_local_date ?? null,
+    scheduledLocalTime: row.scheduled_local_time ?? null,
+    lastManualEditAt: row.last_manual_edit_at ?? null,
     generationParams: safeParseJson(row.generation_params_json, {}),
     platformCaptions: safeParseJson(row.generated_platform_captions_json, {}),
     baseCaption: row.generated_base_caption ?? null,
@@ -55,7 +61,9 @@ export function sanitizePost(row) {
 }
 
 const POST_COLUMNS =
-  'id, user_id, title, prompt, status, scheduled_at_utc, original_timezone, ' +
+  'id, user_id, title, prompt, status, post_origin, draft_version, ' +
+  'scheduled_at_utc, original_timezone, scheduled_local_date, scheduled_local_time, ' +
+  'last_manual_edit_at, ' +
   'generation_params_json, generated_platform_captions_json, generated_base_caption, ' +
   'generated_image_headline, generated_image_subheadline, generated_image_alt_text, ' +
   'template_name, aspect_ratio, background_style, media_asset_id, openai_model, ' +
@@ -70,11 +78,14 @@ export async function createDraftPost(input, connection) {
     templateName = null,
     aspectRatio = null,
     backgroundStyle = null,
+    // E: honest provenance. Manual /create passes 'manual_draft'; planner and
+    // automation keep their own origins. NULL stays NULL (legacy-safe).
+    postOrigin = null,
   } = input;
   const [result] = await runner(connection).execute(
     `INSERT INTO scheduled_posts
-       (user_id, title, prompt, generation_params_json, template_name, aspect_ratio, background_style, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'draft')`,
+       (user_id, title, prompt, generation_params_json, template_name, aspect_ratio, background_style, post_origin, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
     [
       userId,
       title,
@@ -83,6 +94,7 @@ export async function createDraftPost(input, connection) {
       templateName,
       aspectRatio,
       backgroundStyle,
+      postOrigin,
     ],
   );
   return findPostByIdForUser(result.insertId, userId, connection);
@@ -138,6 +150,54 @@ export async function updateDraftPost(postId, userId, fields, connection) {
     params,
   );
   return findPostByIdForUser(postId, userId, connection);
+}
+
+/**
+ * E: save a manual draft atomically — brief fields, generation params and/or
+ * hand-edited per-platform copy in ONE row update, with optimistic concurrency.
+ *
+ * When `expectedVersion` is supplied the update only applies if the stored
+ * `draft_version` still matches, so two tabs editing the same draft cannot
+ * silently overwrite each other. `draft_version` is always bumped and the row's
+ * origin becomes manual_draft on first manual touch (never overriding a
+ * planner/automation origin). Returns `{ post }` on success, `{ conflict:true }`
+ * on a stale version, or `null` when the post is not owned/found.
+ */
+export async function saveManualDraft(postId, userId, { fields = {}, generationParams, platformCaptions, expectedVersion = null }, connection) {
+  const conn = runner(connection);
+  const sets = [];
+  const params = [];
+  for (const [key, column] of Object.entries(UPDATABLE_COLUMNS)) {
+    if (fields[key] !== undefined) { sets.push(`${column} = ?`); params.push(fields[key]); }
+  }
+  if (generationParams !== undefined) {
+    sets.push('generation_params_json = ?');
+    params.push(generationParams == null ? null : JSON.stringify(generationParams));
+  }
+  if (platformCaptions !== undefined) {
+    sets.push('generated_platform_captions_json = ?');
+    params.push(platformCaptions == null ? null : JSON.stringify(platformCaptions));
+    sets.push('last_manual_edit_at = UTC_TIMESTAMP()');
+  }
+  // First manual touch marks the origin; a planner/automation origin is preserved.
+  sets.push("post_origin = COALESCE(post_origin, 'manual_draft')");
+  sets.push('draft_version = draft_version + 1');
+
+  let where = 'id = ? AND user_id = ?';
+  const whereParams = [postId, userId];
+  if (expectedVersion != null) { where += ' AND draft_version = ?'; whereParams.push(expectedVersion); }
+
+  const [res] = await conn.execute(
+    `UPDATE scheduled_posts SET ${sets.join(', ')} WHERE ${where}`,
+    [...params, ...whereParams],
+  );
+  if ((res.affectedRows ?? 0) === 0) {
+    // draft_version always changes, so 0 rows means no match: either not
+    // owned/found, or (when a version was supplied) a stale write.
+    const exists = await ownsPost(postId, userId, conn);
+    return exists ? { conflict: true } : null;
+  }
+  return { post: await findPostByIdForUser(postId, userId, connection) };
 }
 
 export async function updateGeneratedContent(postId, userId, content, connection) {
@@ -274,15 +334,21 @@ export async function listPostTargets(postId, userId, connection) {
   }));
 }
 
-export async function schedulePost(postId, userId, { scheduledAtUtc, originalTimezone }, connection) {
-  const conn = runner(connection);
+/**
+ * Move a post to queued with its schedule, then make every non-published target
+ * pending. `manualOrigin` marks a manual post (never overriding a planner or
+ * automation origin). Shared by Schedule Later and Publish Now.
+ */
+async function queuePost(conn, postId, userId, { scheduledAtUtc, originalTimezone, scheduledLocalDate = null, scheduledLocalTime = null, manualOrigin }) {
   await conn.execute(
     `UPDATE scheduled_posts
-        SET status = ?, scheduled_at_utc = ?, original_timezone = ?
+        SET status = ?, scheduled_at_utc = ?, original_timezone = ?,
+            scheduled_local_date = ?, scheduled_local_time = ?,
+            post_origin = CASE WHEN post_origin IN ('planner_generated','automation_generated')
+                               THEN post_origin ELSE ? END
       WHERE id = ? AND user_id = ?`,
-    [POST_STATUS.QUEUED, scheduledAtUtc, originalTimezone, postId, userId],
+    [POST_STATUS.QUEUED, scheduledAtUtc, originalTimezone, scheduledLocalDate, scheduledLocalTime, manualOrigin, postId, userId],
   );
-  // Ensure every non-published target is pending.
   await conn.execute(
     `UPDATE scheduled_post_targets t
        JOIN scheduled_posts p ON p.id = t.scheduled_post_id
@@ -290,7 +356,17 @@ export async function schedulePost(postId, userId, { scheduledAtUtc, originalTim
       WHERE t.scheduled_post_id = ? AND p.user_id = ? AND t.status <> 'published'`,
     [TARGET_STATUS.PENDING, postId, userId],
   );
-  return findPostByIdForUser(postId, userId, connection);
+  return findPostByIdForUser(postId, userId, conn);
+}
+
+export async function schedulePost(postId, userId, schedule, connection) {
+  return queuePost(runner(connection), postId, userId, { ...schedule, manualOrigin: 'manual_scheduled' });
+}
+
+/** E: queue a post for immediate publishing (Publish Now). Same shape as a
+ * schedule at "now", but records the manual_publish_now origin. */
+export async function markPublishNow(postId, userId, schedule, connection) {
+  return queuePost(runner(connection), postId, userId, { ...schedule, manualOrigin: 'manual_publish_now' });
 }
 
 export async function cancelScheduledPost(postId, userId, connection) {
@@ -340,11 +416,13 @@ export default {
   findPostByIdForUser,
   listPostsForUser,
   updateDraftPost,
+  saveManualDraft,
   updateGeneratedContent,
   attachMediaAsset,
   replacePostTargets,
   listPostTargets,
   schedulePost,
+  markPublishNow,
   cancelScheduledPost,
   hasPublishedTargets,
   deleteDraftPost,

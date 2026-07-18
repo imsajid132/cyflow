@@ -32,6 +32,8 @@ import {
   listPostsValidator,
   setTargetsValidator,
   scheduleValidator,
+  saveDraftValidator,
+  publishNowValidator,
 } from '../validators/postValidators.js';
 
 export function createPostRoutes({ postController, requireAuth }) {
@@ -86,6 +88,17 @@ export function createPostRoutes({ postController, requireAuth }) {
     postController.setTargets,
   );
 
+  // E: Save Draft (versioned copy + fields), readiness, Publish Now.
+  router.post(
+    '/:id/save-draft',
+    requireAuth,
+    postWriteLimiter,
+    csrfProtection,
+    validate([...idParamValidator, ...saveDraftValidator]),
+    postController.saveDraft,
+  );
+  router.get('/:id/readiness', requireAuth, validate(idParamValidator), postController.readiness);
+
   router.post(
     '/:id/schedule',
     requireAuth,
@@ -93,6 +106,14 @@ export function createPostRoutes({ postController, requireAuth }) {
     csrfProtection,
     validate([...idParamValidator, ...scheduleValidator]),
     postController.schedule,
+  );
+  router.post(
+    '/:id/publish-now',
+    requireAuth,
+    scheduleLimiter,
+    csrfProtection,
+    validate([...idParamValidator, ...publishNowValidator]),
+    postController.publishNow,
   );
   router.post('/:id/cancel', requireAuth, scheduleLimiter, csrfProtection, validate(idParamValidator), postController.cancel);
   router.delete('/:id', requireAuth, scheduleLimiter, csrfProtection, validate(idParamValidator), postController.deleteDraft);

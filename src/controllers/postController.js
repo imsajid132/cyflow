@@ -53,6 +53,30 @@ export function createPostController({ postService = defaultPostService } = {}) 
     return sendSuccess(res, { post });
   });
 
+  // E: Save Draft — brief/params and/or hand-edited per-platform copy, versioned.
+  const saveDraft = asyncHandler(async (req, res) => {
+    const post = await postService.saveDraft(req.user.id, req.params.id, {
+      fields: {
+        title: req.body.title, brief: req.body.brief,
+        template: req.body.template, aspectRatio: req.body.aspectRatio,
+        backgroundStyle: req.body.backgroundStyle,
+        brandName: req.body.brandName, callToAction: req.body.callToAction,
+        language: req.body.language, tone: req.body.tone,
+        hashtagPreference: req.body.hashtagPreference,
+        additionalInstructions: req.body.additionalInstructions,
+      },
+      platformCaptions: req.body.platformCaptions,
+      expectedVersion: req.body.expectedVersion,
+    }, { req });
+    return sendSuccess(res, { post });
+  });
+
+  // E: per-target readiness for the workspace (compute, never store).
+  const readiness = asyncHandler(async (req, res) => {
+    const result = await postService.getReadiness(req.user.id, req.params.id);
+    return sendSuccess(res, { readiness: result });
+  });
+
   const schedule = asyncHandler(async (req, res) => {
     const result = await postService.schedulePost(
       req.user.id,
@@ -61,11 +85,21 @@ export function createPostController({ postService = defaultPostService } = {}) 
         scheduledDate: req.body.scheduledDate,
         scheduledTime: req.body.scheduledTime,
         timezone: req.body.timezone,
+        expectedVersion: req.body.expectedVersion,
       },
       { req },
     );
-    const { notice, ...post } = result;
-    return sendSuccess(res, { post, notice });
+    const { notice, readiness: r, ...post } = result;
+    return sendSuccess(res, { post, notice, readiness: r });
+  });
+
+  // E: Publish Now — validate readiness, queue + enqueue durable jobs, honest state.
+  const publishNow = asyncHandler(async (req, res) => {
+    const result = await postService.publishNow(
+      req.user.id, req.params.id, { expectedVersion: req.body.expectedVersion }, { req },
+    );
+    const { notice, readiness: r, ...post } = result;
+    return sendSuccess(res, { post, notice, readiness: r });
   });
 
   const cancel = asyncHandler(async (req, res) => {
@@ -88,11 +122,14 @@ export function createPostController({ postService = defaultPostService } = {}) 
     listPosts,
     getPost,
     updateDraft,
+    saveDraft,
+    readiness,
     generateContent,
     selectMedia,
     generateImage,
     setTargets,
     schedule,
+    publishNow,
     cancel,
     deleteDraft,
     getCapabilities,

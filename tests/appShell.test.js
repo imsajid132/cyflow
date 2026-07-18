@@ -184,18 +184,21 @@ test('the app never claims that publishing happens', () => {
   }
   // Pages that mention scheduling but are NOT the publishing surface must still
   // state publishing is not the thing they do.
-  const honest = ['create', 'dashboard', 'planner', 'plannerWeek', 'plannerNew']
+  const honest = ['dashboard', 'planner', 'plannerWeek', 'plannerNew']
     .map((p) => FRONTEND.find((f) => f.file === `assets/js/pages/${p}.js`));
   for (const page of honest) {
     assert.ok(page);
     assert.match(page.source, /later phase|future publishing phase|does not publish|not published|nothing is published/i,
       `${page.file} must state that publishing is not implemented yet`);
   }
-  // D2: the Queue is the publishing surface. It must honestly reflect the
-  // live-publishing flag being OFF (default) rather than imply posts go out.
-  const queue = FRONTEND.find((f) => f.file === 'assets/js/pages/queue.js');
-  assert.match(queue.source, /turned off|nothing is sent|not live/i,
-    'queue must honestly show when live publishing is disabled');
+  // D2/E: the Queue and Create Post are the publishing surfaces. Each must
+  // honestly reflect the live-publishing flag being OFF (default) rather than
+  // imply posts actually go out to a provider.
+  for (const name of ['queue', 'create']) {
+    const surface = FRONTEND.find((f) => f.file === `assets/js/pages/${name}.js`);
+    assert.match(surface.source, /turned off|nothing is sent|not live|not sent/i,
+      `${name} must honestly show when live publishing is disabled`);
+  }
 });
 
 test('the planner never claims autopilot is live', () => {

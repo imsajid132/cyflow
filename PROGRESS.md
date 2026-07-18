@@ -2,9 +2,37 @@
 
 An honest, append-only log of the production build, most recent first. Each
 milestone is one complete, tested, committed increment. No post has been sent to a
-live social provider yet: D2's real publishing adapters exist but are gated OFF by
+live social provider yet: the real publishing adapters exist but are gated OFF by
 default (`ENABLE_LIVE_PROVIDER_PUBLISHING=false`) and have only ever run against
 fake providers.
+
+## Milestone E — manual Create Post workspace
+
+**Branch:** `cyflow-social-v1` · **Migration:** `016_manual_publish_workspace.sql`
+(apply after 010 → … → 015)
+
+- `/create` is now a full manual workspace: pick exact platforms + accounts, write
+  and edit copy independently per platform, choose media, then Save Draft, Schedule
+  Later, or Publish Now. The browser never calls a provider; Publish Now enqueues
+  durable D2 jobs and returns an honest queued state.
+- Save Draft persists brief + hand-edited per-platform copy in one versioned write.
+  Editing one platform never changes a sibling (copied byte-for-byte). An identical
+  re-save is a no-op. Optimistic concurrency (`draft_version`): a stale save from a
+  second tab is rejected with a conflict, never a silent overwrite.
+- One readiness engine (`publishReadiness.js`) decides per-target readiness (active
+  account, post copy, required image, hard caption limit, editable lifecycle) and is
+  reused by Schedule, Publish Now and a `/readiness` endpoint. Word-band guidance is
+  an advisory warning, not a hard block.
+- Schedule Later stores the exact local date/time + a DST-correct UTC instant +
+  origin. Publish Now queues immediately and enqueues one durable job per ready
+  target, idempotently (repeated clicks make one job per target); jobs respect the
+  live-publishing flag, holding as attention-needed when it is off.
+- Migration 016 is additive (post_origin, draft_version, scheduled_local_date/time,
+  last_manual_edit_at + index on scheduled_posts); 010–015 unchanged. Manual-post
+  history is recorded in activity_logs (the revision table is planner-scoped).
+- 1029 tests pass; `npm audit` 0 (all + prod). Create-workspace browser smoke 18/18
+  (fake providers); D2 and Milestone-C smokes still green. Idempotency, stale-write,
+  ownership and direct-provider-call prevention were revert-verified.
 
 ## Milestone D2 — Meta publishing adapters, retries and reconciliation
 

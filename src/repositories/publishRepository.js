@@ -211,6 +211,23 @@ export async function listDuePublishTargets({ now = new Date(), limit = 50 } = {
   return rows.map(sanitizeTargetForPublish);
 }
 
+/**
+ * E (Publish Now): the enqueue-able targets of ONE owned post — those still
+ * `scheduled`/`retry_scheduled`, regardless of due time. Ownership is enforced
+ * by the post's user_id. Used to enqueue durable publish jobs immediately when a
+ * user chooses "Publish Now" (the job itself still respects the live flag).
+ */
+export async function listPublishTargetsForPost(postId, userId, connection) {
+  const [rows] = await runner(connection).execute(
+    `SELECT ${TARGET_SELECT} ${TARGET_JOIN}
+      WHERE p.id = ? AND p.user_id = ?
+        AND t.publish_status IN ('scheduled','retry_scheduled')
+      ORDER BY t.id ASC`,
+    [postId, userId],
+  );
+  return rows.map(sanitizeTargetForPublish);
+}
+
 /** Atomically claim a target for a publish attempt (scheduled/retry -> publishing). */
 export async function claimTargetForPublish(targetId, userId, connection) {
   const run = async (conn) => {
@@ -308,6 +325,6 @@ export async function rollupPostStatus(postId, userId, connection) {
 export default {
   sanitizeAttempt, createAttemptIfAbsent, updateAttempt, findAttemptById, findAttemptByIdempotencyKey,
   listAttemptsForTarget, listAttemptsToReconcile,
-  findTargetForPublish, listDuePublishTargets, claimTargetForPublish, updateTargetPublishState,
+  findTargetForPublish, listDuePublishTargets, listPublishTargetsForPost, claimTargetForPublish, updateTargetPublishState,
   retryTargetForPublish, rollupPostStatus,
 };

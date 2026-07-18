@@ -750,8 +750,13 @@ export function createFakePostRepository({ socialAccounts } = {}) {
         title: input.title ?? null,
         prompt: input.prompt ?? null,
         status: 'draft',
+        post_origin: input.postOrigin ?? null,
+        draft_version: 1,
         scheduled_at_utc: null,
         original_timezone: null,
+        scheduled_local_date: null,
+        scheduled_local_time: null,
+        last_manual_edit_at: null,
         generation_params_json: input.generationParams ?? null,
         generated_platform_captions_json: null,
         generated_base_caption: null,
@@ -868,12 +873,49 @@ export function createFakePostRepository({ socialAccounts } = {}) {
       }
       return out;
     },
-    async schedulePost(postId, userId, { scheduledAtUtc, originalTimezone }) {
+    // E: atomic versioned manual save (fields + params + hand-edited copy).
+    async saveManualDraft(postId, userId, { fields = {}, generationParams, platformCaptions, expectedVersion = null } = {}) {
+      const r = findRow(postId, userId);
+      if (!r) return null;
+      if (expectedVersion != null && Number(r.draft_version ?? 1) !== Number(expectedVersion)) {
+        return { conflict: true };
+      }
+      if (fields.title !== undefined) r.title = fields.title;
+      if (fields.prompt !== undefined) r.prompt = fields.prompt;
+      if (fields.templateName !== undefined) r.template_name = fields.templateName;
+      if (fields.aspectRatio !== undefined) r.aspect_ratio = fields.aspectRatio;
+      if (fields.backgroundStyle !== undefined) r.background_style = fields.backgroundStyle;
+      if (generationParams !== undefined) r.generation_params_json = generationParams ?? null;
+      if (platformCaptions !== undefined) {
+        r.generated_platform_captions_json = platformCaptions ?? null;
+        r.last_manual_edit_at = '2026-01-01 00:00:00';
+      }
+      r.post_origin = r.post_origin ?? 'manual_draft';
+      r.draft_version = Number(r.draft_version ?? 1) + 1;
+      return { post: sanitizePost(r) };
+    },
+    async schedulePost(postId, userId, { scheduledAtUtc, originalTimezone, scheduledLocalDate = null, scheduledLocalTime = null }) {
       const r = findRow(postId, userId);
       if (!r) return null;
       r.status = 'queued';
       r.scheduled_at_utc = scheduledAtUtc;
       r.original_timezone = originalTimezone;
+      r.scheduled_local_date = scheduledLocalDate;
+      r.scheduled_local_time = scheduledLocalTime;
+      if (!['planner_generated', 'automation_generated'].includes(r.post_origin)) r.post_origin = 'manual_scheduled';
+      targets
+        .filter((t) => String(t.scheduled_post_id) === String(postId) && t.status !== 'published')
+        .forEach((t) => { t.status = 'pending'; });
+      return sanitizePost(r);
+    },
+    // E: Publish Now — same as schedule at "now" but records manual_publish_now.
+    async markPublishNow(postId, userId, { scheduledAtUtc, originalTimezone }) {
+      const r = findRow(postId, userId);
+      if (!r) return null;
+      r.status = 'queued';
+      r.scheduled_at_utc = scheduledAtUtc;
+      r.original_timezone = originalTimezone;
+      if (!['planner_generated', 'automation_generated'].includes(r.post_origin)) r.post_origin = 'manual_publish_now';
       targets
         .filter((t) => String(t.scheduled_post_id) === String(postId) && t.status !== 'published')
         .forEach((t) => { t.status = 'pending'; });
@@ -1935,6 +1977,19 @@ export function createFakePublishRepository({ posts, accounts } = {}) {
         if (!p || !['queued', 'processing', 'partial', 'retrying'].includes(p.status)) continue;
         if (!['scheduled', 'retry_scheduled'].includes(t.publish_status ?? 'scheduled')) continue;
         if (!p.scheduled_at_utc || toMs(p.scheduled_at_utc) > toMs(now)) continue;
+        // eslint-disable-next-line no-await-in-loop
+        out.push(await shape(t));
+      }
+      return out;
+    },
+    // E (Publish Now): a specific owned post's enqueue-able targets, any due time.
+    async listPublishTargetsForPost(postId, userId) {
+      const out = [];
+      for (const t of posts._targets) {
+        if (String(t.scheduled_post_id) !== String(postId)) continue;
+        const p = findPost(t.scheduled_post_id);
+        if (!p || String(p.user_id) !== String(userId)) continue;
+        if (!['scheduled', 'retry_scheduled'].includes(t.publish_status ?? 'scheduled')) continue;
         // eslint-disable-next-line no-await-in-loop
         out.push(await shape(t));
       }

@@ -91,9 +91,9 @@ test('migrations run in an unbroken 010..015 sequence', () => {
     .filter((f) => /^\d{3}_.*\.sql$/.test(f))
     .map((f) => Number(f.slice(0, 3)))
     .sort((a, b) => a - b);
-  // Every migration from the first through 015 is present with no gaps.
-  const last = nums[nums.length - 1];
-  assert.equal(last, 15, 'the latest migration is 015');
+  // Every migration from 010 through 015 is present with no gaps (later
+  // milestones may add 016+, so 015 need not be the maximum).
+  assert.ok(nums.includes(15), 'migration 015 exists');
   for (let n = 10; n <= 15; n += 1) {
     assert.ok(nums.includes(n), `migration ${String(n).padStart(3, '0')} exists`);
   }

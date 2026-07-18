@@ -15,7 +15,34 @@ import {
   BACKGROUND_STYLES,
   CONTENT_TONES,
   HASHTAG_PREFERENCES,
+  PLATFORM_VALUES,
 } from '../config/constants.js';
+
+// E: a hand-edited per-platform copy payload — { platform: { postCopy, hashtags[] } }
+// for SELECTED, supported platforms only. Deep content rules live in the service;
+// this bounds shape + size and rejects unsupported platforms up front.
+const HARD_COPY_MAX = 100000;
+const platformCaptionsValidator = body('platformCaptions')
+  .optional({ nullable: true })
+  .isObject().withMessage('Invalid platform copy')
+  .bail()
+  .custom((value) => {
+    const keys = Object.keys(value);
+    if (keys.length > 5) throw new Error('Too many platforms');
+    for (const k of keys) {
+      if (!PLATFORM_VALUES.includes(k)) throw new Error('Unsupported platform');
+      const entry = value[k];
+      if (entry == null || typeof entry !== 'object' || Array.isArray(entry)) throw new Error('Invalid platform entry');
+      if (entry.postCopy != null && typeof entry.postCopy !== 'string') throw new Error('Invalid post copy');
+      if (typeof entry.postCopy === 'string' && entry.postCopy.length > HARD_COPY_MAX) throw new Error('Post copy is too long');
+      if (entry.hashtags != null && !Array.isArray(entry.hashtags)) throw new Error('Invalid hashtags');
+      if (Array.isArray(entry.hashtags) && entry.hashtags.length > 60) throw new Error('Too many hashtags');
+    }
+    return true;
+  });
+
+const expectedVersionValidator = body('expectedVersion')
+  .optional({ nullable: true }).isInt({ min: 1, max: 2000000000 }).withMessage('Invalid version');
 
 const optionalString = (field, max) =>
   body(field).optional({ nullable: true }).isString().withMessage(`${field} must be a string`).bail().isLength({ max }).withMessage(`${field} is too long`);
@@ -73,6 +100,19 @@ export const scheduleValidator = [
   body('scheduledDate').isString().matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('Invalid date'),
   body('scheduledTime').isString().matches(/^\d{2}:\d{2}$/).withMessage('Invalid time'),
   body('timezone').isString().isLength({ min: 1, max: 64 }).withMessage('Invalid timezone'),
+  expectedVersionValidator,
+];
+
+// E: Save Draft — brief/params (all optional) + optional hand-edited copy + version.
+export const saveDraftValidator = [
+  ...postFields,
+  platformCaptionsValidator,
+  expectedVersionValidator,
+];
+
+// E: Publish Now — only an optional expected version (readiness is server-side).
+export const publishNowValidator = [
+  expectedVersionValidator,
 ];
 
 export default {
@@ -82,4 +122,6 @@ export default {
   listPostsValidator,
   setTargetsValidator,
   scheduleValidator,
+  saveDraftValidator,
+  publishNowValidator,
 };

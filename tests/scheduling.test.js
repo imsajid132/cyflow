@@ -36,7 +36,7 @@ test('schedule converts Asia/Karachi to UTC, queues, and stays unpublished', asy
   assert.equal(res.status, 200);
   assert.equal(res.body.data.post.status, 'queued');
   assert.equal(res.body.data.post.originalTimezone, 'Asia/Karachi');
-  assert.match(res.body.data.notice, /queued/i);
+  assert.match(res.body.data.notice, /scheduled|queued/i);
 
   const utc = fromMysqlUtc(res.body.data.post.scheduledAtUtc);
   assert.equal(utc.getUTCHours(), 9); // 14:30 PKT -> 09:30 UTC
