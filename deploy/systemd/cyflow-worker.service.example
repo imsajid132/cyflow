@@ -1,0 +1,28 @@
+# EXAMPLE — review and replace every <placeholder> before use.
+# Install: /etc/systemd/system/cyflow-worker.service
+#
+# A SEPARATE process from the web service. Durable jobs (publishing,
+# reconciliation, exports, deletion, automation refill) only advance while this
+# runs. If it is down, the app looks healthy and silently stops working.
+[Unit]
+Description=Cyflow Social durable worker
+After=network-online.target mysql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<service-user>
+WorkingDirectory=<absolute-path-to-checkout>
+EnvironmentFile=<absolute-path-to-private-env-file>
+ExecStart=/usr/bin/env node src/workers/worker.js
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+# Longer than the web unit: the worker stops claiming at once but lets the
+# in-flight job reach a safe boundary. Must exceed the longest expected job.
+TimeoutStopSec=40
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

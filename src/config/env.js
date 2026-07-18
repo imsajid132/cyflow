@@ -393,6 +393,22 @@ export function buildConfig(raw = process.env) {
     }),
   };
 
+  /*
+   * Export archives are written to a private path, like media. Until now this
+   * had no configuration key at all: `createExportStorage()` fell back to
+   * `<cwd>/.data/exports`, inside the deployment directory, so a staging or
+   * production host had no way to put export archives on persistent storage.
+   *
+   * The default is that same path, so behaviour is unchanged when the variable
+   * is unset. It must be a DIFFERENT directory from media: export cleanup
+   * removes expired archives by scanning its own root, and pointed at the media
+   * directory that sweep would delete users' images.
+   */
+  const exports_ = {
+    storagePath: optionalString('EXPORT_STORAGE_PATH')
+      || path.join(process.cwd(), '.data', 'exports'),
+  };
+
   const logLevel = optionalString('LOG_LEVEL') || 'info';
 
   if (errors.length > 0) {
@@ -428,6 +444,7 @@ export function buildConfig(raw = process.env) {
     publishing: Object.freeze(publishing),
     limits: Object.freeze(limits),
     media: Object.freeze(media),
+    exports: Object.freeze(exports_),
   });
 
   const providerAvailability = Object.freeze({

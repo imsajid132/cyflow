@@ -1,0 +1,18 @@
+# EXAMPLE — review and replace every <placeholder> before use.
+# Install: /etc/systemd/system/cyflow-scheduler.service
+#
+# Type=oneshot. Started by cyflow-scheduler.timer, exits when the sweep is done.
+# Use EITHER this timer OR a host cron entry calling `npm run scheduler:once`.
+# Both together will double-schedule every due job.
+[Unit]
+Description=Cyflow Social scheduler (single sweep)
+After=network-online.target mysql.service
+
+[Service]
+Type=oneshot
+User=<service-user>
+WorkingDirectory=<absolute-path-to-checkout>
+EnvironmentFile=<absolute-path-to-private-env-file>
+ExecStart=/usr/bin/env node src/scheduler/runOnce.js
+NoNewPrivileges=true
+PrivateTmp=true

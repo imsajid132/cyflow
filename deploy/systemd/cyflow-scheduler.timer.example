@@ -1,0 +1,16 @@
+# EXAMPLE — review before use.
+# Install: /etc/systemd/system/cyflow-scheduler.timer
+# Enable:  systemctl enable --now cyflow-scheduler.timer
+[Unit]
+Description=Run the Cyflow Social scheduler sweep every 5 minutes
+# Do not enable this alongside a cron entry for the same command.
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+# A sweep that overruns must not start a second copy on top of itself.
+AccuracySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

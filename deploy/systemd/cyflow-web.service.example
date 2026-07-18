@@ -1,0 +1,24 @@
+# EXAMPLE — review and replace every <placeholder> before use.
+# Install: /etc/systemd/system/cyflow-web.service
+[Unit]
+Description=Cyflow Social web
+After=network-online.target mysql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<service-user>
+WorkingDirectory=<absolute-path-to-checkout>
+# Private file, mode 0600, owned by <service-user>. NEVER commit it.
+EnvironmentFile=<absolute-path-to-private-env-file>
+ExecStart=/usr/bin/env node src/server.js
+Restart=on-failure
+RestartSec=5
+# server.js drains in-flight requests on SIGTERM; give it room.
+KillSignal=SIGTERM
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

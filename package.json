@@ -14,7 +14,12 @@
     "test:watch": "node --test --watch",
     "scheduler:once": "node src/scheduler/runOnce.js",
     "worker": "node src/workers/worker.js",
-    "worker:once": "node src/workers/runWorkerOnce.js"
+    "worker:once": "node src/workers/runWorkerOnce.js",
+    "staging:preflight": "node tools/staging-preflight.mjs",
+    "staging:health": "node tools/staging-health.mjs",
+    "staging:init-storage": "node tools/staging-init-storage.mjs",
+    "migrate:status": "node tools/migration-status.mjs",
+    "migrate:check": "node tools/migration-check.mjs"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

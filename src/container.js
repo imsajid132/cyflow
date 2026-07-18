@@ -36,6 +36,7 @@ import { createPublishController } from './controllers/publishController.js';
 import { createAccountDataService } from './services/accountDataService.js';
 import { createAccountController } from './controllers/accountController.js';
 import { createMediaStorage } from './services/mediaStorage.js';
+import { createExportStorage } from './services/exportStorage.js';
 import * as accountDataRepositoryModule from './repositories/accountDataRepository.js';
 import { openaiContentService as realOpenAI } from './services/openaiContentService.js';
 import { socialImageService as realSocialImage } from './services/socialImageService.js';
@@ -251,7 +252,11 @@ export function buildContainer(overrides = {}) {
     media: mediaRepo, apiUsage, jobs: backgroundJobRepository,
     verifyPassword: authService.verifyPassword, logging, withTransaction, now,
     mediaStore: mediaByteStore,
-    ...(overrides.exportStore ? { exportStore: overrides.exportStore } : {}),
+    // Config-backed, mirroring mediaStore above. Without this the export store
+    // always fell back to `<cwd>/.data/exports` and no deployment could put
+    // export archives on persistent storage. An explicit override still wins,
+    // so tests keep injecting their own.
+    exportStore: overrides.exportStore ?? createExportStorage(config.exports?.storagePath),
   });
 
   const durableJobService = overrides.durableJobService ?? createDurableJobService({

@@ -6,6 +6,33 @@ live social provider yet: the real publishing adapters exist but are gated OFF b
 default (`ENABLE_LIVE_PROVIDER_PUBLISHING=false`) and have only ever run against
 fake providers.
 
+## Milestone H2 — safe staging deployment package
+
+**Branch:** `cyflow-social-v1` · **No migration** (010–017 unchanged, no 018)
+
+- Builds the package an operator will use the moment a staging target exists.
+  **Staging is still not deployed**, and nothing here has run against a real host.
+- Five operator commands, each read-only and none of which deploys anything:
+  `staging:preflight`, `staging:health`, `staging:init-storage`,
+  `migrate:status`, `migrate:check`. Preflight blocks on a non-HTTPS or
+  localhost origin, a placeholder session secret, a wrong-length encryption key,
+  a production-looking database, **live publishing enabled**, and storage paths
+  that are public, temporary or shared between media and exports.
+- Primary method is plain Node processes under PM2 with host cron for the
+  scheduler; systemd templates are provided as labelled alternatives. **Docker
+  was deliberately not added** — with no host to build or run it on, an
+  unexecuted container definition would look supported without being it.
+- One backend gap fixed: `EXPORT_STORAGE_PATH` did not exist, so export
+  archives always landed in `<cwd>/.data/exports` and no environment could put
+  them on persistent storage. Wired through config and the container mirroring
+  the media pattern, defaulting to the old path so behaviour is unchanged.
+- Three bugs in the new tooling, caught by its own tests. The worst:
+  `production` does not match `cyflow_production` because underscore is a
+  word character — the production-target check silently did nothing for the most
+  likely database name.
+- 1093 tests pass (26 new); `npm audit` 0 (all + prod); all nine browser suites
+  green. Every documented command was run and its exit code checked.
+
 ## Milestone H — staging verification (blocked at the environment gate)
 
 **Branch:** `cyflow-social-v1` · **No migration** (010–017 unchanged, no 018)
