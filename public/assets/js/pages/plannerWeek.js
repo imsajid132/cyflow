@@ -13,9 +13,8 @@ import {
   el, card, pageHead, notice, toast, emptyState, skeleton,
   field, selectField, val, setLoading, confirmModal, clear,
 } from '../ui.js';
-import { platformNames } from '../icons.js';
 import {
-  plannerCard, statusChip, dayKeyOf, dayLabelOf, formatSlot, TEMPLATE_LABELS,
+  plannerCard, statusChip, dayKeyOf, dayLabelOf, formatSlot, TEMPLATE_LABELS, platformTargetLabel,
 } from '../components/plannerCard.js';
 import { platformEditor } from '../components/platformEditor.js';
 import { revisionTimeline } from '../components/revisionTimeline.js';
@@ -24,6 +23,34 @@ import { deletePlanButton } from '../components/deletePlan.js';
 
 const TEMPLATE_OPTIONS = Object.entries(TEMPLATE_LABELS).map(([value, label]) => ({ value, label }));
 const BACKGROUNDS = ['light', 'dark', 'gradient-blue', 'gradient-warm', 'neutral'];
+
+/** "Jul 19" from a YYYY-MM-DD date, without dragging it through a timezone. */
+function shortDate(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+  if (!m) return null;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return Number.isNaN(d.getTime())
+    ? null
+    : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
+/**
+ * The plan's date range, or an honest statement that there is not one yet.
+ *
+ * This printed "null to null" on every automation-backed plan: the run is
+ * created before any content exists, so its stored start and end dates are null
+ * and were interpolated straight into the string. The server now derives the
+ * range from the items themselves; this guards the remaining case where a plan
+ * genuinely has no scheduled posts, so a literal "null" can never be rendered
+ * again whatever the server sends.
+ */
+function planRangeLabel(plan) {
+  const start = shortDate(plan?.run?.startDate);
+  const end = shortDate(plan?.run?.endDate);
+  if (start && end) return start === end ? start : `${start} to ${end}`;
+  if (start || end) return start || end;
+  return 'Schedule not prepared';
+}
 
 export async function render(root, ctx) {
   const params = new URLSearchParams(window.location.search);
@@ -106,7 +133,7 @@ export async function render(root, ctx) {
       ]),
       el('p', {
         className: 'card-sub',
-        text: `${plan.run.startDate} to ${plan.run.endDate} · ${plan.run.timezone || 'UTC'} · ${plan.run.postsPerDay || 1} post${(plan.run.postsPerDay || 1) === 1 ? '' : 's'} per day · ${plan.items.length} total`,
+        text: `${planRangeLabel(plan)} · ${plan.run.timezone || 'UTC'} · ${plan.run.postsPerDay || 1} post${(plan.run.postsPerDay || 1) === 1 ? '' : 's'} per day · ${plan.items.length} total`,
       }),
       el('div', { className: 'row', attrs: { style: 'gap:.5rem;flex-wrap:wrap;margin-top:.5rem' } },
         Object.entries(counts).filter(([, n]) => n > 0).map(([status, n]) =>
@@ -634,7 +661,7 @@ export async function render(root, ctx) {
         preview,
         el('div', { className: 'row', attrs: { style: 'gap:.4rem;justify-content:center' } }, [chooseImageBtn]),
         item.duplicationNotes ? notice(item.duplicationNotes, 'warn') : null,
-        el('p', { className: 'card-sub', text: `${formatSlot(item.scheduledFor)} · ${platformNames(item.platformTargets).join(', ')}` }),
+        el('p', { className: 'card-sub', text: `${formatSlot(item.scheduledFor)} · ${platformTargetLabel(item)}` }),
         // Per-platform post copy: one tab per selected platform, each editable
         // and validated on its own. This is the C2 gap closed.
         editor.node,

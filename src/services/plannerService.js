@@ -168,6 +168,13 @@ export function createPlannerService({
   revisions: revisionsRepo = defaultPlannerRevisions,
   businessProfiles = defaultBusinessProfiles,
   socialAccounts = defaultSocialAccounts,
+  /*
+   * Read-only, and optional. Used solely to resolve which connected account a
+   * planned post will go to, so the board can say "Facebook · NYC Waterproofing"
+   * instead of just "Facebook". Absent in tests that do not care, hence the
+   * guard in resolveTargetAccounts.
+   */
+  automations = null,
   posts = defaultPostRepo,
   mediaRepository = defaultMediaRepo,
   apiUsage = defaultApiUsage,
@@ -1288,7 +1295,24 @@ export function createPlannerService({
     if (!run) throw new NotFoundError('Plan not found');
     const items = await runsRepo.listItemsForRun(runId, userId);
     const counts = await runsRepo.countItemsByStatus(runId, userId);
-    return { run, items: await Promise.all(items.map((i) => decorateItem(userId, i))), counts };
+
+    /*
+     * Resolved ONCE per plan, not per item: it is one automation lookup and one
+     * account list for the whole board, and every card needs the same answer.
+     */
+    const accounts = await resolveTargetAccounts(userId, run);
+    const attach = (item) => ({
+      ...item,
+      // Only the accounts for the platforms THIS post targets.
+      targetAccounts: accounts.filter((a) => (item.platformTargets || []).includes(a.platform)),
+    });
+
+    const decorated = await Promise.all(items.map(async (i) => attach(await decorateItem(userId, i))));
+    return {
+      run: { ...run, ...derivePlanRange(run, items) },
+      items: decorated,
+      counts,
+    };
   }
 
   /**
@@ -1297,6 +1321,82 @@ export function createPlannerService({
    * The fingerprint is stripped: it is an internal similarity signal, not
    * something the client has any use for.
    */
+  /**
+   * Which requested fields are NOT reflected in the row that came back.
+   *
+   * Compared by value, because that is the only claim worth making: "the
+   * database now holds what you asked for". Timestamps are compared loosely —
+   * MySQL returns `scheduled_for` in its own format, and a string mismatch
+   * there is a formatting difference, not a lost edit.
+   */
+  function verifyPersisted(saved, fields) {
+    if (!saved) return Object.keys(fields);
+    const loose = new Set(['scheduledFor', 'editedFields', 'approvalStatus', 'qualityStatus', 'qualityFailures']);
+    const mismatched = [];
+    for (const [name, requested] of Object.entries(fields)) {
+      if (loose.has(name)) continue;
+      const actual = saved[name];
+      if (JSON.stringify(actual ?? null) !== JSON.stringify(requested ?? null)) mismatched.push(name);
+    }
+    return mismatched;
+  }
+
+  /**
+   * The account each platform will actually post to, for one plan.
+   *
+   * Resolved from the PERSISTED relation: the run's automation holds the
+   * selected account ids, and those ids are looked up among the accounts this
+   * user owns. Nothing here comes from the client, so a caller cannot label a
+   * post with someone else's page.
+   *
+   * Only the platform and the display name are returned. The account id, the
+   * provider account id, the username and the token stay server-side: an
+   * operator needs to know it is going to "NYC Waterproofing", not which row
+   * that is.
+   */
+  async function resolveTargetAccounts(userId, run) {
+    if (!run?.contentAutomationId || !automations?.findAutomationByIdForUser) return [];
+    const automation = await automations
+      .findAutomationByIdForUser(run.contentAutomationId, userId)
+      .catch(() => null);
+    if (!automation) return [];
+    const selected = new Set((automation.selectedAccountIds || []).map(String));
+    if (!selected.size) return [];
+    const owned = await socialAccounts.listAccountsForUser(userId).catch(() => []);
+    const out = [];
+    for (const account of owned) {
+      if (!selected.has(String(account.id))) continue;
+      const platform = ACCOUNT_TYPE_TO_PLATFORM[account.accountType];
+      if (!platform) continue;
+      const accountName = (account.displayName || '').trim();
+      if (!accountName) continue;
+      out.push({ platform, accountName });
+    }
+    return out;
+  }
+
+  /**
+   * The plan's real date range, from the items it actually contains.
+   *
+   * An automation-backed run is created before any content exists, so its
+   * start_date and end_date are null and stay null — the board rendered
+   * "null to null" for the whole life of the plan. The items know their own
+   * dates, so the range is derived from them and the stored columns are used
+   * only as a fallback for runs that do set them.
+   */
+  function derivePlanRange(run, items) {
+    const dates = (items || [])
+      .map((i) => (i.scheduledFor ? String(i.scheduledFor).slice(0, 10) : null))
+      .filter((d) => d && /^\d{4}-\d{2}-\d{2}$/.test(d))
+      .sort();
+    if (dates.length) return { startDate: dates[0], endDate: dates[dates.length - 1] };
+    const start = run?.startDate ?? null;
+    const end = run?.endDate ?? null;
+    // Null rather than the strings "null": the client decides how to say
+    // "nothing scheduled yet", and must never be handed a literal to print.
+    return { startDate: start || null, endDate: end || null };
+  }
+
   async function decorateItem(userId, item) {
     let media = null;
     if (item.mediaAssetId) {
@@ -1539,25 +1639,50 @@ export function createPlannerService({
       }
     }
 
-    const updated = await runsRepo.updateItem(itemId, userId, fields);
-
     /*
-     * Manual-edit revisions, AFTER the row is saved so a failed save leaves no
-     * orphan. One per platform whose copy actually changed; the repository
-     * suppresses an identical repeat, so a duplicate save adds nothing.
+     * The row and its revisions are written TOGETHER.
+     *
+     * They used to be two independent awaits with the revision swallowing its
+     * own errors, so a failed revision left a saved row with no history, and a
+     * failed save could still be reported as success. One transaction: both
+     * land, or neither does.
      */
-    for (const rev of platformRevisions) {
-      // eslint-disable-next-line no-await-in-loop
-      await revisionsRepo.recordRevision({
-        userId,
-        plannerRunItemId: itemId,
-        platform: rev.platform,
-        revisionType: 'manual_edit',
-        postCopy: rev.postCopy,
-        hashtags: rev.hashtags,
-        validationStatus: rev.validationStatus,
-      }).catch(() => {});
-    }
+    const updated = await withTransaction(async (conn) => {
+      const saved = await runsRepo.updateItem(itemId, userId, fields, conn);
+
+      /*
+       * Confirm the write from PERSISTED state before calling it a save.
+       *
+       * `updateItem` discards the driver's result, and a MySQL UPDATE that
+       * matches no row is not an error — so a request for an item that no
+       * longer exists, or that belongs to someone else, returned the unchanged
+       * row and the client showed "Saved." over content that had not moved.
+       * Reading the values back is engine-agnostic and catches every version of
+       * that: no matched row, a rolled-back statement, a silent no-op.
+       */
+      const unconfirmed = verifyPersisted(saved, fields);
+      if (unconfirmed.length) {
+        throw new ConflictError(
+          'Your changes could not be saved. Reopen the post and try again — nothing was changed.',
+        );
+      }
+
+      // One per platform whose copy actually changed. The repository suppresses
+      // an identical repeat, so a duplicate save adds no second revision.
+      for (const rev of platformRevisions) {
+        // eslint-disable-next-line no-await-in-loop
+        await revisionsRepo.recordRevision({
+          userId,
+          plannerRunItemId: itemId,
+          platform: rev.platform,
+          revisionType: 'manual_edit',
+          postCopy: rev.postCopy,
+          hashtags: rev.hashtags,
+          validationStatus: rev.validationStatus,
+        }, conn);
+      }
+      return saved;
+    });
 
     await logging.record(EVENT_TYPES.PLANNER_ITEM_UPDATED, {
       req, userId, message: 'Planned post updated',

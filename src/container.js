@@ -174,6 +174,13 @@ export function buildContainer(overrides = {}) {
       revisions: plannerRevisions,
       businessProfiles,
       socialAccounts,
+      /*
+       * Lets the weekly board name the account a post targets. Resolved inline
+       * rather than through the `automationRepository` const below, which is
+       * declared AFTER this call — referencing it here is a temporal dead zone
+       * error that takes down every route, not just the board.
+       */
+      automations: overrides.automationRepository ?? automationRepositoryModule,
       posts: postRepo,
       mediaRepository: mediaRepo,
       apiUsage,

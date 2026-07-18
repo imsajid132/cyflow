@@ -189,6 +189,30 @@ function failureDetails(item) {
  * @param {object} item
  * @param {{ selected, onSelect, onOpen, onApprove, onReject, onRetry }} handlers
  */
+/**
+ * "Facebook · NYC Waterproofing" — the platform AND the account it posts to.
+ *
+ * The board used to show only "Facebook", so with more than one Page connected
+ * an operator could not tell which one a post was about to go to. The account
+ * name comes from `targetAccounts`, which the server resolves from the stored
+ * automation-to-account relation; the client never labels a post from anything
+ * it was handed by a form.
+ *
+ * Falls back to the bare platform name when no account is resolved (a manual
+ * plan, or an automation whose account was disconnected). Saying "Facebook" is
+ * honest; inventing a name would not be.
+ */
+export function platformTargetLabel(item) {
+  const accounts = Array.isArray(item?.targetAccounts) ? item.targetAccounts : [];
+  const names = platformNames(item?.platformTargets || []);
+  const targets = item?.platformTargets || [];
+  return targets.map((platform, i) => {
+    const label = names[i] || platform;
+    const match = accounts.find((a) => a.platform === platform && a.accountName);
+    return match ? `${label} · ${match.accountName}` : label;
+  }).join(', ');
+}
+
 export function plannerCard(item, handlers = {}) {
   const checkbox = el('input', {
     className: 'card-select',
@@ -265,7 +289,7 @@ export function plannerCard(item, handlers = {}) {
   // platformTargets holds PLATFORM ids. PROVIDER_LABELS is keyed by provider,
   // so it resolved Instagram and Threads by coincidence and missed Facebook,
   // printing the raw lowercase id on the card.
-  const platforms = platformNames(item.platformTargets).join(', ');
+  const platforms = platformTargetLabel(item);
 
   return el('article', {
     className: `planner-card${item.approvalStatus === 'rejected' ? ' is-rejected' : ''}`,

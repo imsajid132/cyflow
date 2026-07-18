@@ -223,7 +223,17 @@ test('nothing renders a platform id through the provider label map', () => {
   for (const [name, src] of [['plannerCard', CARD], ['plannerWeek', WEEK], ['plannerNew', NEW]]) {
     assert.ok(!/PROVIDER_LABELS\[/.test(src), `${name} looks up a platform id in the provider map`);
   }
-  assert.match(CARD, /platformNames\(item\.platformTargets\)/);
+  // The card resolves platform ids through platformNames. It now does so inside
+  // platformTargetLabel, which also appends the target account name, so the
+  // board and the drawer cannot disagree about what a post is aimed at.
+  assert.match(CARD, /export function platformTargetLabel/,
+    'the card must own one label renderer for platform + account');
+  assert.match(CARD, /platformNames\(item\?\.platformTargets \|\| \[\]\)/,
+    'platform ids must still resolve through platformNames');
+  assert.match(CARD, /const platforms = platformTargetLabel\(item\)/,
+    'the card must render through the shared helper');
+  assert.match(WEEK, /platformTargetLabel\(item\)/,
+    'the edit drawer must use the same helper as the card, not its own formatting');
 });
 
 // --- a failed plan cannot be approved wholesale ------------------------------
