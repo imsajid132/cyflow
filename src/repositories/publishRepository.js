@@ -265,7 +265,14 @@ export async function updateTargetPublishState(targetId, userId, fields, connect
     }
   }
   if (fields.providerResponse !== undefined) {
-    sets.push('t.`provider_response_json` = CAST(? AS JSON)');
+    /*
+     * Plain parameter, not CAST(? AS JSON): that syntax is MySQL-only and is
+     * rejected outright by MariaDB, which is what broke automation creation on
+     * the deployed host. This is the publishing path's copy of the same bug —
+     * it would have failed the moment a provider response was first recorded,
+     * i.e. on the first live publish. See automationRepository.createAutomation.
+     */
+    sets.push('t.`provider_response_json` = ?');
     params.push(fields.providerResponse == null ? null : JSON.stringify(fields.providerResponse));
   }
   if (!sets.length) return;

@@ -83,6 +83,27 @@ const A_COLS = 'id, user_id, business_profile_id, planner_run_id, name, status, 
   + 'low_buffer_days, missed_post_policy, failure_policy, config_snapshot_json, generated_through_date, '
   + 'attention_reason, last_refill_at, next_refill_at, created_at, updated_at, stopped_at';
 
+/*
+ * JSON columns are written as plain bound strings, NOT wrapped in
+ * `CAST(? AS JSON)`.
+ *
+ * This is what broke automation creation on the deployed host. `CAST(x AS JSON)`
+ * is MySQL-only syntax: MariaDB's CAST accepts BINARY, CHAR, DATE, DATETIME,
+ * DECIMAL, DOUBLE, FLOAT, INTEGER, SIGNED, TIME and UNSIGNED, and nothing else,
+ * so on MariaDB the statement is rejected before it runs and the request becomes
+ * a 500. MariaDB still ACCEPTS `JSON` in DDL — it is an alias for LONGTEXT — so
+ * the migrations applied cleanly and the schema looked correct, which is what
+ * made this hard to see.
+ *
+ * The cast was never doing anything: every other JSON column in this codebase
+ * (35 of them, across business profiles, planner runs, revisions, jobs and
+ * activity logs) is written as a plain parameter and always has been. MySQL
+ * implicitly converts a valid JSON string on assignment to a JSON column, and
+ * MariaDB stores the text. Removing the cast makes this path identical to every
+ * path that already works, on both engines.
+ *
+ * No migration is required: the column types are unchanged and compatible.
+ */
 export async function createAutomation(input, connection) {
   const [res] = await runner(connection).execute(
     `INSERT INTO content_automations
@@ -90,8 +111,8 @@ export async function createAutomation(input, connection) {
         posting_times_json, posts_per_day, rhythm_key, selected_platforms_json, selected_account_ids_json,
         start_date, end_date, generation_horizon_days, minimum_ready_days, low_buffer_days,
         missed_post_policy, failure_policy, config_snapshot_json)
-     VALUES (?, ?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, CAST(? AS JSON), CAST(? AS JSON),
-             ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON))`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+             ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.userId, input.businessProfileId ?? null, input.name ?? null,
       input.status ?? 'draft', input.mode ?? 'review', input.timezone,
@@ -149,7 +170,8 @@ export async function updateAutomation(id, userId, fields, connection) {
   }
   for (const [key, col] of JSON_UPDATABLE) {
     if (Object.prototype.hasOwnProperty.call(fields, key)) {
-      sets.push(`\`${col}\` = CAST(? AS JSON)`);
+      // Plain parameter, not CAST(? AS JSON) — see createAutomation above.
+      sets.push(`\`${col}\` = ?`);
       params.push(fields[key] == null ? null : JSON.stringify(fields[key]));
     }
   }

@@ -119,7 +119,16 @@ export function createAutomationService({
       } else out.selectedPlatforms = clean;
     }
     if (!partial || has('selectedAccountIds')) {
-      out.selectedAccountIds = (Array.isArray(input.selectedAccountIds) ? input.selectedAccountIds : []).map(String);
+      /*
+       * Deduplicated, like selectedPlatforms, selectedWeekdays and postingTimes
+       * beside it. This was the one selection field that kept repeats: sending
+       * the same page id twice stored it twice, and the automation would then
+       * publish to that one page twice per slot. A double-submitted wizard or a
+       * repeated checkbox event is enough to produce it.
+       */
+      out.selectedAccountIds = [...new Set(
+        (Array.isArray(input.selectedAccountIds) ? input.selectedAccountIds : []).map(String),
+      )];
     }
     if (!partial || has('generationHorizonDays')) {
       const n = Number(input.generationHorizonDays ?? AUTOMATION_LIMITS.DEFAULT_HORIZON_DAYS);
