@@ -1,0 +1,24 @@
+# Cyflow Social — public marketing pages are crawlable; the authenticated app is not.
+User-agent: *
+Allow: /$
+Allow: /features
+Allow: /how-it-works
+Allow: /security
+Allow: /about
+Allow: /contact
+Allow: /privacy
+Allow: /terms
+Disallow: /dashboard
+Disallow: /create
+Disallow: /queue
+Disallow: /calendar
+Disallow: /media
+Disallow: /planner
+Disallow: /automations
+Disallow: /connections
+Disallow: /integrations
+Disallow: /brand
+Disallow: /profile
+Disallow: /settings
+Disallow: /onboarding
+Disallow: /api/

@@ -6,6 +6,29 @@ live social provider yet: the real publishing adapters exist but are gated OFF b
 default (`ENABLE_LIVE_PROVIDER_PUBLISHING=false`) and have only ever run against
 fake providers.
 
+## Milestone F — public website + premium design system
+
+**Branch:** `cyflow-social-v1` · **No migration** (design + content only)
+
+- A public marketing website: `/`, `/features`, `/how-it-works`, `/security`,
+  `/about`, `/contact`, `/privacy`, `/terms` — a public layout with its own header
+  and footer, one `marketing.js` module, and per-route titles + meta descriptions.
+  `robots.txt` keeps every authenticated route and `/api/` out of the index.
+- Honest content only: the three supported platforms, no testimonials, customer
+  counts, ratings, guarantees or certifications (the Security page disclaims SOC 2
+  / ISO / HIPAA / PCI). Publishing is described as depending on your connected Meta
+  accounts and approved permissions. Contact does not fake a form; Privacy and
+  Terms are marked drafts pending legal review, with no invented legal entity.
+- The public site is built on a design-system extension that reuses the app's ink
+  and brand tokens, so the two surfaces feel like one product. The authenticated
+  app's per-page visual overhaul is deliberately deferred (it needs a rendered
+  review of each screen); nothing in the app was regressed.
+- The auth boundary holds: public routes need no login; app routes still redirect
+  to `/login` when signed out.
+- 1036 tests pass; `npm audit` 0 (all + prod). Public-site browser smoke 38/38
+  (render, no overflow at 1440/390px, nav, auth boundary, zero console errors),
+  screenshots reviewed. Create, D2 and Milestone-C smokes still green.
+
 ## Milestone E — manual Create Post workspace
 
 **Branch:** `cyflow-social-v1` · **Migration:** `016_manual_publish_workspace.sql`

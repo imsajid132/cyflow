@@ -42,7 +42,10 @@ const FRONTEND = frontendFiles().map((file) => ({
 
 test('the app declares exactly the planned routes', () => {
   assert.deepEqual([...APP_ROUTES], [
-    '/', '/login', '/register', '/onboarding', '/onboarding/business',
+    '/',
+    // F: public marketing site.
+    '/features', '/how-it-works', '/security', '/about', '/contact', '/privacy', '/terms',
+    '/login', '/register', '/onboarding', '/onboarding/business',
     '/onboarding/brand', '/onboarding/connections', '/dashboard', '/brand',
     '/connections', '/create', '/queue', '/calendar',
     // C3: media library.

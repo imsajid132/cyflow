@@ -46,6 +46,14 @@ const PUBLIC_DIR = path.resolve(__dirname, '..', 'public');
  */
 export const APP_ROUTES = Object.freeze([
   '/',
+  // F: public marketing site (no auth; served the same shell).
+  '/features',
+  '/how-it-works',
+  '/security',
+  '/about',
+  '/contact',
+  '/privacy',
+  '/terms',
   '/login',
   '/register',
   '/onboarding',

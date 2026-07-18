@@ -11,7 +11,16 @@ import * as api from './api.js';
 import { clear, skeleton, toast } from './ui.js';
 
 const ROUTES = {
-  '/': { redirect: true },
+  // F: public marketing site. No auth; a signed-in visitor still sees these,
+  // with an "Open dashboard" affordance in the public header.
+  '/': { layout: 'public', view: 'home', load: () => import('./pages/marketing.js') },
+  '/features': { layout: 'public', view: 'features', load: () => import('./pages/marketing.js') },
+  '/how-it-works': { layout: 'public', view: 'how-it-works', load: () => import('./pages/marketing.js') },
+  '/security': { layout: 'public', view: 'security', load: () => import('./pages/marketing.js') },
+  '/about': { layout: 'public', view: 'about', load: () => import('./pages/marketing.js') },
+  '/contact': { layout: 'public', view: 'contact', load: () => import('./pages/marketing.js') },
+  '/privacy': { layout: 'public', view: 'privacy', load: () => import('./pages/marketing.js') },
+  '/terms': { layout: 'public', view: 'terms', load: () => import('./pages/marketing.js') },
   '/login': { layout: 'auth', view: 'login', load: () => import('./pages/auth.js') },
   '/register': { layout: 'auth', view: 'register', load: () => import('./pages/auth.js') },
   '/onboarding': { redirectTo: '/onboarding/business' },
@@ -33,6 +42,18 @@ const ROUTES = {
   '/profile': { layout: 'app', auth: true, load: () => import('./pages/profile.js') },
   '/settings': { layout: 'app', auth: true, load: () => import('./pages/settings.js') },
   '/automations': { layout: 'app', auth: true, load: () => import('./pages/automations.js') },
+};
+
+// F: public page titles + meta descriptions (SEO). Set client-side per route.
+const PUBLIC_META = {
+  '/': ['Cyflow Social — plan, write and publish social content', 'Plan a week of content, write each platform separately, and publish to Facebook Pages, Instagram Professional and Threads with durable background jobs.'],
+  '/features': ['Features · Cyflow Social', 'Platform-specific copy, manual drafts and scheduling, rolling automations, durable publishing, a media library, and your own AI keys.'],
+  '/how-it-works': ['How it works · Cyflow Social', 'From a blank draft to published content: connect supported accounts, write each platform, then save, schedule or publish with honest status.'],
+  '/security': ['Security · Cyflow Social', 'Per-user encrypted credentials, ownership isolation, server-side provider calls, private media, and a publishing safety switch.'],
+  '/about': ['About · Cyflow Social', 'A focused tool for planning, writing and publishing social content for Facebook Pages, Instagram Professional and Threads.'],
+  '/contact': ['Contact · Cyflow Social', 'Questions, feedback, or help getting set up with Cyflow Social.'],
+  '/privacy': ['Privacy · Cyflow Social', 'A plain-language draft describing how Cyflow Social handles your data. Pending legal review.'],
+  '/terms': ['Terms · Cyflow Social', 'A plain-language draft of the terms for using Cyflow Social. Pending legal review.'],
 };
 
 const TITLES = {
@@ -76,7 +97,18 @@ function setLayout(layout) {
   if (topbar) topbar.style.display = isApp ? '' : 'none';
   if (shell) shell.dataset.layout = layout;
   const main = document.getElementById('main');
-  if (main) main.classList.toggle('centered', layout !== 'app');
+  // Auth + wizard are centered narrow forms; public marketing is full-width.
+  if (main) main.classList.toggle('centered', layout === 'auth' || layout === 'wizard');
+}
+
+/** F: keep the document title + meta description accurate per public route (SEO). */
+function applyPublicMeta(path) {
+  const meta = PUBLIC_META[path];
+  const descTag = document.querySelector('meta[name="description"]');
+  if (meta) {
+    document.title = meta[0];
+    if (descTag) descTag.setAttribute('content', meta[1]);
+  }
 }
 
 export function getUser() {
@@ -123,7 +155,8 @@ export async function render() {
   }
 
   setLayout(route.layout);
-  document.title = TITLES[path] ? `${TITLES[path]} · Cyflow Social` : 'Cyflow Social';
+  if (route.layout === 'public') applyPublicMeta(path);
+  else document.title = TITLES[path] ? `${TITLES[path]} · Cyflow Social` : 'Cyflow Social';
   listeners.forEach((fn) => fn(path, currentUser));
 
   clear(root);
