@@ -333,6 +333,20 @@ export function buildConfig(raw = process.env) {
   // seconds/minutes for readability; the code converts to ms. Nothing here calls
   // a provider publishing API — that is D2.
   const worker = {
+    /*
+     * Managed Node hosts (Hostinger among them) run exactly ONE process from
+     * `npm start`, with no cron and no way to keep an SSH-launched worker
+     * alive. With this false — the default — durable jobs only advance when a
+     * separate `npm run worker` process and a scheduler are running, which on
+     * such a host means never.
+     *
+     * Set true ONLY on a host that cannot run separate processes. It does not
+     * duplicate any scheduling or publishing logic: it drives the same services
+     * the standalone scheduler and worker entry points drive, on a timer inside
+     * the web process. Cross-process safety still comes from the database
+     * leases and idempotency keys, not from being single-process.
+     */
+    singleProcessJobs: toBoolean('HOSTINGER_SINGLE_PROCESS_JOBS', false),
     // How long a claimed job's lease lasts before it is considered abandoned.
     leaseSeconds: toNumber('WORKER_LEASE_SECONDS', { required: false, fallback: 120, min: 10 }),
     // How often a running job extends its lease during long work.

@@ -7,9 +7,50 @@ yet (see the Milestone H report).
 **Placeholders** are written `<like-this>`. Never put a real secret, domain,
 username or database name in a file you commit.
 
+## Choose your hosting shape first
+
+**Managed single-process hosts (Hostinger managed Node, and similar).**
+They run exactly one process from `npm start`. No cron. No SSH-launched worker
+that survives. On such a host the durable queue never advances: posts stay
+queued, automations never refill, exports never build and deletions never
+complete, while the app looks completely healthy.
+
+Set:
+
+```
+HOSTINGER_SINGLE_PROCESS_JOBS=true
+ENABLE_LIVE_PROVIDER_PUBLISHING=false
+```
+
+The web process then runs a scheduler tick and a bounded worker drain every 60
+seconds, driving the same services the standalone entry points drive. Skip steps
+17 and 18 below — there is no second process and no cron to configure.
+
+Expected in the runtime log after a redeploy:
+
+```
+[jobs] Hostinger single-process mode enabled
+[jobs] scheduler tick completed (refills=0, publish=disabled, recovered=0)
+[jobs] worker drain completed (0 job(s))
+```
+
+`publish=disabled` is the correct and expected state: it is
+`ENABLE_LIVE_PROVIDER_PUBLISHING=false` doing its job. Nothing is sent to
+Facebook, Instagram or Threads.
+
+A redeploy briefly runs the old and new instances together. That is safe: jobs
+are claimed under database leases and publishing is keyed by an idempotency key,
+so the second instance cannot claim a held job or re-send a post already in
+flight. The in-process guards stop an instance overlapping itself; the database
+stops instances overlapping each other.
+
+**VPS and hosts that support separate processes.** Leave the flag `false` and
+follow the three-process model below — a dedicated worker is better isolated,
+and a slow job cannot compete with request handling.
+
 ## Before you start
 
-Three processes, not one:
+Three processes, not one (unless you set the single-process flag above):
 
 | Process | Command | Model |
 | --- | --- | --- |

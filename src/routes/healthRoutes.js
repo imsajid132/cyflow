@@ -14,6 +14,7 @@ import { config } from '../config/env.js';
 import { nowIso } from '../utils/time.js';
 import { APP_NAME } from '../config/constants.js';
 import { jobStats } from '../repositories/backgroundJobRepository.js';
+import { backgroundStatus } from '../jobs/backgroundStatus.js';
 
 // Application version, read once (kept minimal — no other package.json exposure).
 const APP_VERSION = process.env.npm_package_version || '1.0.0';
@@ -44,6 +45,17 @@ router.get(
     // any provider — a healthy web server does NOT imply publishing is operational.
     const publishing = { liveEnabled: Boolean(config.publishing?.liveEnabled) };
 
+    /*
+     * Whether THIS process is running the jobs, and how its last cycle went.
+     * "disabled" is the honest answer on a host with a separate worker: it says
+     * this process is not responsible, so a growing pending count above means
+     * the external worker is down rather than that this one is idle.
+     *
+     * Timestamps, counters and an error CATEGORY only — never a job payload, a
+     * user id, a storage path or an error message.
+     */
+    const background = backgroundStatus();
+
     res.status(healthy ? 200 : 503).json({
       success: true,
       data: {
@@ -55,6 +67,7 @@ router.get(
         scheduler: { enabled: config.scheduler.enabled },
         worker,
         publishing,
+        background,
       },
       requestId: req.id ?? null,
     });

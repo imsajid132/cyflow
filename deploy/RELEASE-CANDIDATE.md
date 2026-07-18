@@ -22,6 +22,11 @@ living in a report that a deploying operator may never read.
 | Worker | `npm run worker` |
 | Scheduler | `npm run scheduler:once` via host cron, **or** a persistent scheduler — never both |
 
+On a managed single-process host (Hostinger managed Node), set
+`HOSTINGER_SINGLE_PROCESS_JOBS=true` instead: `npm start` is then the only
+process, and it runs the scheduler and worker responsibilities on a 60-second
+timer. Leave it `false` anywhere a separate worker can be supervised.
+
 ## Required persistent paths
 
 Both outside the deployment directory, both private, and **different from each

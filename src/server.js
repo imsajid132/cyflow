@@ -12,9 +12,14 @@ import { config } from './config/env.js';
 import { createApp } from './app.js';
 import { checkHealth } from './db/pool.js';
 import { gracefulClose } from './shutdown.js';
+import { buildContainer } from './container.js';
+import { createBackgroundRunner } from './jobs/backgroundRunner.js';
+import { drainOnce } from './workers/workerRuntime.js';
+import { setBackgroundRunner } from './jobs/backgroundStatus.js';
 
 let server = null;
 let app = null;
+let backgroundRunner = null;
 let shuttingDown = false;
 
 function log(message) {
@@ -45,6 +50,24 @@ async function start() {
     log(`Scheduler ${config.scheduler.enabled ? 'enabled' : 'disabled'}`);
   });
 
+  /*
+   * 4) Background jobs, only on a host that cannot run separate processes.
+   *
+   * Started AFTER the database check above, because a runner pointed at a dead
+   * pool just logs a failure every minute. Started after listen() so a slow
+   * first tick cannot delay the port opening and make the host think the deploy
+   * failed.
+   */
+  if (config.worker.singleProcessJobs) {
+    const container = buildContainer();
+    backgroundRunner = createBackgroundRunner({ container, config });
+    setBackgroundRunner(backgroundRunner);
+    // Not awaited: the first tick runs immediately but must not block startup.
+    backgroundRunner.start({ drainOnce, intervalMs: 60_000 }).catch((err) => {
+      log(`Background runner failed to start: ${err?.code || 'unknown'}`);
+    });
+  }
+
   server.on('error', (err) => {
     log(`HTTP server error: ${err.code || err.name}`);
     process.exit(1);
@@ -63,7 +86,15 @@ async function shutdown(signal, exitCode = 0) {
   forceTimer.unref();
 
   try {
-    // Ordered release: HTTP server → session store → database pool.
+    /*
+     * The background runner stops FIRST and is awaited, so no job is still
+     * mid-write when the pool closes underneath it. Ordered release after that:
+     * HTTP server → session store → database pool.
+     */
+    if (backgroundRunner) {
+      await backgroundRunner.stop();
+      log('Background runner stopped');
+    }
     await gracefulClose({ server, app });
     log('HTTP server, session store, and database pool closed');
     clearTimeout(forceTimer);
