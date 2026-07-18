@@ -282,10 +282,16 @@ test('health status carries no secret, path, id or payload', async () => {
     // health response.
     assert.ok(!('workerId' in status), 'the worker identity must not be exposed on /health');
     assert.deepEqual(Object.keys(status).sort(), [
-      'backgroundMode', 'drains', 'lastErrorAt', 'lastErrorCategory', 'running',
-      'schedulerCompletedAt', 'schedulerRunning', 'schedulerStartedAt', 'ticks',
+      'backgroundMode', 'drains', 'lastErrorAt', 'lastErrorCategory',
+      'lastLeaseAcquiredAt', 'running', 'schedulerCompletedAt', 'schedulerLeader',
+      'schedulerRunning', 'schedulerStartedAt', 'ticks',
       'workerCompletedAt', 'workerRunning', 'workerStartedAt',
     ], 'the status shape is deliberately fixed; new fields need a secret review');
+    // schedulerLeader is a boolean and lastLeaseAcquiredAt a timestamp. The
+    // lease OWNER embeds a hostname and a pid and is deliberately absent.
+    assert.equal(typeof status.schedulerLeader, 'boolean');
+    assert.ok(!('leaseOwner' in status) && !('owner' in status),
+      'the lease owner must never be exposed on /health');
   } finally {
     await runner.stop();
     resetBackgroundRunner();

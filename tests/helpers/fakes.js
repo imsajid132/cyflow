@@ -1920,6 +1920,18 @@ export function createFakeBackgroundJobRepository() {
       leases.set(lockName, { owner, expiresMs: nowMs + ttlMs });
       return true;
     },
+    /*
+     * Mirrors acquireLeaseDbTime: expiry is judged against the FAKE's own clock,
+     * standing in for the database's. Two competing runners in a test therefore
+     * share one clock, exactly as two web instances share one MySQL.
+     */
+    async acquireLeaseDbTime({ lockName, owner, ttlSeconds }) {
+      const held = leases.get(lockName);
+      const nowMs = toMs(now);
+      if (held && held.owner !== owner && held.expiresMs > nowMs) return false;
+      leases.set(lockName, { owner, expiresMs: nowMs + ttlSeconds * 1000 });
+      return true;
+    },
     async releaseLease({ lockName, owner }) {
       const held = leases.get(lockName);
       if (held && held.owner === owner) { leases.delete(lockName); return true; }

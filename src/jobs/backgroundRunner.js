@@ -19,6 +19,29 @@
  * NOT the cross-process safety mechanism — see `start()`.
  */
 
+/**
+ * The named lock that serialises the scheduler tick across instances.
+ *
+ * A managed host may keep several web instances alive at once. Observed on
+ * staging: two instances, both with single-process jobs on, each running a
+ * scheduler tick every minute about three seconds apart. Nothing was corrupted
+ * — job claims are leased and publishing is keyed by idempotency — but every
+ * sweep ran twice, which doubles database load and makes the logs untrustworthy
+ * as a record of what actually happened.
+ */
+export const SCHEDULER_LOCK = 'hostinger-single-process-scheduler';
+
+/**
+ * Lease lifetime, in seconds.
+ *
+ * Longer than the 60s tick interval, so the holder still owns it when it comes
+ * back to renew and a follower three seconds behind is refused. Short enough
+ * that a crashed leader stops blocking scheduling within about one and a half
+ * cycles rather than indefinitely — the lease expires on its own; nothing has
+ * to notice the crash.
+ */
+export const SCHEDULER_LEASE_SECONDS = 90;
+
 import os from 'node:os';
 
 /** Lifecycle log lines. Never carries post content, tokens or provider bodies. */
@@ -52,6 +75,10 @@ export function createBackgroundRunner({
   setIntervalFn = setInterval,
   clearIntervalFn = clearInterval,
   now = () => new Date().toISOString(),
+  // Defaults to the container's repository; injectable so tests can run two
+  // competing runners against one shared lease store.
+  leases = container?.backgroundJobRepository,
+  leaseSeconds = SCHEDULER_LEASE_SECONDS,
 }) {
   /*
    * Identity must be unique per PROCESS, not per host. During a redeploy a
@@ -76,6 +103,9 @@ export function createBackgroundRunner({
     drains: 0,
     lastErrorCategory: null,
     lastErrorAt: null,
+    schedulerLeader: false,
+    lastLeaseAcquiredAt: null,
+    skippedTicks: 0,
   };
 
   let timer = null;
@@ -106,6 +136,40 @@ export function createBackgroundRunner({
     state.schedulerStartedAt = now();
     const summary = { refills: 0, publishes: 0, recovered: 0, skippedPublishing: false };
     try {
+      /*
+       * Cross-instance gate. The in-process guard above only stops THIS process
+       * overlapping itself; a managed host runs several instances, and on
+       * staging two of them ran the same sweep a few seconds apart every
+       * minute. The lease is the thing that makes the tick singular, and it is
+       * taken in the database against database time, so instances cannot
+       * disagree about whether it has expired.
+       *
+       * The lease is deliberately NOT released after a successful tick: holding
+       * it across the interval is what refuses the follower three seconds
+       * later. The leader renews it on its own next tick, and it expires by
+       * itself if the leader dies.
+       */
+      if (leases?.acquireLeaseDbTime) {
+        const acquired = await leases.acquireLeaseDbTime({
+          lockName: SCHEDULER_LOCK,
+          owner: workerId,
+          ttlSeconds: leaseSeconds,
+        });
+        if (!acquired) {
+          const wasLeader = state.schedulerLeader;
+          state.schedulerLeader = false;
+          state.skippedTicks += 1;
+          // Once on the transition, then hourly. A follower would otherwise
+          // print an identical line every minute for the life of the instance.
+          if (wasLeader || state.skippedTicks === 1 || state.skippedTicks % 60 === 0) {
+            logger('scheduler tick skipped (lease held)');
+          }
+          return { skipped: true, reason: 'lease_held' };
+        }
+        state.schedulerLeader = true;
+        state.lastLeaseAcquiredAt = now();
+      }
+
       const limit = config.scheduler.batchSize * 5;
 
       const refills = await container.automationService.enqueueDueRefills({ limit });
@@ -219,6 +283,18 @@ export function createBackgroundRunner({
       logger('stopping background runner');
       if (timer) { clearIntervalFn(timer); timer = null; }
       await inFlight.catch(() => {});
+      /*
+       * Hand the lease back on a clean shutdown so the surviving instance takes
+       * over on its next tick instead of waiting out the TTL. Best-effort: if
+       * the release fails the lease simply expires, which is the same outcome
+       * as a crash and is already safe.
+       */
+      if (state.schedulerLeader && leases?.releaseLease) {
+        try {
+          await leases.releaseLease({ lockName: SCHEDULER_LOCK, owner: workerId });
+          state.schedulerLeader = false;
+        } catch { /* the TTL covers this */ }
+      }
       state.running = false;
     },
 
@@ -237,6 +313,13 @@ export function createBackgroundRunner({
         drains: state.drains,
         lastErrorCategory: state.lastErrorCategory,
         lastErrorAt: state.lastErrorAt,
+        /*
+         * Which instance is doing the scheduling, and when it last renewed.
+         * The lease OWNER is not reported: it embeds a hostname and a pid,
+         * which belong in a log, not in a public health response.
+         */
+        schedulerLeader: state.schedulerLeader,
+        lastLeaseAcquiredAt: state.lastLeaseAcquiredAt,
       };
     },
 

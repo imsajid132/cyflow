@@ -271,6 +271,48 @@ export async function acquireLease({ lockName, owner, ttlMs, now = new Date() },
   return connection ? run(connection) : withTransaction(run);
 }
 
+/**
+ * Acquire (or renew) a named lease using DATABASE time.
+ *
+ * Same proven pattern as `acquireLease` — SELECT ... FOR UPDATE inside a
+ * transaction, so two instances racing on the same lock_name serialise on the
+ * row — but every timestamp comes from `UTC_TIMESTAMP()` rather than from the
+ * caller's clock.
+ *
+ * That distinction matters for the case this exists to fix: several managed web
+ * instances of the SAME application, each deciding for itself whether a lease
+ * has expired. With JS time, a machine whose clock runs a few seconds fast
+ * considers a live lease expired and takes it, and both instances run the tick.
+ * With database time there is one clock, and it is the same clock that wrote
+ * `expires_at`.
+ *
+ * `acquireLease` above keeps its caller-supplied clock: its tests drive expiry
+ * by passing explicit timestamps, and that is a legitimate thing to want.
+ *
+ * @returns {Promise<boolean>} true when this owner now holds the lease
+ */
+export async function acquireLeaseDbTime({ lockName, owner, ttlSeconds }, connection) {
+  const run = async (conn) => {
+    const [rows] = await conn.execute(
+      `SELECT owner, (expires_at > UTC_TIMESTAMP()) AS live
+         FROM worker_leases WHERE lock_name = ? FOR UPDATE`,
+      [lockName],
+    );
+    const held = rows[0];
+    // A different owner with an unexpired lease wins; we skip this round.
+    if (held && held.owner !== owner && Number(held.live) === 1) return false;
+    await conn.execute(
+      `INSERT INTO worker_leases (lock_name, owner, acquired_at, expires_at, heartbeat_at)
+       VALUES (?, ?, UTC_TIMESTAMP(), DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? SECOND), UTC_TIMESTAMP())
+       ON DUPLICATE KEY UPDATE owner = VALUES(owner), acquired_at = VALUES(acquired_at),
+                               expires_at = VALUES(expires_at), heartbeat_at = VALUES(heartbeat_at)`,
+      [lockName, owner, ttlSeconds],
+    );
+    return true;
+  };
+  return connection ? run(connection) : withTransaction(run);
+}
+
 export async function releaseLease({ lockName, owner }, connection) {
   const [res] = await runner(connection).execute(
     'DELETE FROM worker_leases WHERE lock_name = ? AND owner = ?', [lockName, owner],
@@ -306,5 +348,6 @@ export default {
   findJobById,
   jobStats,
   acquireLease,
+  acquireLeaseDbTime,
   releaseLease,
 };
