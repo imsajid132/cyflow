@@ -464,8 +464,14 @@ legend { padding: 0; }
 @keyframes shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
 
 /* --- toasts --------------------------------------------------------------- */
+/*
+ * Above the modal host (70) and the drawer (60), not level with the drawer.
+ * A toast is the app answering the user; at z-index 60 the answer to an action
+ * taken inside a dialog was painted behind that dialog, so the result of the
+ * thing they just did was invisible until they dismissed it.
+ */
 .toasts {
-  position: fixed; right: 1rem; bottom: 1rem; z-index: 60;
+  position: fixed; right: 1rem; bottom: 1rem; z-index: 90;
   display: flex; flex-direction: column; gap: .5rem; max-width: min(92vw, 380px);
 }
 .toast {

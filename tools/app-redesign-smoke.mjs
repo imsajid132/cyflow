@@ -29,6 +29,34 @@ const ok = (c, label) => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Poll until the page satisfies `expression`, instead of sleeping a fixed
+ * number of milliseconds and hoping. A fixed sleep made this smoke report
+ * "no h1", "still showing a skeleton" and "no status chips" on a slow run —
+ * four invented defects, none of them real.
+ */
+async function waitFor(browser, expression, { timeoutMs = 8000, everyMs = 150 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try { if (await browser.evaluate(expression)) return true; } catch { /* mid-navigation */ }
+    if (Date.now() > deadline) return false;
+    await sleep(everyMs);
+  }
+}
+
+/** A route is settled once it has a heading and nothing is still skeletal. */
+const SETTLED = `Boolean(document.querySelector('h1')) && document.querySelectorAll('.skeleton').length === 0`;
+
+/**
+ * The app rate-limits itself. A limited response renders an empty page, which
+ * looks exactly like a layout regression, so it is called out by name rather
+ * than silently failing an assertion. See milestone F2: this cost a full
+ * triage cycle before it was recognised.
+ */
+function rateLimited(browser) {
+  return browser.problems().network.filter((n) => n.startsWith('HTTP 429'));
+}
+
 const ROUTES = [
   '/dashboard', '/planner', '/planner/week', '/planner/history', '/create',
   '/automations', '/queue', '/calendar', '/media', '/brand', '/connections',
@@ -56,6 +84,23 @@ try {
   await sleep(1600);
 
   /*
+   * Seed the publish fixtures here rather than relying on a separate script.
+   * The queue assertions below need real posts in real states, and a smoke that
+   * silently passes because a caller forgot to seed is worse than no smoke.
+   */
+  const post = (p, body) => b.evaluate(`fetch(${JSON.stringify(p)},{method:'POST',headers:{'Content-Type':'application/json'},body:${JSON.stringify(JSON.stringify(body || {}))}}).then(r=>r.json()).catch(e=>({err:String(e)}))`);
+  await post('/__review/publish-script', { script: {} });
+  await post('/__review/seed-publish', { title: 'Autumn service reminder' });
+  await post('/__review/tick', {});
+  await post('/__review/seed-publish', { title: 'New team announcement', threadsFail: true });
+  await post('/__review/tick', {});
+  await b.evaluate(`(async () => {
+    const csrf=(await (await fetch('/api/csrf-token',{headers:{Accept:'application/json'}})).json()).data.csrfToken;
+    await fetch('/api/posts',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({title:'Draft: winter offer'})});
+  })()`);
+  await sleep(500);
+
+  /*
    * One pass over the routes collects both structure and copy. Visiting them
    * twice doubled the API calls and tripped the app's own rate limiter, which
    * then rendered empty pages and looked exactly like a redesign regression.
@@ -64,8 +109,12 @@ try {
   const shell = [];
   const copyHits = [];
   const vendorHits = [];
+  const limited = [];
   for (const route of ROUTES) {
-    await b.goto(`${BASE}${route}`, { waitMs: 1500 });
+    await b.goto(`${BASE}${route}`, { waitMs: 350 });
+    await waitFor(b, SETTLED);
+    const throttled = rateLimited(b);
+    if (throttled.length) limited.push(`${route} (${throttled.length})`);
     const info = JSON.parse(await b.evaluate(`(() => {
       const h1s = [...document.querySelectorAll('h1')];
       const active = document.querySelector('.nav-link.is-active, .nav-link[aria-current="page"]');
@@ -87,6 +136,9 @@ try {
       if (route !== '/integrations' && info.text.includes(v)) vendorHits.push(`${route}: ${v}`);
     }
   }
+  // Named first, so a limited run reads as a limited run and not as a redesign
+  // regression. Every assertion after this one is meaningless if it fails.
+  ok(limited.length === 0, `no route was rate-limited during the run (${limited.join(', ') || 'none'})`);
   ok(shell.every((s) => s.path === s.route), 'every route renders itself (no redirect)');
   ok(shell.every((s) => s.h1Count === 1), 'exactly one h1 per route');
   ok(shell.every((s) => s.h1 && s.h1 !== 'Page not found'), 'every route has a real page title');
@@ -100,7 +152,8 @@ try {
 
   // ---- one status control --------------------------------------------------
   console.log('== Components ==');
-  await b.goto(`${BASE}/queue`, { waitMs: 1400 });
+  await b.goto(`${BASE}/queue`, { waitMs: 350 });
+  await waitFor(b, `document.querySelectorAll('.status').length > 0`);
   const statusShape = JSON.parse(await b.evaluate(`(() => {
     const chips = [...document.querySelectorAll('.status')];
     return JSON.stringify({
@@ -116,7 +169,8 @@ try {
   ok(statusShape.noUnderscores, 'no status chip shows an underscored key');
 
   // The planner used to ship a second, differently-shaped status control.
-  await b.goto(`${BASE}/planner/week`, { waitMs: 1500 });
+  await b.goto(`${BASE}/planner/week`, { waitMs: 350 });
+  await waitFor(b, `document.querySelectorAll('.planner-card').length > 0`);
   const plannerStatus = JSON.parse(await b.evaluate(`(() => JSON.stringify({
     shared: document.querySelectorAll('.status').length,
     legacyBadges: [...document.querySelectorAll('.badge')].filter((n) =>
@@ -126,7 +180,8 @@ try {
   ok(plannerStatus.legacyBadges === 0, 'the weekly board has no second status control');
 
   // ---- controls line up ----------------------------------------------------
-  await b.goto(`${BASE}/create`, { waitMs: 1500 });
+  await b.goto(`${BASE}/create`, { waitMs: 350 });
+  await waitFor(b, `Boolean(document.getElementById('tone'))`);
   const rows = JSON.parse(await b.evaluate(`(() => {
     const out = [];
     for (const grid of document.querySelectorAll('.grid')) {
@@ -157,7 +212,8 @@ try {
   console.log('== Images ==');
   const imgProblems = [];
   for (const route of ['/queue', '/planner/week', '/media']) {
-    await b.goto(`${BASE}${route}`, { waitMs: 1600 });
+    await b.goto(`${BASE}${route}`, { waitMs: 350 });
+    await waitFor(b, SETTLED);
     const imgs = JSON.parse(await b.evaluate(`(() => JSON.stringify(
       [...document.querySelectorAll('img')].map((i) => ({ src: i.getAttribute('src'), w: i.naturalWidth, h: i.naturalHeight }))))()`));
     for (const i of imgs) {
@@ -179,7 +235,8 @@ try {
     await sleep(1600);
     const wide = [];
     for (const route of ROUTES) {
-      await m.goto(`${BASE}${route}`, { waitMs: 1200 });
+      await m.goto(`${BASE}${route}`, { waitMs: 350 });
+      await waitFor(m, SETTLED);
       const over = Number(await m.evaluate('document.documentElement.scrollWidth - document.documentElement.clientWidth'));
       if (over > 0) wide.push(`${route}: +${over}px`);
     }

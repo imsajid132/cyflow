@@ -106,6 +106,43 @@ export async function launch({ width = 1440, height = 900, port = 9222 } = {}) {
         width: w, height: h, deviceScaleFactor: 1, mobile: w < 700,
       });
     },
+    /**
+     * Send a REAL key event through the browser's input pipeline.
+     *
+     * A synthesised `new KeyboardEvent(...)` is untrusted: it will not move
+     * focus on Tab, will not activate a button on Enter, and does not set the
+     * keyboard modality that `:focus-visible` keys off. Auditing keyboard
+     * behaviour with synthetic events measures the test, not the app.
+     */
+    async press(name, { shift = false } = {}) {
+      const KEYS = {
+        Tab: [9, 'Tab'], Enter: [13, 'Enter'], Escape: [27, 'Escape'], ' ': [32, 'Space'],
+        ArrowLeft: [37, 'ArrowLeft'], ArrowUp: [38, 'ArrowUp'],
+        ArrowRight: [39, 'ArrowRight'], ArrowDown: [40, 'ArrowDown'],
+        Home: [36, 'Home'], End: [35, 'End'],
+      };
+      const [code, dom] = KEYS[name] || [0, name];
+      const modifiers = shift ? 8 : 0;
+      const base = {
+        windowsVirtualKeyCode: code, nativeVirtualKeyCode: code,
+        key: name === ' ' ? ' ' : name, code: dom, modifiers,
+      };
+      await call('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...base });
+      if (name === ' ' || name === 'Enter') {
+        await call('Input.dispatchKeyEvent', { type: 'char', ...base, text: name === ' ' ? ' ' : '\r' });
+      }
+      await call('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+    },
+    /**
+     * Emulate `prefers-reduced-motion: reduce` at the media-query level, which
+     * is what the CSS actually keys off. Toggling a class would test our own
+     * test hook rather than the rule a real user's setting triggers.
+     */
+    async emulateReducedMotion(on = true) {
+      await call('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-reduced-motion', value: on ? 'reduce' : 'no-preference' }],
+      });
+    },
     async goto(url, { waitMs = 2500 } = {}) {
       events.length = 0;
       await call('Page.navigate', { url });

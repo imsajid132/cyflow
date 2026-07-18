@@ -11,7 +11,7 @@
  */
 
 import * as api from '../api.js';
-import { el, toast } from '../ui.js';
+import { el, toast, lockScroll, unlockScroll } from '../ui.js';
 
 export async function pickMedia({ allowClear = true } = {}) {
   const res = await api.apiRequest('/api/media');
@@ -29,12 +29,16 @@ export async function pickMedia({ allowClear = true } = {}) {
     // confirmModal does. A keyboard user must not be dropped to the top of the
     // document when the dialog closes.
     const previous = document.activeElement;
+    // Depth-counted, so closing the picker over an open drawer does not unlock
+    // the page while the drawer is still covering it.
+    lockScroll();
     const done = (value) => {
       if (settled) return;
       settled = true;
       host.textContent = '';
       host.hidden = true; // restore the shared modal host to its hidden state
       document.removeEventListener('keydown', onKey, true);
+      unlockScroll();
       if (previous && typeof previous.focus === 'function') previous.focus();
       resolve(value);
     };

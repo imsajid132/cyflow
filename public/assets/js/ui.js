@@ -153,6 +153,34 @@ export function toast(message, tone = 'info') {
   setTimeout(() => node.remove(), 5000);
 }
 
+// --- overlay scroll lock --------------------------------------------------
+
+/*
+ * While an overlay is open the page behind it must not scroll: a wheel or a
+ * swipe over the backdrop used to move the list underneath, so closing the
+ * dialog returned the user somewhere they had not chosen to be.
+ *
+ * Depth-counted, because overlays nest (the media picker opens over the edit
+ * drawer). Closing the inner one must not unlock the page while the outer one
+ * is still open. The previous inline value is restored rather than cleared, so
+ * this cannot quietly take ownership of a style it did not set.
+ */
+let scrollDepth = 0;
+let previousOverflow = '';
+
+export function lockScroll() {
+  if (scrollDepth === 0) {
+    previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+  }
+  scrollDepth += 1;
+}
+
+export function unlockScroll() {
+  scrollDepth = Math.max(0, scrollDepth - 1);
+  if (scrollDepth === 0) document.body.style.overflow = previousOverflow;
+}
+
 // --- modal ----------------------------------------------------------------
 
 /**
@@ -166,13 +194,23 @@ export function confirmModal({ title, message, confirmText = 'Confirm', danger =
     clear(host);
     host.hidden = false;
 
+    lockScroll();
+
     const close = (result) => {
       host.hidden = true;
       clear(host);
       document.removeEventListener('keydown', onKey);
+      host.removeEventListener('click', onBackdrop);
+      unlockScroll();
       if (previous && previous.focus) previous.focus();
       resolve(result);
     };
+    /*
+     * Not `{ once: true }`. A click anywhere inside the dialog also bubbles to
+     * the host, which consumed the one-shot listener without closing anything,
+     * so backdrop-dismiss stopped working after the user's first click.
+     */
+    function onBackdrop(e) { if (e.target === host) close(false); }
     function onKey(e) {
       if (e.key === 'Escape') close(false);
       if (e.key === 'Tab') {
@@ -191,24 +229,29 @@ export function confirmModal({ title, message, confirmText = 'Confirm', danger =
       attrs: { type: 'button' },
       on: { click: () => close(true) },
     });
+    const cancelBtn = el('button', {
+      className: 'btn btn-secondary', text: 'Cancel',
+      attrs: { type: 'button' }, on: { click: () => close(false) },
+    });
     const dialog = el('div', {
       className: 'modal',
       attrs: { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'modal-title' },
     }, [
       el('h2', { text: title, attrs: { id: 'modal-title' } }),
       el('p', { className: 'card-sub', text: message }),
-      el('div', { className: 'modal-actions' }, [
-        el('button', {
-          className: 'btn btn-secondary', text: 'Cancel',
-          attrs: { type: 'button' }, on: { click: () => close(false) },
-        }),
-        confirmBtn,
-      ]),
+      el('div', { className: 'modal-actions' }, [cancelBtn, confirmBtn]),
     ]);
     host.appendChild(dialog);
-    host.addEventListener('click', (e) => { if (e.target === host) close(false); }, { once: true });
+    host.addEventListener('click', onBackdrop);
     document.addEventListener('keydown', onKey);
-    confirmBtn.focus();
+    /*
+     * A destructive dialog opens with Cancel focused, not Delete.
+     *
+     * It used to focus the confirm button always, so "Delete this post?" opened
+     * with Delete already focused and a single Enter destroyed the post. The
+     * safe option takes the default; confirming is a deliberate act.
+     */
+    (danger ? cancelBtn : confirmBtn).focus();
   });
 }
 

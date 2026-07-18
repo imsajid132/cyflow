@@ -36,3 +36,9 @@ temp/
 
 # Runtime data (local export archives, etc.)
 .data/
+
+# Screenshots the browser smokes drop in the working directory.
+# Root-anchored on purpose: the tracked brand marks live under public/ and
+# design-references/ and must keep being tracked. Without this, every smoke run
+# leaves loose PNGs at the repo root, one `git add .` away from being committed.
+/*.png

@@ -6,6 +6,36 @@ live social provider yet: the real publishing adapters exist but are gated OFF b
 default (`ENABLE_LIVE_PROVIDER_PUBLISHING=false`) and have only ever run against
 fake providers.
 
+## Milestone F2.1 — accessibility, overlay and zoom verification
+
+**Branch:** `cyflow-social-v1` · **No migration** (010–017 unchanged, no 018)
+
+- Closes the five gaps milestone F2 disclosed: modal, drawer and toast states had
+  never been captured state-by-state, and no keyboard-only or 200% zoom pass had
+  been run.
+- **Four product defects found and fixed.** The page behind a dialog was not
+  scroll-locked, so the list moved under the backdrop. A toast was painted behind
+  the modal it belonged to (z-index 60 under 70), making the result of an action
+  taken inside a dialog invisible until the dialog was dismissed. Backdrop
+  dismiss stopped working after any click inside the dialog, because the listener
+  was `{ once: true }` and every inner click consumed it. And a destructive
+  confirmation opened with **Delete** focused, so one Enter key destroyed a post
+  with the confirmation offering a keyboard user no protection at all.
+- The safe-default-focus defect was found by **looking at a screenshot** — a green
+  focus ring sitting on a red Delete button — not by any assertion.
+- Overlay stacking is now asserted numerically (toast 90 > modal 70 > drawer 60),
+  background inertness is hit-tested rather than clicked, and the nested case
+  passes end to end: drawer → picker → Escape closes only the picker → drawer
+  survives → focus returns to each trigger in turn.
+- Verified: keyboard-only operation with **trusted** key events, focus visibility
+  across eight surfaces on two routes, 200% zoom on seven routes with no
+  page-level overflow, overlays at 430/390/360 px, and reduced motion.
+- 1062 tests pass (10 new, revert-verified); `npm audit` 0 (all + prod); new
+  overlay/keyboard smoke 81/81; redesign 25/25, milestone-c 44/44, public 38/38,
+  media 20/20, create 18/18, publish 18/18, automation 19/19, account 11/11.
+- Six further "failures" were defects in the verification harness, not the
+  product, and are recorded as such in the report rather than quietly deleted.
+
 ## Milestone F2 — premium authenticated app redesign
 
 **Branch:** `cyflow-social-v1` · **No migration** (presentation only; 010–017 unchanged)
