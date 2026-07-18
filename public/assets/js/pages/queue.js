@@ -82,7 +82,10 @@ export async function render(root, ctx) {
     const name = target.displayName || target.username || PROVIDER_LABELS[target.provider] || 'Account';
     const ps = target.publishStatus || 'scheduled';
     const bits = [
-      el('span', { className: 'chip' }, [el('span', { text: `${PLATFORM_LABELS[platform] || platform}: ${name}` })]),
+      // Same "Platform · Account" form as the weekly board card and the edit
+      // drawer. Three surfaces described the same target three ways, and an
+      // operator with more than one Page connected could not match them up.
+      el('span', { className: 'chip' }, [el('span', { text: `${PLATFORM_LABELS[platform] || platform} · ${name}` })]),
       statusChip(ps),
     ];
     if (ps === 'published' && target.remotePostUrl) {

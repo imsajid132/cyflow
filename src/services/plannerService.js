@@ -102,7 +102,7 @@ const CANCELLABLE_STATUSES = Object.freeze([
   POST_STATUS.RETRYING,
 ]);
 import { ValidationError, NotFoundError, ConflictError, RateLimitError } from '../utils/errors.js';
-import { toMysqlUtc, addSecondsUtc } from '../utils/time.js';
+import { toMysqlUtc, addSecondsUtc, isValidTimezone } from '../utils/time.js';
 import { isSupportedTimezone } from './timezoneService.js';
 import { normalizeTemplate } from '../templates/socialImageTemplates.js';
 import {
@@ -1376,6 +1376,34 @@ export function createPlannerService({
   }
 
   /**
+   * The CALENDAR DATE an instant falls on, in a given timezone.
+   *
+   * `scheduled_for` is a UTC instant, not a date. Taking its first ten
+   * characters gives the UTC calendar date, which for a post at 02:45
+   * Asia/Karachi (21:45 UTC the day before) is one day early — the board header
+   * read "2026-07-18 to 2026-07-25" for items the user had scheduled on the
+   * 19th and the 26th, and every card underneath it disagreed with the header.
+   *
+   * en-CA formats as YYYY-MM-DD, so the parts come out already sortable and no
+   * second Date is constructed to lose them again.
+   */
+  function localCalendarDate(instant, timezone) {
+    if (!instant) return null;
+    const raw = String(instant);
+    const asUtc = raw.includes('T') ? raw : `${raw.replace(' ', 'T')}Z`;
+    const at = new Date(asUtc);
+    if (Number.isNaN(at.getTime())) return null;
+    try {
+      return new Intl.DateTimeFormat('en-CA', {
+        timeZone: isValidTimezone(timezone) ? timezone : 'UTC',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+      }).format(at);
+    } catch {
+      return raw.slice(0, 10);
+    }
+  }
+
+  /**
    * The plan's real date range, from the items it actually contains.
    *
    * An automation-backed run is created before any content exists, so its
@@ -1386,8 +1414,8 @@ export function createPlannerService({
    */
   function derivePlanRange(run, items) {
     const dates = (items || [])
-      .map((i) => (i.scheduledFor ? String(i.scheduledFor).slice(0, 10) : null))
-      .filter((d) => d && /^\d{4}-\d{2}-\d{2}$/.test(d))
+      .map((i) => localCalendarDate(i.scheduledFor, run?.timezone))
+      .filter(Boolean)
       .sort();
     if (dates.length) return { startDate: dates[0], endDate: dates[dates.length - 1] };
     const start = run?.startDate ?? null;

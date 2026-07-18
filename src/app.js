@@ -210,12 +210,42 @@ export function createApp(overrides = {}) {
 
   app.use(container.attachUser);
 
-  // --- Static assets --------------------------------------------------------
+  /* --- Static assets --------------------------------------------------------
+   *
+   * Everything here used to be served with `maxAge: 1h` and nothing else, which
+   * is what forced a hard refresh after a deployment: a browser could hold the
+   * app shell for up to an hour while fetching freshly deployed modules, or the
+   * reverse, and load a module graph whose halves did not agree. "View upcoming"
+   * failed until Ctrl+F5 and nothing was logged server-side, because nothing was
+   * wrong server-side.
+   *
+   * This app has no build step and no content hashing, so there are no
+   * immutable filenames to cache forever. `no-cache` is the correct tool: it
+   * does NOT mean "do not store", it means "revalidate before use". The browser
+   * keeps the file and sends If-None-Match; an unchanged asset answers 304 with
+   * no body. The cost is one conditional request per asset, and the guarantee is
+   * that a deployed release is never mixed with the previous one.
+   */
   app.use(
     express.static(PUBLIC_DIR, {
       index: false,
-      maxAge: config.isProd ? '1h' : 0,
+      etag: true,
+      lastModified: true,
       extensions: ['html'],
+      setHeaders(res, filePath) {
+        // The shell and the module graph must always be checked. These are the
+        // files whose staleness produces an inconsistent application.
+        if (/\.(html|js|css|json)$/i.test(filePath)) {
+          res.setHeader('Cache-Control', 'no-cache');
+          return;
+        }
+        /*
+         * Images, fonts and the brand marks change only when their content
+         * changes, and a stale one is a cosmetic problem rather than a broken
+         * application. An hour, still revalidated afterwards.
+         */
+        res.setHeader('Cache-Control', config.isProd ? 'public, max-age=3600' : 'no-cache');
+      },
     }),
   );
 
