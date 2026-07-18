@@ -6,20 +6,15 @@
  * innerHTML.
  */
 
-import { el, badge } from '../ui.js';
+import { el, badge, statusChip, STATUS_LABEL } from '../ui.js';
 import { platformNames } from '../icons.js';
 
-export const STATUS_LABELS = Object.freeze({
-  draft: 'Draft',
-  needs_review: 'Needs review',
-  approved: 'Approved',
-  queued: 'Queued',
-  rejected: 'Rejected',
-  // A hard failure is NOT review work. Without this entry the chip rendered the
-  // raw key "generation_failed" in neutral grey, at the same visual weight as a
-  // draft, which is precisely the mislabelling the status exists to prevent.
-  generation_failed: 'Generation failed',
-});
+/*
+ * Status labels used to be defined here as a second table. They are now the
+ * single map in ui.js, which the queue, calendar, automations and dashboard
+ * already read from, so one state cannot be worded two ways.
+ */
+export const STATUS_LABELS = STATUS_LABEL;
 
 /**
  * Labels for what a post IS.
@@ -100,19 +95,14 @@ export const TEMPLATE_LABELS = Object.freeze({
   'photo-overlay': 'Photo Overlay Ready',
 });
 
-/** Status → visual tone. The label always carries the meaning, never colour alone. */
-export function statusChip(status) {
-  const tone = {
-    approved: 'ok',
-    queued: 'info',
-    rejected: 'err',
-    needs_review: 'warn',
-    draft: 'neutral',
-    // Red, like a rejection: this post cannot go out as it is.
-    generation_failed: 'err',
-  }[status] || 'neutral';
-  return badge(STATUS_LABELS[status] || status, tone);
-}
+/*
+ * Status rendering is NOT defined here. It used to be: a second badge-based
+ * chip with its own tone table, which meant "Queued" was a blue pill on a
+ * planner card and a dot-chip in the Queue. One state, two appearances.
+ * Both now come from the shared renderer in ui.js; this re-export exists so
+ * the planner pages keep importing it from the component they already use.
+ */
+export { statusChip };
 
 /** "Mon 14 Jul · 09:00" from a MySQL UTC datetime, rendered in local time. */
 export function formatSlot(value) {
@@ -210,14 +200,23 @@ export function plannerCard(item, handlers = {}) {
   checkbox.checked = Boolean(handlers.selected);
   checkbox.addEventListener('change', () => handlers.onSelect?.(item.id, checkbox.checked));
 
-  const thumb = item.media?.publicToken
-    ? el('img', {
-        className: 'planner-thumb',
-        attrs: { src: `/media/${encodeURIComponent(item.media.publicToken)}`, alt: '', loading: 'lazy' },
-      })
-    : el('div', { className: 'planner-thumb planner-thumb-empty' }, [
-        el('span', { className: 'thumb-note', text: 'No image' }),
-      ]);
+  const emptyThumb = (note) => el('div', { className: 'planner-thumb planner-thumb-empty' }, [
+    el('span', { className: 'thumb-note', text: note }),
+  ]);
+  let thumb;
+  if (item.media?.publicToken) {
+    thumb = el('img', {
+      className: 'planner-thumb',
+      attrs: { src: `/media/${encodeURIComponent(item.media.publicToken)}`, alt: '', loading: 'lazy' },
+    });
+    // Matches the queue: an image that cannot load becomes a labelled
+    // placeholder, never a silent black rectangle the size of the creative.
+    thumb.addEventListener('error', () => {
+      thumb.replaceWith(emptyThumb('Image unavailable'));
+    }, { once: true });
+  } else {
+    thumb = emptyThumb('No image');
+  }
 
   const actions = el('div', { className: 'planner-card-actions' });
   if (item.approvalStatus !== 'queued') {

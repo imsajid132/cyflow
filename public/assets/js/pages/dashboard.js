@@ -1,167 +1,211 @@
 /**
- * Dashboard — a focused overview, not a settings dump.
+ * Dashboard — what needs you, and what happens next.
  *
- * Shows only real data: business identity, setup completeness, connected
- * account summary, draft/queued counts, next scheduled posts, and recent
- * activity. No charts, no invented statistics, no publishing progress.
+ * Every number here is read from a real API. There are no charts, no reach or
+ * engagement figures, no invented trends: if there is nothing real to show, the
+ * card explains the empty state instead. The publishing lines say exactly what
+ * is true right now, including when live publishing is turned off.
  */
 
 import * as api from '../api.js';
-import { el, card, pageHead, badge, statusTone, notice, emptyState, formatDate } from '../ui.js';
-import { PROVIDER_LABELS } from '../icons.js';
+import { el, card, pageHead, notice, emptyState, formatDate, statusChip } from '../ui.js';
+import { PROVIDER_LABELS, PLATFORM_LABELS } from '../icons.js';
 
-function statCard(value, label) {
-  return card([el('div', { className: 'stat' }, [
-    el('span', { className: 'stat-value', text: String(value) }),
+/** A compact "label + value" figure. Values are real or an honest dash. */
+function figure(value, label, href = null, sub = null) {
+  const body = el('div', { className: 'stat' }, [
+    el('span', { className: 'stat-value', text: value === null || value === undefined ? '—' : String(value) }),
     el('span', { className: 'stat-label', text: label }),
-  ])]);
+    sub ? el('span', { className: 'hint', text: sub }) : null,
+  ]);
+  return href
+    ? el('a', { className: 'card card-hover dash-figure', attrs: { href, 'data-link': '' } }, [body])
+    : card([body], 'dash-figure');
+}
+
+/** One row in the attention list: what is wrong, and where to fix it. */
+function attentionRow(text, actionLabel, href) {
+  return el('li', { className: 'attn-item' }, [
+    el('span', { className: 'attn-dot', attrs: { 'aria-hidden': 'true' } }),
+    el('span', { className: 'attn-text', text }),
+    el('a', { className: 'btn btn-secondary btn-sm', text: actionLabel, attrs: { href, 'data-link': '' } }),
+  ]);
+}
+
+/** The local wall-clock a post is due, preferring the exact saved intent. */
+function localWhen(post) {
+  if (post.scheduledLocalDate && post.scheduledLocalTime) {
+    return `${post.scheduledLocalDate} at ${String(post.scheduledLocalTime).slice(0, 5)}${post.originalTimezone ? ` (${post.originalTimezone})` : ''}`;
+  }
+  if (post.scheduledAtUtc) {
+    return `${formatDate(post.scheduledAtUtc)}${post.originalTimezone ? ` (${post.originalTimezone})` : ''}`;
+  }
+  return 'Not scheduled';
 }
 
 export async function render(root, ctx) {
-  const [state, profile, postsRes, accountsRes, automationsRes] = await Promise.all([
+  /*
+   * Deliberately does NOT call /health. That endpoint is an operations probe
+   * that legitimately answers 503 when the database is unreachable, so a
+   * user-facing page hanging off it would log a console error every time the
+   * system was degraded — exactly when the page needs to stay calm. Everything
+   * shown below comes from endpoints that answer 200 for a signed-in user.
+   */
+  const [state, profile, postsRes, accountsRes, automationsRes, capsRes] = await Promise.all([
     api.onboardingState(),
     api.businessProfile(),
-    api.apiRequest('/api/posts?limit=50'),
+    api.apiRequest('/api/posts?limit=100'),
     api.apiRequest('/api/social-accounts'),
     api.apiRequest('/api/automations'),
+    api.apiRequest('/api/posts/capabilities'),
   ]);
   if (postsRes.unauthorized || accountsRes.unauthorized) { ctx.navigate('/login'); return; }
 
   const posts = api.payload(postsRes)?.posts || [];
   const accounts = api.payload(accountsRes)?.accounts || [];
-  const drafts = posts.filter((p) => p.status === 'draft');
-  const queued = posts.filter((p) => p.status === 'queued');
-  const activeAccounts = accounts.filter((a) => a.status === 'active');
+  const automations = api.payload(automationsRes)?.automations || [];
+  const caps = api.payload(capsRes) || {};
 
-  const businessName = profile?.businessName || null;
-  const greeting = `Welcome back, ${ctx.user?.name || 'there'}`;
+  const activeAccounts = accounts.filter((a) => a.status === 'active');
+  const staleAccounts = accounts.filter((a) => a.status !== 'active');
+  const drafts = posts.filter((p) => p.status === 'draft');
+  const scheduled = posts.filter((p) => p.scheduledAtUtc && ['queued', 'processing', 'retrying'].includes(p.status));
+  const activeAutomations = automations.filter((a) => a.status === 'active');
+  const attentionAutomations = automations.filter((a) => a.status === 'attention_needed');
+
+  // Targets that stalled or failed. One account failing is never a success.
+  const troubledTargets = posts.flatMap((p) => (p.targets || [])
+    .filter((t) => ['attention_needed', 'failed'].includes(t.publishStatus))
+    .map((t) => ({ post: p, target: t })));
+
+  const liveEnabled = Boolean(caps.publishing?.liveEnabled);
+  const openaiReady = Boolean(caps.openai?.available);
+  const hctiReady = Boolean(caps.hcti?.verified);
+
+  const minBuffer = activeAutomations.length
+    ? Math.min(...activeAutomations.map((a) => a.readyBufferDays ?? 0)) : null;
+
+  const nextPost = scheduled
+    .slice()
+    .sort((a, b) => String(a.scheduledAtUtc).localeCompare(String(b.scheduledAtUtc)))[0] || null;
 
   const page = el('div', { className: 'page' }, [
-    pageHead(greeting, businessName ? businessName : 'Your workspace overview', [
-      el('a', { className: 'btn btn-secondary', text: 'Connect account', attrs: { href: '/connections', 'data-link': '' } }),
-      el('a', { className: 'btn btn-primary', text: 'Create post', attrs: { href: '/create', 'data-link': '' } }),
-    ]),
+    pageHead(
+      `Welcome back, ${ctx.user?.name || 'there'}`,
+      profile?.businessName || 'Your workspace at a glance',
+      [el('a', { className: 'btn btn-primary', text: 'Create post', attrs: { href: '/create', 'data-link': '' } })],
+    ),
   ]);
 
-  // Business setup prompt — existing users are never blocked, just prompted.
   if (state?.needsOnboarding) {
-    const alert = el('div', { className: 'notice notice-info' }, [
+    page.appendChild(el('div', { className: 'notice notice-info' }, [
       el('div', {}, [
-        el('strong', { text: 'Complete your business setup' }),
-        el('p', { text: 'Add your business details so post copy and images match your brand. It takes about a minute.' }),
+        el('strong', { text: 'Finish your business setup' }),
+        el('p', { text: 'Add your business details so your post copy and images match your brand.' }),
       ]),
       el('span', { className: 'spacer' }),
-      el('a', { className: 'btn btn-primary btn-sm', text: 'Complete setup', attrs: { href: '/onboarding/business', 'data-link': '' } }),
-    ]);
-    page.appendChild(alert);
-  }
-
-  // Business identity summary (only when there is something real to show).
-  if (profile && (profile.businessName || profile.logoUrl)) {
-    page.appendChild(card([
-      el('div', { className: 'row', attrs: { style: 'gap:.9rem' } }, [
-        profile.logoUrl
-          ? el('img', { attrs: { src: profile.logoUrl, alt: '', width: 44, height: 44, style: 'object-fit:contain;border-radius:8px;background:#fff' } })
-          : null,
-        el('div', {}, [
-          el('div', { className: 'card-title', text: profile.businessName || 'Your business' }),
-          el('div', { className: 'card-sub', text: profile.businessCategory || profile.websiteUrl || '' }),
-        ]),
-        el('span', { className: 'spacer' }),
-        el('a', { className: 'btn btn-secondary btn-sm', text: 'Edit brand', attrs: { href: '/brand', 'data-link': '' } }),
-      ]),
+      el('a', { className: 'btn btn-primary btn-sm', text: 'Finish setup', attrs: { href: '/onboarding/business', 'data-link': '' } }),
     ]));
   }
 
-  page.appendChild(el('div', { className: 'grid grid-4' }, [
-    statCard(drafts.length, 'Drafts'),
-    statCard(queued.length, 'Queued posts'),
-    statCard(activeAccounts.length, 'Connected accounts'),
-    statCard(profile?.services?.length || 0, 'Services'),
-  ]));
-
-  // Automation roll-up — REAL fields only (no reach/engagement/follower fiction).
-  const automations = api.payload(automationsRes)?.automations || [];
-  if (automations.length) {
-    const active = automations.filter((a) => a.status === 'active');
-    const attention = automations.filter((a) => a.status === 'attention_needed');
-    const nextPost = active.map((a) => a.nextPost).filter(Boolean)
-      .sort((x, y) => String(x.scheduledForUtc).localeCompare(String(y.scheduledForUtc)))[0] || null;
-    const minBuffer = active.length ? Math.min(...active.map((a) => a.readyBufferDays ?? 0)) : null;
-    page.appendChild(card([
-      el('div', { className: 'card-head' }, [
-        el('span', { className: 'card-title', text: 'Automations' }),
-        el('a', { className: 'btn btn-secondary btn-sm', text: 'Manage', attrs: { href: '/automations', 'data-link': '' } }),
-      ]),
-      el('div', { className: 'grid grid-4' }, [
-        statCard(active.length, 'Active'),
-        statCard(attention.length, 'Need attention'),
-        statCard(minBuffer == null ? '—' : minBuffer, 'Min ready days'),
-        statCard(nextPost ? `${nextPost.localDate}` : '—', 'Next prepared post'),
-      ]),
-      attention.length ? notice(`${attention.length} automation${attention.length === 1 ? '' : 's'} need your attention.`, 'warn') : null,
-    ]));
+  // --- what needs you ------------------------------------------------------
+  const attention = [];
+  if (!activeAccounts.length) {
+    attention.push(attentionRow('No accounts are connected, so nothing can be published yet.', 'Connect', '/connections'));
+  }
+  if (staleAccounts.length) {
+    attention.push(attentionRow(`${staleAccounts.length} account${staleAccounts.length === 1 ? '' : 's'} need reconnecting.`, 'Reconnect', '/connections'));
+  }
+  if (troubledTargets.length) {
+    const one = troubledTargets.length === 1;
+    attention.push(attentionRow(
+      `${troubledTargets.length} post${one ? '' : 's'} did not go out and ${one ? 'needs' : 'need'} a look.`,
+      'Open queue', '/queue'));
+  }
+  for (const a of attentionAutomations) {
+    attention.push(attentionRow(a.attentionReason || `"${a.name}" has paused and needs attention.`, 'Review', '/automations'));
+  }
+  if (minBuffer !== null && minBuffer <= 3) {
+    attention.push(attentionRow(`Your prepared content runs out in ${minBuffer} day${minBuffer === 1 ? '' : 's'}.`, 'Top up', '/automations'));
   }
 
-  // Connected accounts summary (a compact roll-up, never the full list).
-  const byProvider = ['meta', 'instagram', 'threads'].map((p) => ({
-    provider: p,
-    count: activeAccounts.filter((a) => a.provider === p).length,
-  }));
   page.appendChild(card([
-    el('div', { className: 'card-head' }, [
-      el('span', { className: 'card-title', text: 'Connected accounts' }),
-      el('a', { className: 'btn btn-ghost btn-sm', text: 'Manage', attrs: { href: '/connections', 'data-link': '' } }),
-    ]),
-    activeAccounts.length
-      ? el('div', { className: 'row', attrs: { style: 'gap:.5rem' } },
-          byProvider.map((b) => badge(`${PROVIDER_LABELS[b.provider]}: ${b.count}`, b.count ? 'ok' : 'neutral')))
-      : emptyState({
-          title: 'No accounts connected',
-          subtitle: 'Connect a Facebook Page, Instagram Professional account, or Threads profile to start scheduling.',
-          action: el('a', { className: 'btn btn-primary btn-sm', text: 'Connect an account', attrs: { href: '/connections', 'data-link': '' } }),
-        }),
+    el('div', { className: 'card-head' }, [el('h2', { className: 'card-title', text: 'Needs your attention' })]),
+    attention.length
+      ? el('ul', { className: 'attn-list' }, attention)
+      : el('p', { className: 'dash-allclear', text: 'Nothing needs you right now. Everything we can check looks healthy.' }),
   ]));
 
-  // Next scheduled posts (real rows only).
-  const upcoming = queued
-    .filter((p) => p.scheduledAtUtc)
+  // --- the numbers that lead somewhere -------------------------------------
+  page.appendChild(el('div', { className: 'grid grid-4' }, [
+    figure(scheduled.length, 'Scheduled posts', '/queue'),
+    figure(drafts.length, 'Drafts', '/create'),
+    figure(activeAccounts.length, 'Connected accounts', '/connections'),
+    figure(minBuffer === null ? null : minBuffer, 'Days of content ready', '/automations',
+      minBuffer === null ? 'No active automation' : null),
+  ]));
+
+  // --- what happens next ---------------------------------------------------
+  const upcoming = scheduled
+    .slice()
     .sort((a, b) => String(a.scheduledAtUtc).localeCompare(String(b.scheduledAtUtc)))
     .slice(0, 5);
   page.appendChild(card([
     el('div', { className: 'card-head' }, [
-      el('span', { className: 'card-title', text: 'Next scheduled posts' }),
-      el('a', { className: 'btn btn-ghost btn-sm', text: 'View queue', attrs: { href: '/queue', 'data-link': '' } }),
+      el('h2', { className: 'card-title', text: 'What happens next' }),
+      el('a', { className: 'btn btn-ghost btn-sm', text: 'Open queue', attrs: { href: '/queue', 'data-link': '' } }),
     ]),
     upcoming.length
-      ? el('div', { className: 'stack', attrs: { style: 'gap:.5rem' } }, upcoming.map((p) =>
-          el('div', { className: 'row' }, [
-            badge(p.status, statusTone(p.status)),
-            el('span', { text: p.title || '(untitled)', attrs: { style: 'font-weight:600' } }),
-            el('span', { className: 'spacer' }),
-            el('span', { className: 'card-sub', text: `${formatDate(p.scheduledAtUtc)}${p.originalTimezone ? ` · ${p.originalTimezone}` : ''}` }),
-          ]),
-        ))
-      : emptyState({ title: 'Nothing scheduled yet', subtitle: 'Create a post and schedule it. Publishing to providers arrives in a later phase.' }),
+      ? el('ul', { className: 'lane' }, upcoming.map((p) => el('li', { className: 'lane-row' }, [
+        statusChip(p.status),
+        el('span', { className: 'lane-title', text: p.title || 'Untitled post' }),
+        el('span', { className: 'lane-meta', text: (p.platformTargets || []).map((x) => PLATFORM_LABELS[x] || x).join(', ') }),
+        el('span', { className: 'spacer' }),
+        el('span', { className: 'lane-when', text: localWhen(p) }),
+      ])))
+      : emptyState({
+        title: 'Nothing is scheduled',
+        subtitle: 'Write a post and schedule it, or let an automation prepare a week for you.',
+        action: el('a', { className: 'btn btn-primary btn-sm', text: 'Create post', attrs: { href: '/create', 'data-link': '' } }),
+      }),
   ]));
 
-  // Recent activity = the user's most recent real posts.
+  // --- setup + publishing readiness ---------------------------------------
+  const readyRow = (label, ok, okText, offText, href, action) => el('li', { className: 'lane-row' }, [
+    statusChip(ok ? 'published' : 'draft', ok ? okText : offText),
+    el('span', { className: 'lane-title', text: label }),
+    el('span', { className: 'spacer' }),
+    el('a', { className: 'btn btn-ghost btn-sm', text: action, attrs: { href, 'data-link': '' } }),
+  ]);
+
+  page.appendChild(card([
+    el('div', { className: 'card-head' }, [el('h2', { className: 'card-title', text: 'Your setup' })]),
+    el('ul', { className: 'lane' }, [
+      readyRow('Connected accounts', activeAccounts.length > 0,
+        `${activeAccounts.length} connected`, 'None connected', '/connections', 'Manage'),
+      // Named by what they let the user do, not by the vendor behind them. The
+      // vendor names belong on /integrations, where the keys are entered.
+      readyRow('AI writing help', openaiReady, 'Ready', 'Not set up', '/integrations', 'Set up'),
+      readyRow('Branded image rendering', hctiReady, 'Ready', 'Not set up', '/integrations', 'Set up'),
+    ]),
+    liveEnabled
+      ? notice('Live publishing is on. Scheduled posts are sent to your connected accounts in the background.', 'info')
+      : notice('Live publishing is turned off, so nothing is sent to your accounts yet. You can still write, schedule and review everything.', 'info'),
+  ]));
+
+  // --- recent activity -----------------------------------------------------
   const recent = posts.slice(0, 5);
   page.appendChild(card([
-    el('div', { className: 'card-head' }, [el('span', { className: 'card-title', text: 'Recent activity' })]),
+    el('div', { className: 'card-head' }, [el('h2', { className: 'card-title', text: 'Recent activity' })]),
     recent.length
-      ? el('div', { className: 'stack', attrs: { style: 'gap:.5rem' } }, recent.map((p) =>
-          el('div', { className: 'row' }, [
-            badge(p.status, statusTone(p.status)),
-            el('span', { text: p.title || '(untitled)' }),
-            el('span', { className: 'spacer' }),
-            el('span', { className: 'card-sub', text: `Updated ${formatDate(p.updatedAt)}` }),
-          ]),
-        ))
-      : el('p', { className: 'hint', text: 'No activity yet.' }),
+      ? el('ul', { className: 'lane' }, recent.map((p) => el('li', { className: 'lane-row' }, [
+        statusChip(p.status),
+        el('span', { className: 'lane-title', text: p.title || 'Untitled post' }),
+        el('span', { className: 'spacer' }),
+        el('span', { className: 'lane-when', text: `Updated ${formatDate(p.updatedAt)}` }),
+      ])))
+      : el('p', { className: 'hint', text: 'Your posts will appear here once you create one.' }),
   ]));
-
-  page.appendChild(notice('Scheduled posts are saved for a future publishing phase. Cyflow does not publish to providers yet.', 'info'));
 
   root.appendChild(page);
 }

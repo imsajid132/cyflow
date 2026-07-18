@@ -3,18 +3,9 @@
  */
 
 import * as api from '../api.js';
-import { el, card, pageHead, badge, notice, emptyState, formatDate } from '../ui.js';
+import { el, card, pageHead, notice, emptyState, formatDate } from '../ui.js';
 import { statusChip } from '../components/plannerCard.js';
 import { deletePlanButton } from '../components/deletePlan.js';
-
-const RUN_STATUS_TONE = {
-  queued: 'ok',
-  partially_queued: 'warn',
-  review: 'warn',
-  generating: 'neutral',
-  archived: 'neutral',
-  failed: 'err',
-};
 
 export async function render(root, ctx) {
   const listHost = el('div', { className: 'stack' });
@@ -57,7 +48,7 @@ export async function render(root, ctx) {
           el('div', { attrs: { style: 'min-width:0;flex:1' } }, [
             el('div', { className: 'row', attrs: { style: 'gap:.5rem;flex-wrap:wrap' } }, [
               el('span', { className: 'card-title', text: plan.name || `Plan ${plan.id}` }),
-              badge(plan.status.replace(/_/g, ' '), RUN_STATUS_TONE[plan.status] || 'neutral'),
+              statusChip(plan.status),
             ]),
             el('p', { className: 'card-sub', text: `${plan.startDate} to ${plan.endDate} · ${plan.timezone || 'UTC'} · ${total} post${total === 1 ? '' : 's'}` }),
             el('p', { className: 'card-sub', text: `Created ${formatDate(plan.createdAt)}` }),

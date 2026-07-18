@@ -73,7 +73,7 @@ export async function render(root, ctx) {
     page.appendChild(card([
       el('div', { className: 'card-head' }, [
         el('span', { className: 'card-title', text: latest.name || 'Latest plan' }),
-        badge(latest.status.replace(/_/g, ' '), latest.status === 'queued' ? 'ok' : 'warn'),
+        statusChip(latest.status),
       ]),
       el('p', { className: 'card-sub', text: `${latest.startDate} to ${latest.endDate} · ${latest.timezone || 'UTC'}` }),
       el('div', { className: 'row', attrs: { style: 'gap:.4rem;flex-wrap:wrap;margin-top:.6rem' } },

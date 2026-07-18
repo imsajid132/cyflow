@@ -1811,7 +1811,11 @@ export function createFakeBackgroundJobRepository() {
         id: nextId++, user_id: input.userId ?? null, automation_id: input.automationId ?? null,
         job_type: input.jobType, status: 'pending', idempotency_key: input.idempotencyKey,
         payload: input.payload ?? null, scheduled_for: input.scheduledFor ?? null,
-        available_at: input.availableAt ?? new Date(), _availMs: toMs(input.availableAt ?? new Date()),
+        available_at: input.availableAt ?? new Date(),
+        // No explicit availableAt means "claimable immediately". Stamping wall-clock
+        // time here would make any test that injects a fixed clock fail whenever real
+        // time drifts past that clock, so availability is epoch-0 unless asked for.
+        _availMs: input.availableAt != null ? toMs(input.availableAt) : 0,
         attempt_count: 0, max_attempts: Number.isInteger(input.maxAttempts) ? input.maxAttempts : 5,
         locked_by: null, locked_until: null, _lockMs: null, heartbeat_at: null,
         last_error_category: null, last_error_message: null, completed_at: null,

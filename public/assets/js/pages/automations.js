@@ -12,8 +12,8 @@
 
 import * as api from '../api.js';
 import {
-  el, card, pageHead, badge, notice, toast, field, selectField, val,
-  setLoading, emptyState, confirmModal, formatDate,
+  el, card, pageHead, notice, toast, field, selectField, val,
+  setLoading, emptyState, confirmModal, formatDate, statusChip,
 } from '../ui.js';
 import { PROVIDER_LABELS, PLATFORM_LABELS } from '../icons.js';
 
@@ -22,7 +22,6 @@ const PLATFORMS = [['instagram', 'Instagram'], ['threads', 'Threads'], ['faceboo
 const MODES = [['review', 'Review before publishing'], ['draft_only', 'Draft only'], ['autopilot', 'Full autopilot']];
 const RHYTHMS = [['balanced', 'Balanced'], ['education_first', 'Education first'], ['promotion_light', 'Promotion light'], ['authority', 'Authority']];
 const MISSED = [['skip', 'Skip it'], ['hold', 'Hold for review'], ['next_safe_time', 'Prepare for the next safe time']];
-const STATUS_TONE = { draft: 'neutral', active: 'ok', paused: 'warn', attention_needed: 'err', stopped: 'neutral' };
 
 const browserTz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; } })();
 const ACCOUNT_PLATFORM = { facebook_page: 'facebook', instagram_professional: 'instagram', threads_profile: 'threads' };
@@ -216,7 +215,7 @@ export async function render(root, ctx) {
     const children = [
       el('div', { className: 'card-head' }, [
         el('span', { className: 'card-title', text: a.name || 'Untitled automation' }),
-        badge(a.status.replace('_', ' '), STATUS_TONE[a.status] || 'neutral'),
+        statusChip(a.status),
       ]),
       meta,
     ];

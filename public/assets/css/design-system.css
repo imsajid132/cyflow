@@ -64,9 +64,45 @@
   --err-bg: #fee2e2; --err-fg: #991b1b; --err-bd: #fca5a5;
   --info-bg: #eff6ff; --info-fg: #1e40af; --info-bd: #bfdbfe;
 
+  /*
+   * F2 semantic surface + text layer. Components address MEANING, not the ink
+   * ramp, so the whole application can be retuned from one place. The ramp stays
+   * as the source of truth; these are the names components should reach for.
+   */
+  --bg: var(--ink-50);            /* the page field behind everything */
+  --surface: #ffffff;             /* ordinary resting surface: cards, sidebar   */
+  --surface-2: var(--ink-50);     /* a nested/quiet block inside a surface      */
+  --surface-raised: #ffffff;      /* something that floats: modal, drawer, menu */
+  --border: var(--ink-200);       /* ordinary separation                        */
+  --border-strong: var(--ink-300);/* input edges, hover emphasis                */
+  --text: var(--ink-900);         /* primary reading colour                     */
+  --text-secondary: var(--ink-700);
+  --text-muted: var(--ink-500);   /* supporting copy, never body text           */
+
+  /*
+   * Domain status. One token set for the post/automation lifecycle so the Queue,
+   * Calendar, Automations, Create Post and Dashboard cannot drift apart. Status
+   * is never colour alone: every chip carries a dot AND a label.
+   *
+   * Deliberately restrained: only "published" earns green, so a healthy screen
+   * is calm and a real problem is the only thing shouting.
+   */
+  --st-draft-bg: var(--ink-100);   --st-draft-fg: var(--ink-600);  --st-draft-bd: var(--ink-200);
+  --st-sched-bg: #eef2ff;          --st-sched-fg: #3730a3;         --st-sched-bd: #c7d2fe;
+  --st-active-bg: var(--info-bg);  --st-active-fg: var(--info-fg);  --st-active-bd: var(--info-bd);
+  --st-done-bg: var(--ok-bg);      --st-done-fg: var(--ok-fg);      --st-done-bd: var(--ok-bd);
+  --st-attn-bg: var(--warn-bg);    --st-attn-fg: var(--warn-fg);    --st-attn-bd: var(--warn-bd);
+  --st-fail-bg: var(--err-bg);     --st-fail-fg: var(--err-fg);     --st-fail-bd: var(--err-bd);
+  --st-off-bg: var(--ink-100);     --st-off-fg: var(--ink-500);     --st-off-bd: var(--ink-200);
+
   --radius: 12px;
   --radius-sm: 8px;
   --radius-lg: 16px;
+  /* F2 shape scale: small controls 8-10, buttons/inputs 10-12, cards 14-18,
+     modals 18-24. One rung per role so nothing is arbitrary. */
+  --radius-control: 10px;
+  --radius-card: 14px;
+  --radius-modal: 20px;
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, .06), 0 1px 3px rgba(15, 23, 42, .05);
   --shadow-md: 0 4px 12px rgba(15, 23, 42, .08);
   --shadow-lg: 0 12px 32px rgba(15, 23, 42, .14);
@@ -205,15 +241,20 @@ img { max-width: 100%; }
 .spacer { flex: 1; }
 
 /* --- cards ---------------------------------------------------------------- */
+/*
+ * A card rests; it does not float. Elevation is reserved for things that
+ * genuinely sit above the page (modal, drawer, popover, toast), so a screen full
+ * of cards reads as one calm surface instead of a tray of floating panels.
+ */
 .card {
-  background: #fff; border: 1px solid var(--ink-200);
-  border-radius: var(--radius); box-shadow: var(--shadow-sm); padding: 1.15rem;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-card); padding: 1.25rem;
 }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .85rem; }
 .card-title { font-size: .95rem; font-weight: 650; color: var(--ink-900); }
 .card-sub { font-size: .82rem; color: var(--ink-500); }
-.card-hover { transition: box-shadow var(--speed), border-color var(--speed); }
-.card-hover:hover { box-shadow: var(--shadow-md); border-color: var(--ink-300); }
+.card-hover { transition: border-color var(--speed), background var(--speed); }
+.card-hover:hover { border-color: var(--border-strong); background: var(--surface-2); }
 
 .stat { display: flex; flex-direction: column; gap: .3rem; }
 .stat-value { font-size: 1.75rem; font-weight: 700; color: var(--ink-900); letter-spacing: -.02em; }
@@ -222,9 +263,14 @@ img { max-width: 100%; }
 /* --- buttons -------------------------------------------------------------- */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: .45rem;
-  padding: .55rem .95rem; border-radius: var(--radius-sm);
+  padding: .55rem .95rem; border-radius: var(--radius-control);
   font-size: .875rem; font-weight: 600; font-family: inherit;
   border: 1px solid transparent; cursor: pointer;
+  /* A real touch target on every surface, without changing visual height. */
+  min-height: 38px;
+  /* A button is a button even when it is an <a>. Without this the global anchor
+     underline leaks onto every link-styled action in the app. */
+  text-decoration: none;
   transition: background var(--speed), border-color var(--speed), color var(--speed);
 }
 .btn:disabled { opacity: .55; cursor: not-allowed; }
@@ -258,14 +304,37 @@ img { max-width: 100%; }
 
 /* --- forms ---------------------------------------------------------------- */
 .field { display: flex; flex-direction: column; gap: .35rem; }
+/*
+ * Vertical rhythm BETWEEN form blocks. A .field only spaces its own label/input/
+ * hint; stacked directly in a card, one field's hint ended up almost touching the
+ * next field's label. This gives every form the same breathing room without
+ * changing how cards lay out generally.
+ */
+.field + .field,
+.field + .grid, .grid + .field,
+.field + fieldset, fieldset + .field { margin-top: .95rem; }
+/* ...but a grid already spaces its own cells. Without this reset the stacked
+   rhythm also applies to columns, so every field after the first in a row sat
+   15px lower than its neighbour and the row lost its shared baseline. */
+.grid > .field + .field,
+.grid > .field + .grid,
+.grid > .field + fieldset,
+.grid > fieldset + .field { margin-top: 0; }
 .label { font-size: .82rem; font-weight: 600; color: var(--ink-700); }
 .hint { font-size: .75rem; color: var(--ink-500); }
 .input, .select, .textarea {
-  width: 100%; padding: .55rem .7rem; font-size: .875rem; font-family: inherit;
-  color: var(--ink-900); background: #fff;
-  border: 1px solid var(--ink-300); border-radius: var(--radius-sm);
+  width: 100%; padding: .6rem .75rem; font-size: .875rem; font-family: inherit;
+  color: var(--text); background: var(--surface);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-control);
   transition: border-color var(--speed), box-shadow var(--speed);
+  /* A native select computes its own line-height and came out 2px taller than
+     the input beside it. Same declared box for every control, so a select and
+     a text input sitting in one row are the same height. */
+  box-sizing: border-box; line-height: 1.45;
 }
+/* Explicit height rather than appearance:none, which would strip the native
+   dropdown arrow and leave no clue the control opens a list. */
+.input, .select { height: 40px; }
 .input:focus, .select:focus, .textarea:focus {
   outline: none; border-color: var(--brand-500);
   box-shadow: 0 0 0 3px var(--brand-100);
@@ -299,6 +368,56 @@ legend { padding: 0; }
 .badge-info { background: var(--info-bg); color: var(--info-fg); border-color: var(--info-bd); }
 .badge-neutral { background: var(--ink-100); color: var(--ink-600); border-color: var(--ink-200); }
 .badge-plain::before { display: none; }
+
+/*
+ * F2 status chip — ONE component for the whole post/automation lifecycle, driven
+ * by a data-status attribute. Queue, Calendar, Automations, Create Post and the
+ * Dashboard all render status through this, so the same state can never look
+ * different in two places. Colour is never the only signal: every chip has a dot
+ * and a written label.
+ *
+ * Only "published" is green. Partial success is deliberately an ATTENTION state,
+ * never a success one, because one account failing is not a success.
+ */
+.status {
+  display: inline-flex; align-items: center; gap: .4rem;
+  padding: .2rem .6rem; border-radius: 999px; white-space: nowrap;
+  font-size: .75rem; font-weight: 600; border: 1px solid;
+  background: var(--st-draft-bg); color: var(--st-draft-fg); border-color: var(--st-draft-bd);
+}
+.status::before {
+  content: ''; width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor; flex: none;
+}
+.status[data-status="scheduled"], .status[data-status="queued"] {
+  background: var(--st-sched-bg); color: var(--st-sched-fg); border-color: var(--st-sched-bd);
+}
+.status[data-status="publishing"], .status[data-status="submitted"],
+.status[data-status="reconciling"], .status[data-status="processing"] {
+  background: var(--st-active-bg); color: var(--st-active-fg); border-color: var(--st-active-bd);
+}
+.status[data-status="published"], .status[data-status="approved"] {
+  background: var(--st-done-bg); color: var(--st-done-fg); border-color: var(--st-done-bd);
+}
+.status[data-status="partial"], .status[data-status="attention_needed"],
+.status[data-status="retry_scheduled"], .status[data-status="retrying"],
+.status[data-status="waiting_approval"], .status[data-status="needs_review"],
+.status[data-status="review"], .status[data-status="partially_queued"] {
+  background: var(--st-attn-bg); color: var(--st-attn-fg); border-color: var(--st-attn-bd);
+}
+/* A hard failure and an explicit rejection both mean "this will not go out". */
+.status[data-status="failed"], .status[data-status="generation_failed"],
+.status[data-status="rejected"] {
+  background: var(--st-fail-bg); color: var(--st-fail-fg); border-color: var(--st-fail-bd);
+}
+.status[data-status="generating"] {
+  background: var(--st-active-bg); color: var(--st-active-fg); border-color: var(--st-active-bd);
+}
+.status[data-status="cancelled"], .status[data-status="paused"],
+.status[data-status="skipped"], .status[data-status="disabled"],
+.status[data-status="archived"] {
+  background: var(--st-off-bg); color: var(--st-off-fg); border-color: var(--st-off-bd);
+}
 
 .chip {
   display: inline-flex; align-items: center; gap: .4rem;
@@ -370,8 +489,8 @@ legend { padding: 0; }
   overflow-y: auto;
 }
 .modal {
-  background: #fff; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
-  width: min(94vw, 440px); padding: 1.35rem; display: flex; flex-direction: column; gap: .85rem;
+  background: var(--surface-raised); border-radius: var(--radius-modal); box-shadow: var(--shadow-lg);
+  width: min(94vw, 440px); padding: 1.5rem; display: flex; flex-direction: column; gap: .9rem;
 }
 .modal-actions { display: flex; justify-content: flex-end; gap: .5rem; }
 
@@ -542,18 +661,36 @@ legend { padding: 0; }
 .notfound-inner .sub { margin: 0 0 1.15rem; }
 
 /* --- tabs ----------------------------------------------------------------- */
-.tabs { display: flex; gap: .25rem; border-bottom: 1px solid var(--ink-200); }
+/*
+ * A filter strip scrolls WITHIN ITSELF. Left as a plain flex row it grew wider
+ * than a phone and pushed the whole page sideways (112px of horizontal overflow
+ * on the Queue at 390px), which is a page-level bug, not a tab-level one.
+ */
+.tabs {
+  display: flex; gap: .25rem; border-bottom: 1px solid var(--border);
+  max-width: 100%; overflow-x: auto; scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
 .tab {
   padding: .5rem .8rem; border: 0; background: transparent; cursor: pointer;
-  font-size: .85rem; font-weight: 600; color: var(--ink-500);
+  font-size: .85rem; font-weight: 600; color: var(--text-muted);
   border-bottom: 2px solid transparent; font-family: inherit;
+  flex: 0 0 auto; white-space: nowrap; min-height: 40px;
 }
 .tab[aria-selected="true"] { color: var(--brand-700); border-bottom-color: var(--brand-600); }
 
 /* --- table / list --------------------------------------------------------- */
+/* A row of content INSIDE a card. Pure layout: the card is already the
+   surface, so a border/background here would draw a second identical box
+   around every list entry. */
 .list-item {
   display: flex; gap: .9rem; align-items: flex-start;
-  padding: .9rem; border: 1px solid var(--ink-200); border-radius: var(--radius); background: #fff;
+}
+@media (max-width: 640px) {
+  /* Actions drop below the content instead of crushing the title into a
+     three-line wrap beside them. */
+  .list-item { flex-wrap: wrap; }
+  .list-item > .row:last-child { width: 100%; }
 }
 .thumb { width: 64px; height: 64px; border-radius: var(--radius-sm); object-fit: cover; background: var(--ink-100); flex: 0 0 64px; }
 .thumb-empty { border: 1px dashed var(--ink-200); }
@@ -950,9 +1087,58 @@ legend { padding: 0; }
   .pub-footer-inner { grid-template-columns: 1fr; }
 }
 
-/* Buttons rendered as links must not carry the link underline. */
-.pub .btn, .pub-nav-drawer .btn { text-decoration: none; }
+/* (The link-underline reset for buttons now lives on .btn itself, so the public
+   site and the app share one rule instead of two.) */
 
 /* G: settings danger zone. */
 .card-danger { border-color: var(--err-bd); }
 .card-title.danger { color: var(--err-fg); }
+
+/* ==========================================================================
+   F2: authenticated app surfaces — attention list, figures, and lanes.
+   These are the shared shapes the redesigned routes compose from, so Dashboard,
+   Queue, Automations and Calendar present the same information the same way.
+   ========================================================================== */
+
+/* A figure that leads somewhere. The whole card is the target, so the hit area
+   is the card, not a small link inside it. */
+.dash-figure { display: block; text-decoration: none; color: inherit; }
+.dash-figure:hover { text-decoration: none; }
+.dash-figure .stat-value { line-height: 1.1; }
+
+/* "Needs your attention" — a real list of real problems, each with a way out. */
+.attn-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+.attn-item {
+  display: flex; align-items: center; gap: .7rem;
+  padding: .6rem .75rem; border-radius: var(--radius-control);
+  background: var(--warn-bg); border: 1px solid var(--warn-bd); color: var(--warn-fg);
+}
+.attn-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
+.attn-text { flex: 1; min-width: 0; font-size: .875rem; font-weight: 500; }
+.dash-allclear { color: var(--text-muted); font-size: .9rem; }
+
+/* A "lane" is a scannable list of real rows: status, what it is, when. Used for
+   upcoming posts, setup readiness and recent activity. */
+.lane { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.lane-row {
+  display: flex; align-items: center; gap: .7rem;
+  padding: .65rem .25rem; border-bottom: 1px solid var(--border);
+}
+.lane-row:last-child { border-bottom: 0; }
+.lane-title { font-weight: 600; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lane-meta { font-size: .8rem; color: var(--text-muted); white-space: nowrap; }
+.lane-when { font-size: .8rem; color: var(--text-muted); white-space: nowrap; }
+
+@media (max-width: 640px) {
+  /* Rows wrap instead of squeezing; the timestamp drops to its own line rather
+     than being clipped. */
+  .lane-row { flex-wrap: wrap; gap: .4rem .6rem; }
+  .lane-row .spacer { display: none; }
+  .lane-title { white-space: normal; flex: 1 1 100%; order: 2; }
+  .lane-when, .lane-meta { order: 3; }
+  /* The dot belongs beside the sentence it marks. Only the action drops to its
+     own line; sending the text down too left the dot stranded on a line alone. */
+  .attn-item { align-items: flex-start; flex-wrap: wrap; }
+  .attn-dot { margin-top: .4rem; }
+  .attn-item > .btn { flex: 1 0 100%; }
+}

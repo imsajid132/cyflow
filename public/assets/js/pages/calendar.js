@@ -6,7 +6,7 @@
  */
 
 import * as api from '../api.js';
-import { el, card, pageHead, badge, statusTone, notice, emptyState, formatDate } from '../ui.js';
+import { el, card, pageHead, notice, emptyState, formatDate, statusChip } from '../ui.js';
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
@@ -135,7 +135,7 @@ export async function render(root, ctx) {
       upcoming.length
         ? el('div', { className: 'stack', attrs: { style: 'gap:.5rem' } }, upcoming.map(({ p }) =>
             el('div', { className: 'row' }, [
-              badge(p.status, statusTone(p.status)),
+              statusChip(p.status),
               el('span', { text: p.title || '(untitled)', attrs: { style: 'font-weight:600' } }),
               el('span', { className: 'spacer' }),
               el('span', { className: 'card-sub', text: formatDate(p.scheduledAtUtc) }),

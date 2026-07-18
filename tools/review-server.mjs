@@ -554,14 +554,39 @@ if (isMain) {
   // Review-only: the seed-publish fixtures reference an image by public token but
   // there is no object store behind this DB-less harness, so serve a tiny valid
   // PNG for those tokens. Real tokens fall through to the app's /media route.
+  /*
+   * A neutral light-grey 16x16 tile, NOT a 1x1 black pixel. The previous
+   * placeholder rendered as a solid black square wherever a thumbnail was drawn,
+   * which is indistinguishable from a broken image in a screenshot review and so
+   * made every rendered page look defective when nothing was actually wrong.
+   */
   const REVIEW_PNG = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQAY3Y2wAAAAAElFTkSuQmCC',
+    'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR4nGP4+PUnSYhhVMOohuGrAQC0+98f6/R0hAAAAABJRU5ErkJggg==',
     'base64',
   );
+  /*
+   * Tokens this file seeds always get the tile. Plan generation also mints its
+   * own media rows whose stored bytes are a 1x1 placeholder, and at the 80px a
+   * planner card draws them a 1x1 becomes a solid black square that reads as a
+   * broken image in a screenshot review. --placeholder-media widens the tile to
+   * those too.
+   *
+   * It is OPT-IN, and deliberately so: serving every token unconditionally also
+   * swallowed the app's own /media behaviour, and the media smoke caught it —
+   * "serves inline (not as a download)" and both path-traversal refusals
+   * started passing through this handler instead of the route under test. Only
+   * the screenshot pass sets the flag; every smoke exercises the real route.
+   */
+  const placeholderMedia = process.argv.includes('--placeholder-media');
   wrapper.get('/media/:token', (req, res, next) => {
-    if (!String(req.params.token || '').startsWith('review-media-')) return next();
+    const token = String(req.params.token || '');
+    const seeded = token.startsWith('review-media-');
+    // A conservative shape check, so a traversal payload can never match.
+    const fixtureToken = placeholderMedia && /^[A-Za-z0-9_-]{16,}$/.test(token);
+    if (!seeded && !fixtureToken) return next();
     res.status(200);
     res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Content-Disposition', 'inline');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'no-store');
     return res.end(REVIEW_PNG);

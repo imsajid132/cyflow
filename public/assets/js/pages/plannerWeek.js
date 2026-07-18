@@ -10,7 +10,7 @@
 
 import * as api from '../api.js';
 import {
-  el, card, pageHead, badge, notice, toast, emptyState, skeleton,
+  el, card, pageHead, notice, toast, emptyState, skeleton,
   field, selectField, val, setLoading, confirmModal, clear,
 } from '../ui.js';
 import { platformNames } from '../icons.js';
@@ -97,7 +97,7 @@ export async function render(root, ctx) {
     summaryHost.appendChild(card([
       el('div', { className: 'card-head' }, [
         el('span', { className: 'card-title', text: plan.run.name || 'Plan' }),
-        badge(plan.run.status.replace(/_/g, ' '), plan.run.status === 'queued' ? 'ok' : 'warn'),
+        statusChip(plan.run.status),
         el('span', { className: 'spacer' }),
         deletePlanButton(plan.run.id, {
           name: plan.run.name || 'this plan',

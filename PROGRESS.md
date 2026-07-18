@@ -6,6 +6,35 @@ live social provider yet: the real publishing adapters exist but are gated OFF b
 default (`ENABLE_LIVE_PROVIDER_PUBLISHING=false`) and have only ever run against
 fake providers.
 
+## Milestone F2 — premium authenticated app redesign
+
+**Branch:** `cyflow-social-v1` · **No migration** (presentation only; 010–017 unchanged)
+
+- Every authenticated route and the shared shell now read as one product. The work
+  was done in the shared primitives first, so all fourteen routes inherit it: a
+  semantic token layer over the brand palette, cards that separate by border rather
+  than by shadow, and one declared height for every input and select.
+- **One status control.** There were two: a badge-based chip in the planner and a
+  dot-chip in the queue, so "Queued" looked like two different states depending on
+  where you stood. Both now come from a single renderer with a single label map,
+  and the raw enums that used to leak through it (`needs_review`,
+  `generation_failed`, `partially_queued`, plain `review`) are gone from the UI.
+- **Honest surfaces.** A media asset that cannot load degrades to a labelled
+  placeholder instead of a black rectangle; the media library says "Generated"
+  rather than naming the rendering vendor; the dashboard names capabilities
+  ("AI writing help", "Branded image rendering") rather than the API behind them.
+  Vendor names remain on `/integrations`, where the keys are actually entered.
+- Fixed by rendering, not by reading: link-buttons were underlined app-wide; the
+  queue drew a bordered row inside an identically bordered card; the queue's filter
+  strip overflowed 112px at 390px; list actions crushed titles into three-line wraps
+  on mobile; timestamps printed to the second in an ambiguous locale order; a form
+  row lost its shared baseline because a stacked-rhythm rule also applied to grid
+  columns; a `select` sat 2px taller than the `input` beside it.
+- 1052 tests pass; `npm audit` 0 (all + prod). New app-redesign browser smoke 24/24.
+  Existing smokes re-run green: milestone-c 44/44, public 38/38, media 20/20,
+  create 18/18, publish 18/18, automation 19/19, account 11/11. Rendered and
+  inspected at 1440x900, 1280x800, 1024x768, 390x844 and 360x800.
+
 ## Milestone G — data export, account deletion, release readiness
 
 **Branch:** `cyflow-social-v1` · **Migration:** `017_user_data_export_and_deletion.sql`

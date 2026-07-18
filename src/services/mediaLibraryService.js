@@ -34,7 +34,10 @@ function toPublic(asset) {
     id: asset.id,
     publicToken: asset.publicToken,
     source: asset.sourceProvider === 'upload' ? 'upload' : 'hcti',
-    sourceLabel: asset.sourceProvider === 'upload' ? 'Uploaded' : 'Generated with HCTI',
+    // "HCTI" is a vendor name the business owner never needs in the library.
+    // They chose the rendering account once on /integrations; here the only
+    // thing that matters is whether they supplied the image or Cyflow made it.
+    sourceLabel: asset.sourceProvider === 'upload' ? 'Uploaded' : 'Generated',
     mimeType: asset.mimeType,
     width: asset.width,
     height: asset.height,

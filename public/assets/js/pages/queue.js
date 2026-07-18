@@ -9,7 +9,7 @@
  */
 
 import * as api from '../api.js';
-import { el, card, pageHead, badge, statusTone, notice, emptyState, toast, formatDate, confirmModal } from '../ui.js';
+import { el, card, pageHead, notice, emptyState, toast, formatDate, confirmModal, statusChip } from '../ui.js';
 import { PROVIDER_LABELS, PLATFORM_LABELS } from '../icons.js';
 
 const FILTERS = [
@@ -25,18 +25,34 @@ const FILTERS = [
 
 const ACCOUNT_PLATFORM = { facebook_page: 'facebook', instagram_professional: 'instagram', threads_profile: 'threads' };
 
-/** Tone for a per-target publish status. */
-function publishTone(status) {
-  if (status === 'published') return 'ok';
-  if (['failed', 'attention_needed'].includes(status)) return 'err';
-  if (['publishing', 'submitted', 'reconciling', 'retry_scheduled'].includes(status)) return 'warn';
-  return 'neutral';
+/*
+ * Status is rendered through the shared statusChip so the Queue, Calendar,
+ * Automations, Create Post and the Dashboard cannot describe the same state in
+ * different words. The local tone/label maps this file used to carry were a
+ * second status system and are gone.
+ */
+
+/**
+ * A post thumbnail that degrades honestly. If the image is missing or cannot be
+ * loaded, the tile becomes a neutral placeholder rather than a black square.
+ */
+function thumbnail(post) {
+  if (!post.media?.publicToken) {
+    return el('div', { className: 'thumb thumb-empty', attrs: { 'aria-hidden': 'true' } });
+  }
+  const img = el('img', {
+    className: 'thumb',
+    attrs: { src: `/media/${encodeURIComponent(post.media.publicToken)}`, alt: '', loading: 'lazy' },
+  });
+  img.addEventListener('error', () => {
+    const fallback = el('div', {
+      className: 'thumb thumb-empty',
+      attrs: { title: 'This image is unavailable', 'aria-hidden': 'true' },
+    });
+    img.replaceWith(fallback);
+  }, { once: true });
+  return img;
 }
-const PUBLISH_LABEL = {
-  draft: 'Draft', waiting_approval: 'Waiting approval', scheduled: 'Scheduled', publishing: 'Publishing',
-  submitted: 'Submitted', reconciling: 'Reconciling', published: 'Published', retry_scheduled: 'Retry scheduled',
-  failed: 'Failed', cancelled: 'Cancelled', attention_needed: 'Needs attention', skipped: 'Skipped',
-};
 
 export async function render(root, ctx) {
   let posts = [];
@@ -67,7 +83,7 @@ export async function render(root, ctx) {
     const ps = target.publishStatus || 'scheduled';
     const bits = [
       el('span', { className: 'chip' }, [el('span', { text: `${PLATFORM_LABELS[platform] || platform}: ${name}` })]),
-      badge(PUBLISH_LABEL[ps] || ps, publishTone(ps)),
+      statusChip(ps),
     ];
     if (ps === 'published' && target.remotePostUrl) {
       bits.push(el('a', { className: 'btn btn-ghost btn-sm', text: 'View', attrs: { href: target.remotePostUrl, target: '_blank', rel: 'noopener noreferrer' } }));
@@ -132,13 +148,11 @@ export async function render(root, ctx) {
 
     return card([
       el('div', { className: 'list-item' }, [
-        post.media?.publicToken
-          ? el('img', { className: 'thumb', attrs: { src: `/media/${encodeURIComponent(post.media.publicToken)}`, alt: '', loading: 'lazy' } })
-          : el('div', { className: 'thumb thumb-empty', attrs: { 'aria-hidden': 'true' } }),
+        thumbnail(post),
         el('div', { attrs: { style: 'min-width:0;flex:1' } }, [
           el('div', { className: 'row', attrs: { style: 'gap:.5rem' } }, [
-            el('span', { className: 'card-title', text: post.title || '(untitled)' }),
-            badge(post.status, statusTone(post.status)),
+            el('span', { className: 'card-title', text: post.title || 'Untitled post' }),
+            statusChip(post.status),
           ]),
           el('p', { className: 'card-sub', text: post.scheduledAtUtc
             ? `Scheduled ${formatDate(post.scheduledAtUtc)}${post.originalTimezone ? ` · ${post.originalTimezone}` : ''}`

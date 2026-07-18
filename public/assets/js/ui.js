@@ -57,6 +57,60 @@ export function statusTone(status) {
   return 'warn';
 }
 
+/**
+ * The one human label for every post/automation state. Plain language only: a
+ * business owner reads these, not an engineer. Nothing here claims a post was
+ * published unless the provider actually confirmed it, and a partial result is
+ * never dressed up as success.
+ */
+export const STATUS_LABEL = Object.freeze({
+  draft: 'Draft',
+  waiting_approval: 'Waiting for approval',
+  scheduled: 'Scheduled',
+  queued: 'Queued for publishing',
+  processing: 'Working on it',
+  publishing: 'Publishing',
+  submitted: 'Sent, confirming',
+  reconciling: 'Confirming',
+  published: 'Published',
+  partial: 'Partly published',
+  retry_scheduled: 'Will try again',
+  retrying: 'Will try again',
+  failed: 'Failed',
+  cancelled: 'Cancelled',
+  attention_needed: 'Needs attention',
+  paused: 'Paused',
+  skipped: 'Skipped',
+  active: 'Active',
+  stopped: 'Stopped',
+  // Planner approval states. These live in the same map as the publishing
+  // states on purpose: "Queued" must read and look identical whether the user
+  // is looking at a planner card or the queue.
+  needs_review: 'Needs review',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  generation_failed: 'Generation failed',
+  // Plan run states.
+  partially_queued: 'Partly queued',
+  review: 'Needs review',
+  generating: 'Generating',
+  archived: 'Archived',
+});
+
+/**
+ * The single status chip used across Queue, Calendar, Automations, Create Post
+ * and the Dashboard. Carries a dot AND a label, so status never depends on
+ * colour alone.
+ */
+export function statusChip(status, overrideLabel = null) {
+  const key = String(status || '').toLowerCase();
+  return el('span', {
+    className: 'status',
+    text: overrideLabel || STATUS_LABEL[key] || (status ? String(status) : 'Unknown'),
+    attrs: { 'data-status': key },
+  });
+}
+
 export function notice(message, tone = 'info') {
   const map = { ok: 'notice-ok', warn: 'notice-warn', err: 'notice-err', info: 'notice-info' };
   return el('div', { className: `notice ${map[tone] || map.info}`, attrs: { role: 'status' }, text: message });
@@ -258,7 +312,11 @@ export function formatDate(value) {
     const s = String(value);
     const d = new Date(s.includes('T') ? s : `${s.replace(' ', 'T')}Z`);
     if (Number.isNaN(d.getTime())) return s;
-    return d.toLocaleString();
+    // toLocaleString() gives "1/1/2026, 5:00:00 AM": ambiguous day/month order
+    // and seconds nobody scheduled to. A post time is minute-precision.
+    return d.toLocaleString(undefined, {
+      day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
   } catch {
     return String(value);
   }
