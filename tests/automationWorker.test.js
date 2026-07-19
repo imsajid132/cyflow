@@ -25,9 +25,16 @@ function stack() {
   const runs = createFakePlannerRunRepository();
   const media = createFakeMediaAssetRepository();
   const openai = createFakePlannerOpenAI({ validate: true, isAvailableForUser: () => true });
+  /*
+   * A real business profile. Generation now REFUSES without one, which is the
+   * fix for the SEO/Austin posts: an empty profile produced a brief with no
+   * business in it at all, and the model invented a business to fill the gap.
+   * These tests previously passed while generating exactly that content.
+   */
+  const businessProfiles = createFakeBusinessProfileRepository();
   const planner = createPlannerService({
     preferences: createFakePlannerPreferenceRepository(), runs,
-    revisions: createFakePlannerRevisionRepository(), businessProfiles: createFakeBusinessProfileRepository(),
+    revisions: createFakePlannerRevisionRepository(), businessProfiles,
     socialAccounts: social, posts: createFakePostRepository({ socialAccounts: social }), mediaRepository: media,
     apiUsage: createFakeApiUsageRepository(), openaiContentService: openai,
     socialImageService: { ...createFakeSocialImageService(), isReadyForUser: async () => false },
@@ -42,10 +49,18 @@ function stack() {
     config: { worker: { maxAttempts: 3, refillIntervalHours: 6 } }, now: () => NOW,
   });
   const worker = (nowFn = () => NOW) => createDurableJobService({ jobs, handlers: svc.handlers, now: nowFn, options: { heartbeatMs: 0, leaseMs: 60000 } });
-  return { svc, worker, automations, jobs, runs, social };
+  return { svc, worker, automations, jobs, runs, social, businessProfiles };
 }
 
-async function seed(social) {
+async function seed(social, businessProfiles) {
+  // Generation refuses without a business to write about.
+  if (businessProfiles) {
+    await businessProfiles.createOrUpdateProfile(USER, {
+      businessName: 'NYC Waterproofing',
+      businessCategory: 'Waterproofing contractor',
+      businessDescription: 'Basement and foundation waterproofing for New York property owners.',
+    });
+  }
   await social.upsertSocialAccount({ userId: USER, provider: 'instagram', accountType: 'instagram_professional', providerAccountId: 'ig1', displayName: 'IG', username: 'ig', encryptedAccessToken: 'v1:x', scopes: [], providerMetadata: {}, status: 'active' });
   await social.upsertSocialAccount({ userId: USER, provider: 'threads', accountType: 'threads_profile', providerAccountId: 'th1', displayName: 'TH', username: 'th', encryptedAccessToken: 'v1:x', scopes: [], providerMetadata: {}, status: 'active' });
   const all = await social.listAccountsForUser(USER);
@@ -61,7 +76,7 @@ const config = (ids) => ({
 
 test('two workers draining the same queue prepare exactly one item per slot', async () => {
   const s = stack();
-  const ids = await seed(s.social);
+  const ids = await seed(s.social, s.businessProfiles);
   const a = await s.svc.createAutomation(USER, config(ids));
   await s.svc.activate(USER, a.id);
 
@@ -85,7 +100,7 @@ test('two workers draining the same queue prepare exactly one item per slot', as
 
 test('a worker crash mid-generation is recovered and produces no duplicate item', async () => {
   const s = stack();
-  const ids = await seed(s.social);
+  const ids = await seed(s.social, s.businessProfiles);
   const a = await s.svc.createAutomation(USER, config(ids));
   await s.svc.activate(USER, a.id);
   await s.worker().runOne({ workerId: 'W' }); // refill -> enqueue slot jobs

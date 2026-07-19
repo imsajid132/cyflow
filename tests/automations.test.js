@@ -27,6 +27,16 @@ async function build({ openaiAvailable = true } = {}) {
   const runs = createFakePlannerRunRepository();
   const media = createFakeMediaAssetRepository();
   const business = createFakeBusinessProfileRepository();
+  /*
+   * Generation refuses without a business to write about — the fix for the
+   * SEO/Austin posts, where an empty profile produced a brief containing no
+   * business at all and the model invented one.
+   */
+  business.createOrUpdateProfile(USER, {
+    businessName: 'NYC Waterproofing',
+    businessCategory: 'Waterproofing contractor',
+    businessDescription: 'Basement and foundation waterproofing for New York property owners.',
+  });
   const openai = createFakePlannerOpenAI({ validate: true, isAvailableForUser: () => openaiAvailable });
   const images = { ...createFakeSocialImageService(), isReadyForUser: async () => false };
   const planner = createPlannerService({

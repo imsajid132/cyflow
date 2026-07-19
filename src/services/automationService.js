@@ -455,13 +455,63 @@ export function createAutomationService({
     };
   }
 
+  /**
+   * The next post the user will actually see go out.
+   *
+   * Two things made this wrong on staging, and the card showed a post from
+   * earlier that day as "Next post":
+   *
+   *   1. The slot query filters by local DATE (`fromLocalDate: today`), not by
+   *      time. A slot at 02:45 still matches "today" at 14:00, so a moment that
+   *      had already passed was presented as the next one. The filter is now on
+   *      the actual instant.
+   *
+   *   2. A slot is `ready` once its content EXISTS. That says nothing about
+   *      whether the user approved it. A rejected post kept its ready slot and
+   *      was offered as the next post — the one thing the operator said must
+   *      never happen, since rejecting is how you say "not this one".
+   *
+   * Under a `skip` missed-post policy a passed slot is not coming back at all,
+   * so presenting it would be doubly wrong.
+   */
+  async function selectNextPost(a, slots) {
+    if (!Array.isArray(slots) || !slots.length) return null;
+    const nowMs = now().getTime();
+
+    const future = slots.filter((slot) => {
+      if (!slot.scheduledForUtc) return false;
+      const at = new Date(`${String(slot.scheduledForUtc).replace(' ', 'T')}Z`).getTime();
+      return Number.isFinite(at) && at > nowMs;
+    });
+    if (!future.length) return null;
+
+    // Rejected content is not upcoming content. Resolved once for the whole
+    // list rather than per slot.
+    let rejected = new Set();
+    if (a.plannerRunId) {
+      const plan = await planner.getPlan(a.userId, a.plannerRunId).catch(() => null);
+      rejected = new Set(
+        (plan?.items || [])
+          .filter((it) => it.approvalStatus === 'rejected')
+          .map((it) => String(it.id)),
+      );
+    }
+
+    const usable = future.filter((slot) => !(slot.plannerRunItemId && rejected.has(String(slot.plannerRunItemId))));
+    if (!usable.length) return null;
+
+    usable.sort((x, y) => String(x.scheduledForUtc).localeCompare(String(y.scheduledForUtc)));
+    const next = usable[0];
+    return { localDate: next.localDate, localTime: next.localTime, scheduledForUtc: next.scheduledForUtc };
+  }
+
   async function toPublic(a) {
     const buffer = await computeBuffer(a).catch(() => ({ readyDays: 0, through: null, low: true, ok: false, byStatus: {} }));
     let nextPost = null;
     if (a.plannerRunId) {
       const today = todayInZone(a.timezone);
       const upcoming = await automations.listSlotsForAutomation(a.id, a.userId, { statuses: [SLOT_STATUS.READY], fromLocalDate: today }).catch(() => []);
-      if (upcoming.length) nextPost = { localDate: upcoming[0].localDate, localTime: upcoming[0].localTime, scheduledForUtc: upcoming[0].scheduledForUtc };
+      nextPost = await selectNextPost(a, upcoming);
     }
     return {
       id: a.id, name: a.name, status: a.status, mode: a.mode, timezone: a.timezone,
@@ -587,6 +637,30 @@ export function createAutomationService({
       }
     } catch (err) {
       if (err instanceof PermanentJobError) throw err;
+
+      /*
+       * An incomplete business profile is PERMANENT, not transient.
+       *
+       * Retrying cannot add a business profile, so without this the job burned
+       * every attempt and then failed with a message nobody could act on. It is
+       * the same shape as the missing-OpenAI-credentials precondition above:
+       * stop, set attention, tell the user the one thing to go and do.
+       *
+       * The guard itself lives in the planner (assertBusinessContext), because
+       * that is where the brief is built and where the emptiness would
+       * otherwise reach the model.
+       */
+      const setupFields = (err?.details || []).map((d) => d?.field);
+      if (err instanceof ValidationError
+        && setupFields.some((f) => f === 'businessName' || f === 'businessDetails')) {
+        await automations.markSlotStatus(slot.id, userId, SLOT_STATUS.FAILED, {
+          category: 'permanent', message: 'Business profile is incomplete',
+        });
+        await setAttention(a, userId,
+          'Complete your Business profile (name, and what your business does) so posts describe your actual business.');
+        throw new PermanentJobError('Business profile incomplete');
+      }
+
       const lastAttempt = job.attemptCount >= job.maxAttempts;
       if (lastAttempt) {
         await automations.markSlotStatus(slot.id, userId, SLOT_STATUS.FAILED, { category: 'transient', message: safeMsg(err) });

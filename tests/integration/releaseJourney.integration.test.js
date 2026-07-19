@@ -70,7 +70,14 @@ beforeEach(async () => {
   app = createApp({
     // Only the external boundaries. Repositories, services, jobs, planner and
     // queue are all the real ones, against the real database.
-    adapters: {
+    /*
+     * `publishAdapters` is the container's override key. An earlier version
+     * passed `adapters`, which is not a key the container reads — so the stubs
+     * were never installed, the real adapters were built, and "zero provider
+     * calls" was proven only by the live-publishing flag rather than by the
+     * counters. Installed properly, any call throws and the count is real.
+     */
+    publishAdapters: {
       facebook: countingAdapter('facebook'),
       instagram: countingAdapter('instagram'),
       threads: countingAdapter('threads'),

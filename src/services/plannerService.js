@@ -110,6 +110,46 @@ import { ValidationError, NotFoundError, ConflictError, RateLimitError } from '.
  * client as an error, because nothing went wrong from the user's point of view.
  */
 class QueueRaceLost extends Error {}
+
+/**
+ * The business identity a post cannot be written without.
+ *
+ * A name alone is not enough to write about a business, but it IS enough to
+ * stop the model inventing one, and the rest of the brief (category,
+ * description, services, location) is what gives the copy something true to
+ * say. The requirement is deliberately minimal — a name plus at least one
+ * substantive field — so an early user is not blocked by an unfinished profile,
+ * while a completely empty one can never reach the model.
+ */
+export function missingBusinessContext(profile) {
+  const has = (v) => typeof v === 'string' && v.trim() !== '';
+  const hasAny = (v) => Array.isArray(v) && v.length > 0;
+  if (!profile) return ['businessName'];
+  const missing = [];
+  if (!has(profile.businessName)) missing.push('businessName');
+  const substance = has(profile.businessCategory)
+    || has(profile.businessDescription)
+    || hasAny(profile.services)
+    || has(profile.city);
+  if (!substance) missing.push('businessDetails');
+  return missing;
+}
+
+/** Throw an actionable setup error when there is nothing true to write about. */
+export function assertBusinessContext(profile) {
+  const missing = missingBusinessContext(profile);
+  if (!missing.length) return;
+  throw new ValidationError(
+    'Complete your business profile before generating posts. '
+    + 'Without it there is nothing accurate to write about, and Cyflow will not invent a business for you.',
+    missing.map((field) => ({
+      field,
+      message: field === 'businessName'
+        ? 'Add your business name on the Business page'
+        : 'Add what your business does: a category, a description, your services or your location',
+    })),
+  );
+}
 import { toMysqlUtc, addSecondsUtc, isValidTimezone } from '../utils/time.js';
 import { isSupportedTimezone } from './timezoneService.js';
 import { normalizeTemplate } from '../templates/socialImageTemplates.js';
@@ -2830,6 +2870,31 @@ export function createPlannerService({
     const run = await runsRepo.findRunByIdForUser(runId, userId);
     if (!run) throw new NotFoundError('Automation run not found');
     const profile = await businessProfiles.findByUserId(userId).catch(() => null);
+
+    /*
+     * No business context, no generation.
+     *
+     * This is where the SEO/Austin posts came from. The profile lookup ends in
+     * `.catch(() => null)`, and the brief builder drops every empty field
+     * before sending it, so a user with no business profile had their post
+     * written from:
+     *
+     *     platform: facebook
+     *     format: insight
+     *     goal: awareness
+     *     language: English
+     *
+     * No name, no services, no location. Asked to write a marketing post for an
+     * unnamed business, the model invents one, and a generic marketing agency in
+     * Austin is the archetypal thing it invents. Nothing was stale and nothing
+     * was hardcoded — the prompt was simply empty, and the emptiness was
+     * invisible because the filter removed the missing lines rather than
+     * reporting them.
+     *
+     * Refusing is the only honest option: content about a business the user
+     * never described is worse than no content, because it looks finished.
+     */
+    assertBusinessContext(profile);
 
     const settings = run.settings || {};
     const platforms = Array.isArray(settings.platforms) ? settings.platforms : [];
