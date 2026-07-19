@@ -118,7 +118,9 @@ export const DAY_TYPES = Object.freeze({
     purpose: 'name a common, costly mistake and what to do instead',
     format: 'common_mistake',
     imageConcept: 'warning_card',
-    layoutHint: 'problem-solution',
+    // The warning concept renders on the comparison layout: a mistake and its
+    // fix are two columns, which is the structure this layout already draws.
+    layoutHint: 'comparison-cards',
     openingGuidance: 'open on the shortcut that looks sensible and is not',
     ctaType: 'soft',
     headlineStyle: 'mistake_named',
@@ -325,6 +327,28 @@ export function weekShapeFor(niche) {
   const strategy = strategyForNiche(niche);
   return [1, 2, 3, 4, 5, 6, 7].map((d) => dayTypeFor(strategy, d));
 }
+
+/**
+ * The layout an assigned image concept renders on.
+ *
+ * The source scenarios shipped seven bespoke HTML cards per business, which is
+ * seven templates to maintain per customer. Cyflow already has nineteen
+ * layouts, and the concepts map onto them: a cheatsheet IS a checklist layout,
+ * a stat card IS the stat layout. Mapping rather than porting is what keeps
+ * this one design system instead of one per niche.
+ *
+ * Falls back to the brief's own layout choice when a concept is unknown, so an
+ * older run generated before concepts existed still renders.
+ */
+export function layoutForConcept(imageConcept, fallback = 'editorial-insight') {
+  const found = Object.values(DAY_TYPES).find((d) => d.imageConcept === imageConcept);
+  return found?.layoutHint || fallback;
+}
+
+/** Every concept the engine can assign. Used to validate templates exist. */
+export const IMAGE_CONCEPTS = Object.freeze(
+  [...new Set(Object.values(DAY_TYPES).map((d) => d.imageConcept))],
+);
 
 export default {
   NICHES, DAY_TYPES, NICHE_STRATEGIES, resolveNiche, strategyForNiche, dayTypeFor, weekShapeFor,

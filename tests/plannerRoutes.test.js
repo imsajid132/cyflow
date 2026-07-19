@@ -42,6 +42,20 @@ async function signedInWithAccount(app, overrides, creds = defaultCreds()) {
     providerMetadata: {},
     status: 'active',
   });
+  /*
+   * A minimal but REAL business profile. Generation now refuses an empty one
+   * (the same guard the automation path always had), so a test that means to
+   * exercise generation must first give the planner something true to write
+   * about. This is the setup a real user completes before their first plan.
+   */
+  await overrides.businessProfileRepository.createOrUpdateProfile(userId, {
+    businessName: 'Acct Test Business',
+    businessCategory: 'General contractor',
+    businessDescription: 'Home repair and maintenance services',
+    city: 'Brooklyn',
+    region: 'NY',
+    services: ['Repairs', 'Maintenance', 'Inspections'],
+  });
   return { agent, csrf, userId };
 }
 
@@ -183,8 +197,16 @@ test('generation validates its input', async () => {
 });
 
 test('generating without a connected account returns a helpful 400', async () => {
-  const { app } = plannerApp();
+  const { app, overrides } = plannerApp();
   const { agent, csrf } = await registerUser(app);
+  const me = await agent.get('/api/auth/me');
+  // A complete business profile, so the ONLY thing missing is the account and
+  // the refusal is about the account rather than the profile. The business
+  // context guard fires first, so isolating the no-account case needs a profile.
+  await overrides.businessProfileRepository.createOrUpdateProfile(me.body.data.user.id, {
+    businessName: 'Test Co', businessCategory: 'Contractor',
+    businessDescription: 'Services', city: 'Brooklyn', services: ['A service'],
+  });
   const res = await agent.post('/api/planner/plans').set('X-CSRF-Token', csrf).send({
     startDate: '2099-01-05', planLength: 3, times: ['09:00'], timezone: 'UTC', platforms: ['threads'],
   });

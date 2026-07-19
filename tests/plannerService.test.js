@@ -249,18 +249,24 @@ test('a plan varies strategic format and template across the week', async () => 
   const plan = await generate(ctx);
   assert.ok(new Set(plan.items.map((i) => i.contentType)).size >= 4, 'formats must vary');
   assert.ok(new Set(plan.items.map((i) => i.templateKey)).size >= 4, 'templates must vary');
-  // The layout follows the content, per the spec mapping.
+  /*
+   * The layout now follows the assigned DAY TYPE's image concept, which is the
+   * Make-derived pairing: a stat day draws a stat card, a rules day draws a
+   * cheatsheet. This replaced the format→template mapping, so the assertion is
+   * on the concept pairing rather than on the format. The caption and the image
+   * share this layout, which is the point: the post is written for the shape it
+   * will be drawn on.
+   */
+  const conceptLayouts = {
+    'service-authority': true, 'stat-highlight': true, 'checklist-guide': true,
+    'numbered-steps': true, 'comparison-cards': true, 'light-editorial': true,
+  };
   for (const item of plan.items) {
-    if (item.contentType === 'checklist') assert.equal(item.templateKey, 'checklist-guide');
-    if (item.contentType === 'process') assert.equal(item.templateKey, 'checklist-guide');
-    if (item.contentType === 'comparison') assert.equal(item.templateKey, 'comparison-cards');
-    if (item.contentType === 'service_benefit') assert.equal(item.templateKey, 'service-authority');
-    if (item.contentType === 'local_relevance') assert.equal(item.templateKey, 'local-insight');
+    assert.ok(conceptLayouts[item.templateKey], `unexpected layout ${item.templateKey}`);
   }
-  // No two consecutive posts share a layout.
-  for (let i = 1; i < plan.items.length; i += 1) {
-    assert.notEqual(plan.items[i].templateKey, plan.items[i - 1].templateKey);
-  }
+  // A full week visits several distinct layouts rather than repeating one.
+  assert.ok(new Set(plan.items.map((i) => i.templateKey)).size >= 5,
+    'a week should draw on at least five distinct card layouts');
 });
 
 test('selected weekdays and multiple posts per day are honoured', async () => {

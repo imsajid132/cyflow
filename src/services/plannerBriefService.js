@@ -53,7 +53,7 @@ import {
  * Keyed by strategic FORMAT. The spread deliberately favours teaching over
  * selling: a plan of seven service adverts is the failure mode this replaces.
  */
-import { resolveNiche, strategyForNiche, dayTypeFor } from './makeContentStrategy.js';
+import { resolveNiche, strategyForNiche, dayTypeFor, layoutForConcept } from './makeContentStrategy.js';
 import { planBatch } from './batchDiversityPlanner.js';
 
 export const DEFAULT_CONTENT_MIX = Object.freeze({
@@ -554,7 +554,20 @@ export function buildBriefSet({ slots = [], preferences = {}, profile = null, pl
     const audienceProblem = assignment.audienceProblem || pick(AUDIENCE_PROBLEMS, i, AUDIENCE_PROBLEMS[0]);
     const cta = ctaFromRhythm(config?.ctaMode || 'automatic', runCtaMode, i);
     const resolvedTone = toneForPosition(tone, i);
-    const templateKey = layoutForFormat(format, occurrence, previousTemplate);
+    /*
+     * The layout is chosen by the assigned image concept, so the card the post
+     * renders on is the one the day type planned. This is the pairing the
+     * source scenarios had — a stat day drew a stat card — and it is what keeps
+     * the caption and the image on the same structure rather than the caption
+     * being written for one shape and the image drawn as another. A locked
+     * weekday still wins, and a slot with no concept falls back to the old
+     * format-driven choice.
+     */
+    const templateKey = config?.locked && config?.templateKey
+      ? config.templateKey
+      : (assignment.imageConcept
+        ? layoutForConcept(assignment.imageConcept, layoutForFormat(format, occurrence, previousTemplate))
+        : layoutForFormat(format, occurrence, previousTemplate));
     previousTemplate = templateKey;
     const visualFamily = config?.locked && config?.visualFamily ? config.visualFamily : familyForLayout(pillar, templateKey);
 

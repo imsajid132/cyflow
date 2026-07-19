@@ -762,6 +762,21 @@ export function createPlannerService({
      */
     const selectedAccountIds = await resolveAccountSelection(userId, platforms, options.accountIds);
 
+    /*
+     * Nothing true to write about means nothing gets written.
+     *
+     * The automation path already refused an empty profile; the manual path did
+     * not, which left the same hole the guard exists to close: an unnamed
+     * business, the model inventing one, and a generic marketing agency in some
+     * city as the archetypal invention. Placed as the LAST gate before anything
+     * is spent, so every other setup problem reports itself first: a bad
+     * timezone, an unconnected platform, an empty schedule and an ambiguous
+     * account each keep their own error. The niche and the services this plan
+     * uses are read from this profile, so a complete one is what makes the plan
+     * about this business rather than a plausible stranger.
+     */
+    assertBusinessContext(profile);
+
     const run = await runsRepo.createRun({
       userId,
       businessProfileId: profile?.id ?? null,
@@ -925,6 +940,23 @@ export function createPlannerService({
     const avoidPhrases = batch.map((fp) => fp.headlineNormalized).filter(Boolean);
     const avoidOpenings = batch.map((fp) => fp.openingText).filter(Boolean);
 
+    /*
+     * What the batch has already spent, at the level of substance rather than
+     * of wording.
+     *
+     * `avoidPhrases` and `avoidOpenings` stop two posts sharing a sentence.
+     * They do not stop ten posts making one argument, because two posts can
+     * open differently and still say that patching does not work. Naming the
+     * services and concepts already used is what makes the second kind of
+     * repetition visible to the writer.
+     */
+    const spent = {
+      topics: batch.map((fp) => fp.headlineNormalized).filter(Boolean),
+      services: [...new Set(batch.map((fp) => fp.serviceEmphasis ?? fp.assignment?.serviceEmphasis).filter(Boolean))],
+      problems: [...new Set(batch.map((fp) => fp.assignment?.audienceProblem).filter(Boolean))],
+      imageConcepts: [...new Set(batch.map((fp) => fp.assignment?.imageConcept).filter(Boolean))],
+    };
+
     const attempts = [];
     let evaluation = null;
     let content = null;
@@ -941,6 +973,7 @@ export function createPlannerService({
             platform: primaryPlatform,
             avoidPhrases,
             avoidOpenings,
+            usedElements: spent,
             // Tell the next attempt what was actually wrong with the last one,
             // and by how much: the verdict alone produces another near-miss.
             styleIssues: styleRejections,
@@ -1128,7 +1161,30 @@ export function createPlannerService({
       duplicationScore: evaluation?.score ?? 0,
       duplicationNotes,
       regenerationCount: Math.max(0, attempts.length - 1),
-      fingerprint: { ...fingerprint, visualExtras: extrasFor(content, brief) },
+      fingerprint: {
+        ...fingerprint,
+        visualExtras: extrasFor(content, brief),
+        /*
+         * The assignment travels ONTO the item, not just into the request.
+         *
+         * A later retry, a re-render and the board all need to know what this
+         * slot was for. Without it a retry rebuilds a brief from scratch and
+         * quietly picks a different concept, so the replacement post no longer
+         * matches the card it was planned to sit on, and the batch's spent
+         * services become unknowable the moment the run is reloaded.
+         */
+        assignment: {
+          dayType: brief.dayType ?? null,
+          imageConcept: brief.imageConcept ?? null,
+          openingStyle: brief.openingStyle ?? null,
+          closingStyle: brief.closingStyle ?? null,
+          writingFormat: brief.writingFormat ?? null,
+          hashtagFamily: brief.hashtagFamily ?? null,
+          headlineStyle: brief.headlineStyle ?? null,
+          serviceEmphasis: brief.serviceEmphasis ?? null,
+          audienceProblem: brief.audienceProblem ?? null,
+        },
+      },
       editedFields: [],
     });
 
@@ -1273,6 +1329,30 @@ export function createPlannerService({
       website: displayWebsite(profile?.websiteUrl),
       language: profile?.defaultLanguage ?? null,
       callToAction: brief.callToAction,
+      /*
+       * The slot's assignment, carried to the model.
+       *
+       * The batch planner decided this post's job, its opening, its structure,
+       * its closing, its hashtag angle and its card concept before any call was
+       * made. Dropping them here is what left the plan a set of independent
+       * requests that happened to share a business, which is how ten posts end
+       * up making one argument. The strategy has to arrive with the brief or it
+       * is not a strategy.
+       */
+      dayType: brief.dayType ?? null,
+      dayTypeLabel: brief.dayTypeLabel ?? null,
+      dayPurpose: brief.dayPurpose ?? null,
+      imageConcept: brief.imageConcept ?? null,
+      openingStyle: brief.openingStyle ?? null,
+      openingGuidance: brief.openingGuidance ?? null,
+      closingStyle: brief.closingStyle ?? null,
+      closingGuidance: brief.closingGuidance ?? null,
+      writingFormat: brief.writingFormat ?? null,
+      writingGuidance: brief.writingGuidance ?? null,
+      hashtagFamily: brief.hashtagFamily ?? null,
+      hashtagGuidance: brief.hashtagGuidance ?? null,
+      headlineStyle: brief.headlineStyle ?? null,
+      headlineGuidance: brief.headlineGuidance ?? null,
     };
   }
 

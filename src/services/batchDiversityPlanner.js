@@ -149,9 +149,26 @@ export function problemFor(services, index) {
 export function planBatch({ slots = [], dayTypeAt, services = [] } = {}) {
   const serviceList = (services || []).filter((s) => typeof s === 'string' && s.trim());
 
+  /*
+   * How many earlier slots fall on the same calendar day.
+   *
+   * The Make scenarios posted once a day, so a day type could map straight from
+   * the weekday. Cyflow allows several posts a day, and two posts sharing a day
+   * type would share a concept and a layout and read as one post published
+   * twice. The second post on a day steps to the NEXT day type in the week, so
+   * a Tuesday morning stat card is followed by a Tuesday evening rules post,
+   * not a second stat card. Single-post days, the common case, are unchanged.
+   */
+  const seenOnDay = new Map();
+
   return slots.map((slot, i) => {
     const isoWeekday = slot?.weekday ?? ((i % 7) + 1);
-    const dayType = typeof dayTypeAt === 'function' ? dayTypeAt(isoWeekday) : null;
+    const dayKey = slot?.localDate || `w${isoWeekday}`;
+    const offset = seenOnDay.get(dayKey) || 0;
+    seenOnDay.set(dayKey, offset + 1);
+    // Step the weekday by the within-day offset, wrapping 1..7.
+    const effectiveWeekday = ((isoWeekday - 1 + offset) % 7) + 1;
+    const dayType = typeof dayTypeAt === 'function' ? dayTypeAt(effectiveWeekday) : null;
 
     /*
      * Every bank advances by ONE, from a different starting offset.
