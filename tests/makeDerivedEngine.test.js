@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
 
 import {
-  NICHES, DAY_TYPES, NICHE_STRATEGIES, resolveNiche, strategyForNiche, dayTypeFor, weekShapeFor,
+  NICHES, DAY_TYPES, NICHE_STRATEGIES, resolveNiche, strategyForNiche, dayTypeFor, weekShapeFor, resolveWeek,
 } from '../src/services/makeContentStrategy.js';
 import {
   planBatch, summarizeDiversity, usedElements, problemFor,
@@ -146,19 +146,25 @@ test('no example business from the scenarios is hardcoded in the engine', () => 
 test('the fabricated-testimonial card was not migrated', () => {
   /*
    * Five of six contractor scenarios rendered a five-star card carrying a
-   * customer quote, name, location and initials that the model invented. That
-   * is a fake review of a real business. The sixth had already replaced it,
-   * and that replacement is what Friday uses.
+   * customer quote, name, location and initials that the model invented. A
+   * fake review of a real business is forbidden. The testimonial card exists
+   * for exact parity, but it is REAL-REVIEW-ONLY: it renders only when the
+   * workspace has a stored review, and it is never fed generated text.
    */
-  const concepts = Object.values(DAY_TYPES).map((d) => d.imageConcept);
-  assert.ok(!concepts.includes('testimonial'), 'no day type may render a testimonial card');
-
-  const source = read('src', 'services', 'makeContentStrategy.js');
-  assert.ok(!/customer_testimonial/.test(source.replace(/\/\*[\s\S]*?\*\//g, '')),
-    'customer_testimonial must not survive outside the comment explaining its removal');
-
+  // The default Friday, with no reviews, is the safe maintenance tip.
   const friday = dayTypeFor(strategyForNiche(NICHES.LOCAL_SERVICE), 5);
-  assert.equal(friday.key, 'maintenance_tip');
+  assert.equal(friday.key, 'maintenance_tip', 'with no review, Friday is the maintenance tip');
+
+  // The testimonial day type is gated: it declares it requires a review and
+  // carries no generated substance of its own.
+  assert.equal(DAY_TYPES.testimonial_spotlight.requiresReview, true,
+    'the testimonial day type must declare it needs a real review');
+
+  // The week resolver only routes to it when a review is available.
+  const withReview = resolveWeek(strategyForNiche(NICHES.LOCAL_SERVICE), { hasReview: true });
+  const noReview = resolveWeek(strategyForNiche(NICHES.LOCAL_SERVICE), { hasReview: false });
+  assert.equal(withReview[5], 'testimonial_spotlight', 'a real review upgrades Friday to the testimonial');
+  assert.equal(noReview[5], 'maintenance_tip', 'no review keeps the safe fallback');
 });
 
 // ------------------------------------------------- dynamic business context

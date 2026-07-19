@@ -57,9 +57,19 @@ function assertBalancedHtml(html, label) {
   assert.deepEqual(stack, [], `${label}: unclosed tags`);
 }
 
-test('the template set leads with the planner design families', () => {
+// The Make-derived poster family renders its own composition contract (a
+// `.poster-headline`, per-concept content blocks, not every card carries a CTA),
+// so the original family-contract assertions below are scoped to the classic
+// design families and the posters get their own invariant test.
+const CLASSIC = IMAGE_TEMPLATES.filter((t) => !t.startsWith('poster-'));
+const POSTERS = IMAGE_TEMPLATES.filter((t) => t.startsWith('poster-'));
+
+test('the template set leads with the Make poster family, then the design families', () => {
   assert.deepEqual([...IMAGE_TEMPLATES], [
-    // Phase 4.7.1 design families — what the planner selects from.
+    // The Make-derived poster family — what the planner selects from by concept.
+    'poster-service', 'poster-stat', 'poster-cheatsheet', 'poster-project',
+    'poster-warning', 'poster-quote', 'poster-comparison', 'poster-testimonial',
+    // Phase 4.7.1 design families.
     'editorial-insight', 'light-editorial', 'checklist-guide', 'comparison-cards',
     'stat-highlight', 'service-authority', 'local-insight',
     // Phase 4.8 — two structurally distinct additions.
@@ -89,7 +99,9 @@ test('every template renders valid, balanced HTML with the full brand kit', () =
     assert.equal(built.height, 1080);
     assertBalancedHtml(built.html, template);
     assert.match(built.html, new RegExp(`class="canvas tpl-${template}"`));
-    assert.match(built.html, /<h1 class="headline">/);
+    // The classic families use the shared `.headline`; the poster family uses
+    // its own `.poster-headline`. Both must render a real H1.
+    assert.match(built.html, template.startsWith('poster-') ? /<h1 class="poster-headline/ : /<h1 class="headline">/);
     // Every layout is scoped, so two stylesheets can coexist without collision.
     assert.ok(built.css.includes(`.tpl-${template} `), `${template} css must be scoped`);
     assert.equal(built.css.includes('undefined'), false, `${template} css has an undefined value`);
@@ -107,8 +119,12 @@ test('each template has a genuinely distinct structure', () => {
   assert.equal(new Set(structures).size, IMAGE_TEMPLATES.length, 'templates must not be visual duplicates');
 });
 
-test('all seven layouts carry every supplied brand element', () => {
-  for (const template of IMAGE_TEMPLATES) {
+test('the classic families carry every supplied brand element', () => {
+  // The classic design families all render headline, subheadline, CTA and the
+  // full contact lockup. Poster cards are a different contract (a quote card has
+  // no CTA button, a stat card no subheadline) and are covered by their own
+  // invariant test below.
+  for (const template of CLASSIC) {
     const { html } = buildTemplate({ ...BRAND, template });
     assert.match(html, /Roof repairs done right, first time/, `${template} headline`);
     assert.match(html, /Same-week appointments/, `${template} subheadline`);
@@ -118,6 +134,69 @@ test('all seven layouts carry every supplied brand element', () => {
     assert.match(html, /<img class="logo[^"]*" src="https:\/\/cdn\.example\.com\/logo\.png"/, `${template} logo`);
     // The brand is present either as the footer lockup or the eyebrow.
     assert.ok(/Acme Roofing|ACME ROOFING/.test(html), `${template} brand name`);
+  }
+});
+
+test('every Make poster renders safely with dynamic brand and a real logo', () => {
+  /*
+   * The posters' own invariant contract. Not the classic families' CTA/lockup
+   * contract, but the things that must hold for any card that ships: it renders
+   * at 1080, uses the brand's own hues, carries the real logo as the only image,
+   * survives sanitization element-for-element, and leaks no undefined or raw
+   * caller value. Awkward inputs (no logo, hostile text) are covered too.
+   */
+  for (const template of POSTERS) {
+    const built = buildTemplate({
+      ...BRAND, template,
+      poster: {
+        service: { problem: 'Leaks damage foundations', solution: 'Seal and drain', result: 'Stays dry', tags: ['A', 'B', 'C'] },
+        stat: { bigStat: '24/7', statDesc: 'Always available', overline: 'Availability', badges: ['Licensed', 'Insured'] },
+        cheatsheet: { overline: 'Guide', highlight: 'to check', tips: [{ main: 'One', sub: 'a' }, { main: 'Two', sub: 'b' }, { main: 'Three', sub: 'c' }] },
+        project: { details: ['Seal', 'Pump', 'Drain'], timeline: '2 days', result: 'Dry', location: 'Bronx' },
+        warning: { highlight: 'leaks', mistake: 'Ignoring damp', consequence: 'Mold', fix: 'Call early', proTip: 'Check after rain' },
+        quote: { part1: 'Dry homes mean', part2: 'healthy families', subquote: 'We protect homes.' },
+        testimonial: { quote: 'They fixed our basement in one day and it stayed dry.', author: 'Kim J.', location: 'Bronx' },
+      },
+    });
+    assert.equal(built.width, 1080);
+    assert.equal(built.height, 1080);
+    assert.match(built.html, new RegExp(`class="canvas tpl-${template}"`));
+    assert.ok(built.css.includes(`.tpl-${template} `), `${template} css must be scoped`);
+    assert.equal(built.html.includes('undefined'), false, `${template} html has undefined`);
+    assert.equal(built.css.includes('undefined'), false, `${template} css has undefined`);
+    assert.equal(built.html.includes('[object Object]'), false);
+    assertBalancedHtml(built.html, template);
+
+    // The brand's own hue survives into the CSS — the design is dynamically
+    // branded, not a fixed red-and-navy skin.
+    const hexes = built.css.match(/#[0-9a-f]{6}/gi) || [];
+    const brandHue = hexToHsl('#123456').h;
+    assert.ok(hexes.map((h) => hexToHsl(h.toLowerCase()).h).some((h) => Math.abs(h - brandHue) <= 8),
+      `${template} must carry the brand hue`);
+
+    // The real logo is the ONLY image, and it is https.
+    const imgs = built.html.match(/<img[^>]*>/g) || [];
+    assert.equal(imgs.length, 1, `${template} renders exactly one image`);
+    assert.match(imgs[0], /src="https:\/\/cdn\.example\.com\/logo\.png"/, `${template} logo is the https brand logo`);
+
+    // Sanitization changes nothing structural. The extractor tolerates <br/>,
+    // <br> and <br /> alike, since the sanitizer re-serialises a self-closing
+    // tag without changing the element.
+    const safe = sanitizeForTest(built.html);
+    const tagsIn = (html) => (html.match(/<([a-z0-9]+)/gi) || []).map((t) => t.slice(1).toLowerCase());
+    assert.deepEqual(tagsIn(safe), tagsIn(built.html), `${template}: sanitization changed the structure`);
+  }
+});
+
+test('a poster with no logo uses a brand-name wordmark, never another mark', () => {
+  for (const template of POSTERS) {
+    const { html } = buildTemplate({
+      template, brandName: 'GreenLeaf Landscaping', headline: 'Lawn care that lasts',
+      primaryColor: '#14532D', accentColor: '#84CC16',
+      poster: { service: { problem: 'p', solution: 's', result: 'r', tags: ['A'] }, stat: { bigStat: '10', statDesc: 'd', overline: 'o', badges: [] }, cheatsheet: { overline: 'o', highlight: 'h', tips: [{ main: 'm', sub: 's' }] }, quote: { part1: 'a', part2: 'b', subquote: 'c' }, testimonial: { quote: 'A real review of real length here.', author: 'Sam P.' } },
+    });
+    assert.equal((html.match(/<img/g) || []).length, 0, `${template} must render no image without a logo`);
+    assert.match(html, /GreenLeaf Landscaping/, `${template} sets the brand name as a wordmark`);
   }
 });
 
@@ -250,7 +329,7 @@ test('the logo renders only for an absolute https URL', () => {
     '',
     null,
   ]) {
-    for (const template of IMAGE_TEMPLATES) {
+    for (const template of CLASSIC) {
       const built = buildTemplate({ ...BRAND, template, logoUrl: bad });
       assert.equal(built.html.includes('<img'), false, `${template} rendered an img for ${bad}`);
       assert.equal(built.html.includes('javascript:'), false);
@@ -263,7 +342,7 @@ test('the logo renders only for an absolute https URL', () => {
 });
 
 test('optional modules appear only when supplied', () => {
-  for (const template of IMAGE_TEMPLATES) {
+  for (const template of CLASSIC) {
     const full = buildTemplate({ ...BRAND, template });
     assert.ok(full.html.includes('class="cta'), `${template} should render a CTA when given one`);
 
@@ -287,7 +366,7 @@ test('optional modules appear only when supplied', () => {
 });
 
 test('a headline alone still produces a complete design', () => {
-  for (const template of IMAGE_TEMPLATES) {
+  for (const template of CLASSIC) {
     const built = buildTemplate({ template, headline: 'We are open on Sundays' });
     assertBalancedHtml(built.html, `${template} (headline only)`);
     assert.match(built.html, /We are open on Sundays/);
@@ -371,7 +450,7 @@ test('every layout survives sanitization structurally intact', () => {
    * which would flatten a layout without any error — so assert the structure
    * that actually reaches HCTI, element for element.
    */
-  for (const template of IMAGE_TEMPLATES) {
+  for (const template of CLASSIC) {
     const built = buildTemplate({ ...BRAND, template });
     const safe = sanitizeForTest(built.html);
 

@@ -191,7 +191,7 @@ test('every assigned image concept maps to a real, registered layout', () => {
 });
 
 test('the caption request and the image share the assigned service and layout', async () => {
-  const brief = briefFor(WATERPROOFING, 1); // trust_stat -> stat_card -> stat-highlight
+  const brief = briefFor(WATERPROOFING, 1); // trust_stat -> stat_card -> poster-stat
   // The caption request names the service.
   const { svc, calls } = build(() => response(PLANNER_OK));
   await svc.generatePlannerPost(requestFrom(brief, WATERPROOFING), { userId: 'u1' });
@@ -201,7 +201,7 @@ test('the caption request and the image share the assigned service and layout', 
   // brief's own templateKey, so caption and image are one plan.
   assert.equal(brief.templateKey, layoutForConcept(brief.imageConcept));
   assert.equal(brief.imageConcept, 'stat_card');
-  assert.equal(brief.templateKey, 'stat-highlight');
+  assert.equal(brief.templateKey, 'poster-stat');
 });
 
 // -------------------------------------------------------------------- retry

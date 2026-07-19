@@ -258,8 +258,9 @@ test('a plan varies strategic format and template across the week', async () => 
    * will be drawn on.
    */
   const conceptLayouts = {
-    'service-authority': true, 'stat-highlight': true, 'checklist-guide': true,
-    'numbered-steps': true, 'comparison-cards': true, 'light-editorial': true,
+    'poster-service': true, 'poster-stat': true, 'poster-cheatsheet': true,
+    'poster-project': true, 'poster-warning': true, 'poster-quote': true,
+    'poster-comparison': true, 'poster-testimonial': true,
   };
   for (const item of plan.items) {
     assert.ok(conceptLayouts[item.templateKey], `unexpected layout ${item.templateKey}`);

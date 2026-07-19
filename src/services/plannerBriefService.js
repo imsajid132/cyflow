@@ -53,8 +53,30 @@ import {
  * Keyed by strategic FORMAT. The spread deliberately favours teaching over
  * selling: a plan of seven service adverts is the failure mode this replaces.
  */
-import { resolveNiche, strategyForNiche, dayTypeFor, layoutForConcept } from './makeContentStrategy.js';
+import { resolveNiche, strategyForNiche, dayTypeFor, layoutForConcept, resolveWeek } from './makeContentStrategy.js';
 import { planBatch } from './batchDiversityPlanner.js';
+
+/**
+ * The real customer reviews a business has on file, in a usable shape.
+ *
+ * A usable review has a quote of real substance and an attribution. Anything
+ * without both is dropped rather than padded, because the testimonial card must
+ * never render a half-review or an invented name. A business with no reviews
+ * returns an empty list, and Friday keeps its maintenance-tip fallback.
+ */
+export function usableReviews(profile) {
+  const raw = Array.isArray(profile?.reviews) ? profile.reviews
+    : Array.isArray(profile?.testimonials) ? profile.testimonials
+      : [];
+  return raw
+    .map((r) => ({
+      quote: typeof r?.quote === 'string' ? r.quote.trim() : '',
+      author: typeof r?.author === 'string' ? r.author.trim()
+        : typeof r?.name === 'string' ? r.name.trim() : '',
+      location: typeof r?.location === 'string' ? r.location.trim() : '',
+    }))
+    .filter((r) => r.quote.length >= 12 && r.author.length >= 2);
+}
 
 export const DEFAULT_CONTENT_MIX = Object.freeze({
   educational_insight: 3,
@@ -484,10 +506,19 @@ export function buildBriefSet({ slots = [], preferences = {}, profile = null, pl
    */
   const niche = resolveNiche(profile);
   const strategy = strategyForNiche(niche);
+  /*
+   * Friday becomes the exact-parity testimonial only when the workspace has a
+   * real review on file; otherwise it stays the safe maintenance tip. A review
+   * is never invented. `reviews` is read from the business profile, so a
+   * business with none simply keeps the fallback.
+   */
+  const reviews = usableReviews(profile);
+  const week = resolveWeek(strategy, { hasReview: reviews.length > 0 });
   const diversity = planBatch({
     slots: slots.slice(0, count),
-    dayTypeAt: (isoWeekday) => dayTypeFor(strategy, isoWeekday),
+    dayTypeAt: (isoWeekday) => dayTypeFor({ week }, isoWeekday),
     services,
+    reviews,
   });
   const location = [profile?.city, profile?.region].filter(Boolean).join(', ') || null;
 
@@ -610,6 +641,8 @@ export function buildBriefSet({ slots = [], preferences = {}, profile = null, pl
       dayTypeLabel: assignment.dayTypeLabel || null,
       dayPurpose: assignment.purpose || null,
       imageConcept: assignment.imageConcept || null,
+      // The real review a testimonial slot features, or null everywhere else.
+      review: assignment.review || null,
       openingStyle: assignment.openingStyle || null,
       openingGuidance: assignment.openingGuidance || null,
       closingStyle: assignment.closingStyle || null,

@@ -1467,7 +1467,34 @@ export function createPlannerService({
     // Persisted so a later image regeneration can rebuild the FAQ card with its
     // real answer instead of silently falling back to the truncated subheadline.
     if (content.answerSummary) extras.answerSummary = content.answerSummary;
+    // The poster field set travels in the visual extras too, so a re-render
+    // after a reload rebuilds the same poster rather than a plain card.
+    const poster = posterFieldsFor(content, brief);
+    if (poster) extras.poster = poster;
     return Object.keys(extras).length ? extras : null;
+  }
+
+  /**
+   * The poster field set for an item's image concept.
+   *
+   * The generated groups (problem/solution/result, tips, mega-stat, and so on)
+   * come from the model; the testimonial group does NOT, it is built from the
+   * workspace's own stored review carried on the brief. A slot with no concept
+   * or no groups returns null and the layout falls back to a plain headline
+   * card. The review is added only for a testimonial slot, so no other card can
+   * accidentally show one.
+   */
+  function posterFieldsFor(content, brief) {
+    const groups = (content && typeof content.poster === 'object' && content.poster) || {};
+    const out = { ...groups };
+    if (brief?.imageConcept === 'testimonial' && brief?.review?.quote && brief?.review?.author) {
+      out.testimonial = {
+        quote: brief.review.quote,
+        author: brief.review.author,
+        location: brief.review.location || null,
+      };
+    }
+    return Object.keys(out).length ? out : null;
   }
 
   async function renderItemImage({ userId, profile, brief, content, overrides = {} }) {
@@ -1493,6 +1520,15 @@ export function createPlannerService({
       bullets: content.bullets ?? null,
       stat: content.stat ?? null,
       comparison: content.comparison ?? null,
+      /*
+       * The Make poster field set, plus the real review for a testimonial slot.
+       *
+       * The model fills the concept's group (problem/solution/result, tips,
+       * mega-stat, and so on); the review is not generated, it is the workspace's
+       * own stored review threaded from the brief. Merged here so the poster
+       * layout receives one object carrying whichever group its concept needs.
+       */
+      poster: posterFieldsFor(content, brief),
       // The design families' category badge and place label.
       badge: overrides.badge ?? content.badge ?? brief.formatLabel ?? null,
       locationLabel: overrides.locationLabel ?? brief.location ?? null,

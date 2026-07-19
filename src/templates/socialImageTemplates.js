@@ -23,6 +23,7 @@ import {
   BACKGROUND_STYLES,
   LEGACY_IMAGE_TEMPLATE_ALIASES,
   PLANNER_VISUAL_LIMITS,
+  POSTER_LIMITS,
 } from '../config/constants.js';
 import {
   escapeHtml,
@@ -44,6 +45,110 @@ export { escapeHtml, safeColor, safeImageUrl } from './brandKit.js';
 export { LAYOUT_LABELS, LAYOUT_IDS } from './layouts/index.js';
 
 export const DEFAULT_TEMPLATE = 'editorial-premium';
+
+/**
+ * Escape, clamp and count-limit the Make poster field sets.
+ *
+ * Returns an object with one optional group per concept. Every string is
+ * escaped here so poster layouts handle only trusted text, exactly like the rest
+ * of the template system. A group whose required content is absent is omitted,
+ * so a layout falls back cleanly rather than rendering an empty scaffold. A
+ * testimonial group is returned ONLY when a real quote and author are present,
+ * because the testimonial card must never show a half or invented review.
+ */
+function sanitizePoster(poster) {
+  if (!poster || typeof poster !== 'object') return null;
+  const P = POSTER_LIMITS;
+  const str = (v, max) => escapeHtml(clampText(v, max));
+  const list = (arr, max, n) => (Array.isArray(arr)
+    ? arr.filter((s) => typeof s === 'string' && s.trim()).slice(0, n).map((s) => str(s, max))
+    : []);
+  const out = {};
+
+  if (poster.service) {
+    const s = poster.service;
+    out.service = {
+      problem: str(s.problem, P.BLOCK_TEXT_MAX),
+      solution: str(s.solution, P.BLOCK_TEXT_MAX),
+      result: str(s.result, P.BLOCK_TEXT_MAX),
+      tags: list(s.tags, P.TAG_MAX, P.TAGS_MAX),
+    };
+  }
+  if (poster.stat && clampText(poster.stat.bigStat, P.BIG_STAT_MAX)) {
+    const s = poster.stat;
+    out.stat = {
+      bigStat: str(s.bigStat, P.BIG_STAT_MAX),
+      statDesc: str(s.statDesc, P.STAT_DESC_MAX),
+      overline: str(s.overline, P.OVERLINE_MAX),
+      badges: list(s.badges, P.BADGE_TEXT_MAX, P.BADGES_MAX),
+    };
+  }
+  if (poster.cheatsheet && Array.isArray(poster.cheatsheet.tips)) {
+    const tips = poster.cheatsheet.tips
+      .filter((t) => t && typeof t.main === 'string' && t.main.trim())
+      .slice(0, P.TIPS_MAX)
+      .map((t) => ({ main: str(t.main, P.TIP_MAIN_MAX), sub: str(t.sub, P.TIP_SUB_MAX) }));
+    if (tips.length) {
+      out.cheatsheet = {
+        overline: str(poster.cheatsheet.overline, P.OVERLINE_MAX),
+        highlight: str(poster.cheatsheet.highlight, P.HIGHLIGHT_MAX),
+        tips,
+      };
+    }
+  }
+  if (poster.project) {
+    const p = poster.project;
+    out.project = {
+      details: list(p.details, P.DETAIL_MAX, P.DETAILS_MAX),
+      timeline: str(p.timeline, P.META_VALUE_MAX),
+      result: str(p.result, P.META_VALUE_MAX),
+      location: str(p.location, P.REVIEW_LOCATION_MAX),
+    };
+  }
+  if (poster.warning) {
+    const w = poster.warning;
+    out.warning = {
+      highlight: str(w.highlight, P.HIGHLIGHT_MAX),
+      mistake: str(w.mistake, P.WARN_TEXT_MAX),
+      consequence: str(w.consequence, P.WARN_TEXT_MAX),
+      fix: str(w.fix, P.WARN_TEXT_MAX),
+      proTip: str(w.proTip, P.PRO_TIP_MAX),
+    };
+  }
+  if (poster.quote && clampText(poster.quote.part1, P.QUOTE_PART_MAX)) {
+    const q = poster.quote;
+    out.quote = {
+      part1: str(q.part1, P.QUOTE_PART_MAX),
+      part2: str(q.part2, P.QUOTE_PART_MAX),
+      subquote: str(q.subquote, P.SUBQUOTE_MAX),
+    };
+  }
+  if (poster.testimonial) {
+    const t = poster.testimonial;
+    const quote = clampText(t.quote, P.REVIEW_QUOTE_MAX);
+    const author = clampText(t.author, P.REVIEW_AUTHOR_MAX);
+    // Both or nothing. A quote with no attribution, or an attribution with no
+    // quote, is not a review and does not render.
+    if (quote && author) {
+      out.testimonial = {
+        quote: escapeHtml(quote),
+        author: escapeHtml(author),
+        location: str(t.location, P.REVIEW_LOCATION_MAX),
+        initials: escapeHtml(clampText(initialsOf(author), 3)),
+      };
+    }
+  }
+
+  return Object.keys(out).length ? out : null;
+}
+
+/** Up to two initials from a name, for the testimonial author chip. */
+function initialsOf(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '';
+  const letters = parts.slice(0, 2).map((p) => p[0].toUpperCase()).join('');
+  return letters || '';
+}
 
 /** Map any accepted template name (current or legacy) onto a real layout. */
 export function normalizeTemplate(name) {
@@ -181,6 +286,14 @@ export function buildTemplate(input = {}) {
      */
     answerSummary: escapeHtml(clampText(input.answerSummary, TEXT_LIMITS.ANSWER)),
     emphasisPhrase: escapeHtml(clampText(input.emphasisPhrase, 40)),
+    /*
+     * The Make poster field sets. Each concept owns one group; the group is
+     * escaped, clamped and count-limited here so a poster layout renders trusted
+     * strings directly and an absent field simply drops rather than breaking the
+     * composition. A group is null when its inputs are absent, which is how a
+     * poster layout knows to fall back to the plain headline block.
+     */
+    poster: sanitizePoster(input.poster),
   };
 
   const logoUrl = escapeHtml(safeImageUrl(input.logoUrl));

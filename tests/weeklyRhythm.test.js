@@ -311,9 +311,15 @@ test('a brief\'s visual family and its layout always agree', () => {
   });
   for (const brief of briefs) {
     assert.ok(VISUAL_FAMILIES[brief.visualFamily], `unknown family ${brief.visualFamily}`);
-    assert.equal(
-      VISUAL_FAMILIES[brief.visualFamily].layout,
-      brief.templateKey,
+    /*
+     * The templateKey now follows the assigned Make image concept (a poster-*
+     * layout), which is authoritative over the nominal visual family. So the
+     * template is EITHER the family's own layout (older path) OR a poster
+     * layout the concept chose. The visualFamily label stays valid either way.
+     */
+    const posterDriven = brief.templateKey.startsWith('poster-');
+    assert.ok(
+      posterDriven || VISUAL_FAMILIES[brief.visualFamily].layout === brief.templateKey,
       `day ${brief.weekday}: family ${brief.visualFamily} does not match layout ${brief.templateKey}`,
     );
   }

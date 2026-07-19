@@ -28,8 +28,22 @@ import * as localInsight from './localInsight.js';
 // Phase 4.8: two structurally distinct additions.
 import * as numberedSteps from './numberedSteps.js';
 import * as faqEditorial from './faqEditorial.js';
+// The Make-derived poster family: the seven Make card compositions plus the
+// comparison card, native and dynamically branded.
+import {
+  posterService, posterStat, posterCheatsheet, posterProject,
+  posterWarning, posterQuote, posterComparison, posterTestimonial,
+} from './poster.js';
 
 const MODULES = [
+  posterService,
+  posterStat,
+  posterCheatsheet,
+  posterProject,
+  posterWarning,
+  posterQuote,
+  posterComparison,
+  posterTestimonial,
   // --- planner design families (Phase 4.7.1) ---
   editorialInsight,
   lightEditorial,

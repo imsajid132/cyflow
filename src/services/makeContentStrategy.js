@@ -16,14 +16,15 @@
  * two switch expressions move together: a stat day gets a stat card, a checklist
  * day gets a cheatsheet. That pairing is why the images look considered.
  *
- * WHAT WAS DELIBERATELY NOT TAKEN. Friday's `customer_testimonial`, present in
+ * FRIDAY IS GATED, NOT FABRICATED. Friday's `customer_testimonial`, present in
  * five of the six contractor scenarios, renders a five-star card carrying a
- * customer quote, name, location and initials that the model invents. That is a
- * fabricated review of a real business. It is forbidden by the product's own
- * copy rules and it is the kind of thing that ends in a regulator's letter. The
- * sixth scenario (brick pointing) had already replaced that slot with
- * `maintenance_tip`, so the safe variant is not a compromise invented here — it
- * is the one the author landed on themselves, and it is what Friday uses.
+ * customer quote, name, location and initials that the model invents. A
+ * fabricated review of a real business is forbidden by the product's own copy
+ * rules. So Friday runs the testimonial card ONLY when the workspace has a real
+ * stored review to feature (see resolveWeek); with none, it falls back to the
+ * `maintenance_tip` the sixth scenario had already substituted. The review is
+ * never generated: the card is fed the business's own stored review or it does
+ * not appear.
  *
  * NOTHING BUSINESS-SPECIFIC LIVES HERE. The source scenarios hardcoded a name,
  * a service list, a borough list, a phone number and a palette into every
@@ -135,6 +136,27 @@ export const DAY_TYPES = Object.freeze({
     ctaType: 'soft',
     headlineStyle: 'short_statement',
   },
+  testimonial_spotlight: {
+    /*
+     * Friday's exact-parity day type: the Make contractor scenarios ran a
+     * five-star review card here. It renders ONLY when the workspace has a real
+     * stored review to quote; with none, Friday falls back to maintenance_tip.
+     * A review is never invented, because a fabricated review of a real business
+     * is barred by the product's copy rules. The copy is built from the stored
+     * review, not generated.
+     */
+    label: 'Customer Review',
+    purpose: 'feature one real customer review the business has on file',
+    format: 'soft_promo',
+    imageConcept: 'testimonial',
+    layoutHint: 'poster-testimonial',
+    openingGuidance: 'open on the outcome the customer described, in the business voice',
+    ctaType: 'soft',
+    headlineStyle: 'short_statement',
+    // Marks a day type that cannot generate its own substance: it needs a
+    // supplied review, and the resolver only selects it when one exists.
+    requiresReview: true,
+  },
 
   // ---------------------------------------------------- knowledge business
   educational_tip: {
@@ -177,7 +199,9 @@ export const DAY_TYPES = Object.freeze({
     purpose: 'give an ordered method the reader can follow',
     format: 'checklist',
     imageConcept: 'cheatsheet',
-    layoutHint: 'numbered-steps',
+    // The knowledge-business Thursday image_template is cheatsheet, so the layout is the
+    // cheatsheet composition, not numbered-steps: parity follows the concept.
+    layoutHint: 'poster-cheatsheet',
     openingGuidance: 'open on the outcome the method produces',
     ctaType: 'soft',
     headlineStyle: 'outcome_plus_steps',
@@ -187,7 +211,9 @@ export const DAY_TYPES = Object.freeze({
     purpose: 'describe a change and what to do about it',
     format: 'educational_insight',
     imageConcept: 'quote_card',
-    layoutHint: 'editorial-insight',
+    // The knowledge-business Friday image_template is quote_card, so the layout is the quote
+    // composition rather than a plain editorial one.
+    layoutHint: 'poster-quote',
     openingGuidance: 'open on the change, not on its importance',
     ctaType: 'soft',
     headlineStyle: 'trend_named',
@@ -299,6 +325,27 @@ export function strategyForNiche(niche) {
 }
 
 /**
+ * The week for a strategy, upgraded to the exact-parity Friday testimonial when
+ * the workspace has a real review to feature.
+ *
+ * The local-service week ships maintenance_tip on Friday because that is the
+ * safe default when no review exists. When one does, Friday becomes the
+ * testimonial spotlight, which is the exact Make Friday. The knowledge week has
+ * no testimonial day, so it is returned unchanged. This is the one place the
+ * strategy bends to available data, and it only ever bends toward MORE parity,
+ * never toward inventing a review.
+ *
+ * @param {object} strategy from strategyForNiche
+ * @param {{ hasReview?: boolean }} opts
+ * @returns {Record<number,string>} ISO weekday -> day type key
+ */
+export function resolveWeek(strategy, { hasReview = false } = {}) {
+  const week = { ...(strategy?.week || NICHE_STRATEGIES[NICHES.LOCAL_SERVICE].week) };
+  if (hasReview && week[5] === 'maintenance_tip') week[5] = 'testimonial_spotlight';
+  return week;
+}
+
+/**
  * The day type for one calendar weekday.
  *
  * ISO weekday in, definition out. The source used the Make organisation's
@@ -329,26 +376,38 @@ export function weekShapeFor(niche) {
 }
 
 /**
+ * The native poster layout each Make image concept renders on.
+ *
+ * The source scenarios shipped one bespoke HTML card per concept, hardcoded to a
+ * business's palette. Cyflow reproduces those same compositions as native
+ * `poster-*` layouts driven by the workspace's own brand roles, so the design is
+ * the Make design and only the colours, logo and copy change. This table is the
+ * one authoritative concept-to-layout mapping; the day types name a concept, and
+ * every concept resolves here.
+ */
+export const CONCEPT_LAYOUT = Object.freeze({
+  service_card: 'poster-service',
+  stat_card: 'poster-stat',
+  cheatsheet: 'poster-cheatsheet',
+  project_card: 'poster-project',
+  warning_card: 'poster-warning',
+  quote_card: 'poster-quote',
+  comparison: 'poster-comparison',
+  testimonial: 'poster-testimonial',
+});
+
+/**
  * The layout an assigned image concept renders on.
  *
- * The source scenarios shipped seven bespoke HTML cards per business, which is
- * seven templates to maintain per customer. Cyflow already has nineteen
- * layouts, and the concepts map onto them: a cheatsheet IS a checklist layout,
- * a stat card IS the stat layout. Mapping rather than porting is what keeps
- * this one design system instead of one per niche.
- *
- * Falls back to the brief's own layout choice when a concept is unknown, so an
+ * Falls back to the caller's own layout choice when a concept is unknown, so an
  * older run generated before concepts existed still renders.
  */
 export function layoutForConcept(imageConcept, fallback = 'editorial-insight') {
-  const found = Object.values(DAY_TYPES).find((d) => d.imageConcept === imageConcept);
-  return found?.layoutHint || fallback;
+  return CONCEPT_LAYOUT[imageConcept] || fallback;
 }
 
 /** Every concept the engine can assign. Used to validate templates exist. */
-export const IMAGE_CONCEPTS = Object.freeze(
-  [...new Set(Object.values(DAY_TYPES).map((d) => d.imageConcept))],
-);
+export const IMAGE_CONCEPTS = Object.freeze(Object.keys(CONCEPT_LAYOUT));
 
 export default {
   NICHES, DAY_TYPES, NICHE_STRATEGIES, resolveNiche, strategyForNiche, dayTypeFor, weekShapeFor,

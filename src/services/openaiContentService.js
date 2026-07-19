@@ -197,7 +197,7 @@ export function buildContentSchema(platforms) {
  * asking only "proof" posts — and telling it to return empty when the brief
  * contains no real figure — keeps the output honest and the tokens cheap.
  */
-export function buildPlannerSchema(platform, contentType, targetBand = null) {
+export function buildPlannerSchema(platform, contentType, targetBand = null, imageConcept = null) {
   /*
    * The caption's length target, stated in the schema as well as the prompt.
    *
@@ -262,10 +262,129 @@ export function buildPlannerSchema(platform, contentType, targetBand = null) {
     required.push('comparison');
   }
 
+  /*
+   * The Make poster field set for THIS slot's image concept.
+   *
+   * Each concept owns one nested group and the schema asks for exactly that
+   * group, so the model fills the fields the card needs, at the length the card
+   * needs, in one call with the caption. This is how the source produced the
+   * poster text and the post copy together and kept them on the same topic. The
+   * comparison card reuses the `comparison` group above, and the testimonial
+   * card is fed a real stored review rather than a generated one, so neither
+   * appears here.
+   */
+  const posterGroup = POSTER_SCHEMA_GROUPS[imageConcept];
+  if (posterGroup) {
+    properties.poster = {
+      type: 'object',
+      properties: { [imageConcept === 'service_card' ? 'service'
+        : imageConcept === 'stat_card' ? 'stat'
+          : imageConcept === 'project_card' ? 'project'
+            : imageConcept === 'warning_card' ? 'warning'
+              : imageConcept === 'quote_card' ? 'quote' : 'cheatsheet']: posterGroup },
+      required: [imageConcept === 'service_card' ? 'service'
+        : imageConcept === 'stat_card' ? 'stat'
+          : imageConcept === 'project_card' ? 'project'
+            : imageConcept === 'warning_card' ? 'warning'
+              : imageConcept === 'quote_card' ? 'quote' : 'cheatsheet'],
+      additionalProperties: false,
+    };
+    required.push('poster');
+  }
+
   // `platform` is unused in the shape but named in the schema title so the
   // model knows which platform's conventions to write for.
   return { type: 'object', properties, required, additionalProperties: false };
 }
+
+/**
+ * The strict schema for each poster concept's field group.
+ *
+ * Descriptions carry the poster budgets and the honesty rules so the model
+ * writes short, real text for a card, not prose. A stat group demands a figure
+ * ONLY if one is real, and says so; the builder drops the whole stat card when
+ * the figure is empty, so an invented number never reaches a poster.
+ */
+const strArr = (desc) => ({ type: 'array', items: { type: 'string' }, description: desc });
+const POSTER_SCHEMA_GROUPS = Object.freeze({
+  service_card: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['problem', 'solution', 'result', 'tags'],
+    properties: {
+      problem: { type: 'string', description: 'The problem this service solves, <= 90 chars, one line.' },
+      solution: { type: 'string', description: 'What the business does about it, <= 90 chars.' },
+      result: { type: 'string', description: 'The outcome for the customer, <= 90 chars.' },
+      tags: strArr('Exactly 3 one or two word tags naming related sub-services.'),
+    },
+  },
+  stat_card: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['bigStat', 'statDesc', 'overline', 'badges'],
+    properties: {
+      bigStat: { type: 'string', description: 'ONE short real figure the brief supports (e.g. a number, 24/7). If the brief states no real figure, return an EMPTY STRING and never invent one.' },
+      statDesc: { type: 'string', description: 'A line explaining the figure, <= 96 chars.' },
+      overline: { type: 'string', description: 'A one or two word label above the figure.' },
+      badges: strArr('Up to 3 short trust words the brief supports (e.g. Licensed). Empty array if none are real.'),
+    },
+  },
+  cheatsheet: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['overline', 'highlight', 'tips'],
+    properties: {
+      overline: { type: 'string', description: 'A short guide label, one or two words.' },
+      highlight: { type: 'string', description: 'The accent phrase for the headline second line, <= 30 chars.' },
+      tips: {
+        type: 'array',
+        description: 'Exactly 5 tips, each a short main phrase and a short subtitle.',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['main', 'sub'],
+          properties: {
+            main: { type: 'string', description: 'The tip, <= 40 chars.' },
+            sub: { type: 'string', description: 'One supporting line, <= 52 chars.' },
+          },
+        },
+      },
+    },
+  },
+  project_card: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['details', 'timeline', 'result', 'location'],
+    properties: {
+      details: strArr('Exactly 3 ordered steps of the work, each <= 60 chars.'),
+      timeline: { type: 'string', description: 'A short realistic timeline, <= 22 chars, only if the brief supports it, else empty.' },
+      result: { type: 'string', description: 'A short outcome, <= 22 chars.' },
+      location: { type: 'string', description: 'The service area for the headline accent, <= 28 chars.' },
+    },
+  },
+  warning_card: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['highlight', 'mistake', 'consequence', 'fix', 'proTip'],
+    properties: {
+      highlight: { type: 'string', description: 'The accent phrase for the headline second line, <= 30 chars.' },
+      mistake: { type: 'string', description: 'The common mistake, <= 96 chars.' },
+      consequence: { type: 'string', description: 'What it leads to, <= 96 chars.' },
+      fix: { type: 'string', description: 'What to do instead, <= 96 chars.' },
+      proTip: { type: 'string', description: 'One practical pro tip, <= 110 chars.' },
+    },
+  },
+  quote_card: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['part1', 'part2', 'subquote'],
+    properties: {
+      part1: { type: 'string', description: 'First half of a short statement, <= 40 chars.' },
+      part2: { type: 'string', description: 'Second half, shown in the accent colour, <= 40 chars.' },
+      subquote: { type: 'string', description: 'One supporting line, <= 130 chars.' },
+    },
+  },
+});
 
 /** Pull the text + any refusal out of a Responses API result. */
 function collectOutput(response) {
@@ -636,6 +755,18 @@ export function createOpenAIContentService({
       'PARAGRAPHS: the caption must contain real paragraph breaks. Separate each',
       'paragraph with a blank line (a \\n\\n in the JSON string). Never return the',
       'whole post as one line. Never use a bullet or a numbered list in the caption.',
+
+      /*
+       * The Make caption cadence. The proven scenarios opened on a direct
+       * statement, gave a short useful explanation, landed a practical takeaway
+       * and closed with one concise call to action, then a separate hashtag
+       * block. This is the shape, stated once, so posts read like the reference
+       * rather than like a long article.
+       */
+      'CADENCE: open with a direct, specific statement. Give a short, useful',
+      'explanation. Land one practical takeaway the reader can act on. Close with',
+      'ONE concise call to action, not a paragraph of selling. Keep the hashtags',
+      'entirely out of the caption; they are returned separately.',
     ];
 
     /*
@@ -904,6 +1035,18 @@ export function createOpenAIContentService({
     }
 
     /*
+     * The Make poster group, passed through as generated.
+     *
+     * The builder (sanitizePoster) does the final escaping, clamping and the
+     * honesty drops (an empty stat figure removes the whole stat card), so this
+     * only needs to hand the object across. It is kept whole rather than
+     * flattened so a poster layout reads the exact structure it renders.
+     */
+    if (parsed.poster && typeof parsed.poster === 'object') {
+      result.poster = parsed.poster;
+    }
+
+    /*
      * The style guard runs on every generation: it repairs dash punctuation and
      * reports copy that cannot be repaired. Its verdict rides along so the
      * planner can regenerate rather than ship filler. The platform is passed so
@@ -960,7 +1103,7 @@ export function createOpenAIContentService({
           type: 'json_schema',
           name: 'cyflow_planner_post',
           strict: true,
-          schema: buildPlannerSchema(platform, contentType, input.targetBand),
+          schema: buildPlannerSchema(platform, contentType, input.targetBand, input.imageConcept),
         },
       },
       max_output_tokens: config.openai.maxOutputTokens,

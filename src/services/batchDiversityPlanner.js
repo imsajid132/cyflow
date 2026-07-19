@@ -146,8 +146,17 @@ export function problemFor(services, index) {
  * @param {Array<string>} input.services the workspace's persisted services
  * @returns {Array<object>} one assignment per slot, aligned by index
  */
-export function planBatch({ slots = [], dayTypeAt, services = [] } = {}) {
+export function planBatch({ slots = [], dayTypeAt, services = [], reviews = [] } = {}) {
   const serviceList = (services || []).filter((s) => typeof s === 'string' && s.trim());
+  /*
+   * Reviews are handed out one per testimonial slot, in order, so a batch with
+   * several testimonial days does not repeat one review. When they run out, a
+   * further testimonial slot has no review to show — but the week resolver only
+   * routes to a testimonial day when at least one review exists, so in practice
+   * a single review covers a week's single Friday.
+   */
+  const reviewList = Array.isArray(reviews) ? reviews.filter((r) => r && r.quote) : [];
+  let reviewCursor = 0;
 
   /*
    * How many earlier slots fall on the same calendar day.
@@ -215,6 +224,11 @@ export function planBatch({ slots = [], dayTypeAt, services = [] } = {}) {
       hashtagGuidance: hashtagFamily.guidance,
       headlineStyle: dayType?.headlineStyle || headlineStyle.key,
       headlineGuidance: headlineStyle.guidance,
+      // A testimonial slot carries the actual review it will feature, taken in
+      // order from the workspace's own reviews. No review, no testimonial.
+      review: dayType?.imageConcept === 'testimonial' && reviewCursor < reviewList.length
+        ? reviewList[reviewCursor++]
+        : null,
     };
   });
 }

@@ -348,6 +348,17 @@ export const ACCOUNT_TYPE_TO_PLATFORM = Object.freeze({
 // Server-owned image templates (trusted HTML/CSS only). These branded layouts
 // are what the UI offers; each has a module under src/templates/layouts/.
 export const IMAGE_TEMPLATES = Object.freeze([
+  // The Make-derived poster family: the seven Make card compositions plus a
+  // comparison card, native and dynamically branded. These are what the planner
+  // selects from once a slot carries a Make image concept.
+  'poster-service',
+  'poster-stat',
+  'poster-cheatsheet',
+  'poster-project',
+  'poster-warning',
+  'poster-quote',
+  'poster-comparison',
+  'poster-testimonial',
   // Phase 4.7.1 — the planner design families. Content-first compositions with
   // no decorative geometry; these are what the planner selects from.
   'editorial-insight', // Editorial Insight (brand field, large headline)
@@ -874,6 +885,49 @@ export const PLANNER_VISUAL_LIMITS = Object.freeze({
   COMPARE_ITEMS_MAX: 3,
   BADGE_MAX: 22,
   LOCATION_MAX: 28,
+});
+
+/**
+ * Field budgets for the Make-derived poster compositions.
+ *
+ * These reproduce the "keep image text SHORT (poster format)" constraints the
+ * Make prompts stated per template, converted into named limits so the schema
+ * can state them to the model and the builder can clamp them. A poster clips on
+ * overflow, so a budget is not cosmetic: it is what keeps a headline inside its
+ * band and a tip on one line. Values are chosen against the actual Make type
+ * sizes (an 80px headline holds far fewer characters than a 28px block).
+ */
+export const POSTER_LIMITS = Object.freeze({
+  // service_card: three labelled blocks + a tag row
+  BLOCK_TEXT_MAX: 90,
+  TAG_MAX: 16,
+  TAGS_MAX: 3,
+  // stat_card: one figure + a description + trust badges
+  BIG_STAT_MAX: 10,
+  STAT_DESC_MAX: 96,
+  OVERLINE_MAX: 22,
+  BADGE_TEXT_MAX: 14,
+  BADGES_MAX: 3,
+  // cheatsheet: a two-line title + numbered tips, each with a subtitle
+  TIP_MAIN_MAX: 40,
+  TIP_SUB_MAX: 52,
+  TIPS_MIN: 3,
+  TIPS_MAX: 5,
+  // project_card: three details + a timeline/result pair
+  DETAIL_MAX: 60,
+  DETAILS_MAX: 3,
+  META_VALUE_MAX: 22,
+  // warning_card: mistake / consequence / fix + a pro tip
+  WARN_TEXT_MAX: 96,
+  PRO_TIP_MAX: 110,
+  // quote_card: a two-part statement + a supporting line
+  QUOTE_PART_MAX: 40,
+  SUBQUOTE_MAX: 130,
+  // testimonial: a real stored review only
+  REVIEW_QUOTE_MAX: 150,
+  REVIEW_AUTHOR_MAX: 40,
+  REVIEW_LOCATION_MAX: 28,
+  HIGHLIGHT_MAX: 30,
 });
 
 /**
