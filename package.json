@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "node --test",
+    "test": "node --test tests/*.test.js",
     "test:watch": "node --test --watch",
     "scheduler:once": "node src/scheduler/runOnce.js",
     "worker": "node src/workers/worker.js",

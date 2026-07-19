@@ -270,9 +270,16 @@ test('the scheduler lease serialises two instances against MariaDB', SKIP, async
 
 test('an expired lease is reclaimable, so a crashed leader unblocks itself', SKIP, async () => {
   const lockName = 'expiry-probe';
-  assert.equal(await jobs.acquireLeaseDbTime({ lockName, owner: 'dead-leader', ttlSeconds: 1 }), true);
+  /*
+   * A three-second TTL, not one. With a one-second lease the "still held"
+   * assertion raced the expiry itself: on a cold container a round trip can
+   * take a good fraction of a second, and the lease could lapse between the two
+   * calls. The margin is about test stability, not about the behaviour — what
+   * is being proved is that expiry alone makes the row reclaimable.
+   */
+  assert.equal(await jobs.acquireLeaseDbTime({ lockName, owner: 'dead-leader', ttlSeconds: 3 }), true);
   assert.equal(await jobs.acquireLeaseDbTime({ lockName, owner: 'survivor', ttlSeconds: 60 }), false);
-  await new Promise((r) => { setTimeout(r, 1600); });
+  await new Promise((r) => { setTimeout(r, 4000); });
   assert.equal(await jobs.acquireLeaseDbTime({ lockName, owner: 'survivor', ttlSeconds: 60 }), true,
     'past the TTL the row must be reclaimable with nothing having noticed the crash');
 });

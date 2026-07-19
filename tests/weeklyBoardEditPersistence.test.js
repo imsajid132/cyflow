@@ -363,3 +363,80 @@ test('no migration was added or modified', () => {
   assert.equal(files.some((f) => f.startsWith('018')), false, 'no migration 018 may be introduced');
   assert.ok(files.includes('017_user_data_export_and_deletion.sql'), '017 must still be the last migration');
 });
+
+test('a manual plan with no automation still names its target account', async () => {
+  /*
+   * A manually generated plan has no automation, so there is no stored account
+   * selection to read, and the board used to fall back to a bare "Facebook" —
+   * leaving an operator with several Pages unable to tell where a post was
+   * going. The honest answer is the one QUEUEING already uses: the user's ACTIVE
+   * accounts for the platforms the item targets, so the board cannot promise a
+   * destination different from the one the post will actually get.
+   */
+  const { app, overrides } = makeApp();
+  const { agent } = await registerUser(app);
+  const me = await agent.get('/api/auth/me');
+  const userId = String(me.body.data.user.id);
+
+  await overrides.socialAccountRepository.upsertSocialAccount({
+    userId, provider: 'meta', accountType: 'facebook_page',
+    providerAccountId: 'fb-manual', displayName: 'NYC Waterproofing',
+    username: 'private', encryptedAccessToken: 'v1:tok', scopes: [],
+    providerMetadata: {}, status: 'active',
+  });
+
+  const runs = overrides.plannerRunRepository;
+  const run = await runs.createRun({
+    userId, contentAutomationId: null, status: 'review', timezone: 'Asia/Karachi',
+    startDate: null, endDate: null, settings: {}, resolvedRhythm: {},
+  });
+  await runs.createItem({
+    userId, plannerRunId: run.id, scheduledFor: '2026-07-25 21:45:00',
+    originalTimezone: 'Asia/Karachi', contentType: 'insight', goal: 'awareness',
+    templateKey: 'editorial-premium', aspectRatio: '1:1', backgroundStyle: 'light',
+    headline: 'h', subheadline: 's', summary: 's', caption: 'c', altText: 'a',
+    hashtags: [], platformTargets: ['facebook'],
+    platformCaptions: { facebook: { postCopy: 'c', hashtags: [], validationStatus: 'passed' } },
+    approvalStatus: 'needs_review', position: 0,
+  });
+
+  const plan = await agent.get(`/api/planner/plans/${run.id}`);
+  const item = plan.body.data.items[0];
+  assert.deepEqual(item.targetAccounts, [{ platform: 'facebook', accountName: 'NYC Waterproofing' }],
+    'a manual plan must name the account it will actually post to');
+});
+
+test('a disconnected account is not named, and nothing is invented', async () => {
+  const { app, overrides } = makeApp();
+  const { agent } = await registerUser(app);
+  const me = await agent.get('/api/auth/me');
+  const userId = String(me.body.data.user.id);
+
+  // Present but NOT active: the post has nowhere to go, and the board must not
+  // claim otherwise.
+  await overrides.socialAccountRepository.upsertSocialAccount({
+    userId, provider: 'meta', accountType: 'facebook_page',
+    providerAccountId: 'fb-revoked', displayName: 'NYC Waterproofing',
+    username: 'private', encryptedAccessToken: 'v1:tok', scopes: [],
+    providerMetadata: {}, status: 'revoked',
+  });
+
+  const runs = overrides.plannerRunRepository;
+  const run = await runs.createRun({
+    userId, contentAutomationId: null, status: 'review', timezone: 'Asia/Karachi',
+    startDate: null, endDate: null, settings: {}, resolvedRhythm: {},
+  });
+  await runs.createItem({
+    userId, plannerRunId: run.id, scheduledFor: '2026-07-25 21:45:00',
+    originalTimezone: 'Asia/Karachi', contentType: 'insight', goal: 'awareness',
+    templateKey: 'editorial-premium', aspectRatio: '1:1', backgroundStyle: 'light',
+    headline: 'h', subheadline: 's', summary: 's', caption: 'c', altText: 'a',
+    hashtags: [], platformTargets: ['facebook'],
+    platformCaptions: { facebook: { postCopy: 'c', hashtags: [], validationStatus: 'passed' } },
+    approvalStatus: 'needs_review', position: 0,
+  });
+
+  const plan = await agent.get(`/api/planner/plans/${run.id}`);
+  assert.deepEqual(plan.body.data.items[0].targetAccounts, [],
+    'an inactive account must not be presented as a destination');
+});

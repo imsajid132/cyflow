@@ -21,6 +21,7 @@ import * as users from '../src/repositories/userRepository.js';
 import * as businessProfiles from '../src/repositories/businessProfileRepository.js';
 import * as socialAccounts from '../src/repositories/socialAccountRepository.js';
 import * as runsRepo from '../src/repositories/plannerRunRepository.js';
+import * as automationsRepo from '../src/repositories/automationRepository.js';
 // bcrypt directly: hashPassword lives inside createAuthService and is not
 // exported, and the seed only needs a hash the real login will verify.
 import bcrypt from 'bcrypt';
@@ -82,6 +83,26 @@ async function seed() {
     scopes: [], providerMetadata: {}, status: 'active',
   });
 
+  const accounts = await socialAccounts.listAccountsForUser(userId);
+  const fbAccountId = accounts[0].id;
+
+  /*
+   * A REAL automation, with the Facebook Page explicitly selected, and a run
+   * linked to it. Account identity on the board resolves through this relation,
+   * so seeding a bare run would test a different shape from the one the
+   * operator actually has.
+   */
+  const automation = await automationsRepo.createAutomation({
+    userId, name: 'Final Acceptance Automation', status: 'active', mode: 'review',
+    timezone: 'Asia/Karachi', selectedWeekdays: [7], postingTimes: ['02:45'],
+    postsPerDay: 1, rhythmKey: 'balanced', selectedPlatforms: ['facebook'],
+    selectedAccountIds: [String(fbAccountId)],
+    startDate: null, endDate: null,
+    generationHorizonDays: 3, minimumReadyDays: 2, lowBufferDays: 1,
+    missedPostPolicy: 'skip', failurePolicy: 'pause',
+    configSnapshot: { platforms: ['facebook'], accountIds: [String(fbAccountId)], timezone: 'Asia/Karachi' },
+  });
+
   /*
    * The two review items, stored as REAL UTC instants: 02:45 Asia/Karachi is
    * 21:45 UTC the previous day. Seeded directly rather than generated, so the
@@ -89,7 +110,8 @@ async function seed() {
    * its own coverage.
    */
   const run = await runsRepo.createRun({
-    userId, name: 'Final Acceptance Automation', status: 'review',
+    userId, contentAutomationId: automation.id,
+    name: 'Final Acceptance Automation', status: 'review',
     timezone: 'Asia/Karachi', startDate: null, endDate: null,
     settings: { platforms: ['facebook'] }, resolvedRhythm: {},
   });
@@ -107,7 +129,7 @@ async function seed() {
   });
   const july19 = await mk('2026-07-18 21:45:00', 0);
   const july26 = await mk('2026-07-25 21:45:00', 1);
-  return { userId, runId: run.id, july19: july19.id, july26: july26.id };
+  return { userId, runId: run.id, automationId: automation.id, fbAccountId: String(fbAccountId), july19: july19.id, july26: july26.id };
 }
 
 /*

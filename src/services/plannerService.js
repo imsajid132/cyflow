@@ -1403,24 +1403,46 @@ export function createPlannerService({
    * that is.
    */
   async function resolveTargetAccounts(userId, run) {
-    if (!run?.contentAutomationId || !automations?.findAutomationByIdForUser) return [];
-    const automation = await automations
-      .findAutomationByIdForUser(run.contentAutomationId, userId)
-      .catch(() => null);
-    if (!automation) return [];
-    const selected = new Set((automation.selectedAccountIds || []).map(String));
-    if (!selected.size) return [];
     const owned = await socialAccounts.listAccountsForUser(userId).catch(() => []);
-    const out = [];
-    for (const account of owned) {
-      if (!selected.has(String(account.id))) continue;
-      const platform = ACCOUNT_TYPE_TO_PLATFORM[account.accountType];
-      if (!platform) continue;
-      const accountName = (account.displayName || '').trim();
-      if (!accountName) continue;
-      out.push({ platform, accountName });
+    const active = (owned || []).filter((a) => a.status === SOCIAL_ACCOUNT_STATUS.ACTIVE);
+
+    const named = (accounts) => {
+      const out = [];
+      for (const account of accounts) {
+        const platform = ACCOUNT_TYPE_TO_PLATFORM[account.accountType];
+        if (!platform) continue;
+        const accountName = (account.displayName || '').trim();
+        if (!accountName) continue;
+        out.push({ platform, accountName });
+      }
+      return out;
+    };
+
+    // An automation-backed plan has an explicit, persisted account selection.
+    if (run?.contentAutomationId && automations?.findAutomationByIdForUser) {
+      const automation = await automations
+        .findAutomationByIdForUser(run.contentAutomationId, userId)
+        .catch(() => null);
+      if (automation) {
+        const selected = new Set((automation.selectedAccountIds || []).map(String));
+        return named(active.filter((a) => selected.has(String(a.id))));
+      }
     }
-    return out;
+
+    /*
+     * A manually generated plan has no automation, so there is no stored
+     * selection to read — and the board used to fall back to a bare "Facebook",
+     * leaving an operator with several Pages unable to tell where a post was
+     * going.
+     *
+     * The honest answer is the one QUEUEING itself already uses: the user's
+     * ACTIVE accounts for the platforms the item targets. That is the same
+     * persisted relation, resolved the same way, so the board cannot promise a
+     * destination different from the one the post will actually get. Nothing is
+     * invented: an account that is not connected simply does not appear, and
+     * the card falls back to the platform name alone.
+     */
+    return named(active);
   }
 
   /**
