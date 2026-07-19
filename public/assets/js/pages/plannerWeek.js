@@ -223,12 +223,32 @@ export async function render(root, ctx) {
     });
 
     const queueBtn = el('button', { className: 'btn btn-primary btn-sm', text: 'Queue approved posts', attrs: { type: 'button' } });
-    queueBtn.disabled = !(plan.counts?.approved > 0);
+    /*
+     * Approved is not sufficient. An approved post with no resolvable account
+     * has nowhere to go, and the server refuses it — so the button that
+     * promises to queue it must not be live. The check is on the APPROVED
+     * items specifically: an unavailable target on a rejected post is
+     * irrelevant and must not disable the action for the rest.
+     */
+    const queueable = (plan.items || []).filter(
+      (i) => i.approvalStatus === 'approved' && !i.targetsUnavailable,
+    );
+    const blockedApproved = (plan.items || []).filter(
+      (i) => i.approvalStatus === 'approved' && i.targetsUnavailable,
+    );
+    queueBtn.disabled = queueable.length === 0;
+    if (blockedApproved.length) {
+      queueBtn.title = `${blockedApproved.length} approved post${blockedApproved.length === 1 ? ' has' : 's have'} no connected account and cannot be queued.`;
+    }
     queueBtn.addEventListener('click', async () => {
-      const n = plan.counts.approved;
+      const n = queueable.length;
       const ok = await confirmModal({
         title: `Queue ${n} approved post${n === 1 ? '' : 's'}?`,
-        message: 'They move into your queue at their scheduled times. Cyflow does not publish to providers yet. This stores them for a later phase.',
+        // The count is the QUEUEABLE count, so the number in the confirmation
+        // is the number that actually moves.
+        message: blockedApproved.length
+          ? `They move into your queue at their scheduled times. ${blockedApproved.length} other approved post${blockedApproved.length === 1 ? '' : 's'} cannot be queued because no connected account is available. Cyflow does not publish to providers yet.`
+          : 'They move into your queue at their scheduled times. Cyflow does not publish to providers yet. This stores them for a later phase.',
         confirmText: 'Queue them',
       });
       if (!ok) return;

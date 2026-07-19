@@ -179,11 +179,28 @@ try {
   ok(after.scheduledPosts === 1, `exactly one scheduled post in MariaDB (${after.scheduledPosts})`);
   ok(after.targets === 1, `exactly one account target in MariaDB (${after.targets})`);
 
+  /*
+   * The regression, asserted by NAME against seven connected Pages.
+   *
+   * The automation selects one. Queueing attached every active Facebook account
+   * — seven targets from a plan that named one. The count above would catch it
+   * now, but only these assertions say which Page leaked.
+   */
+  ok(after.activeAccounts === 7, `the user really has seven active accounts (${after.activeAccounts})`);
+  ok(JSON.stringify(after.targetNames) === JSON.stringify(['NYC Waterproofing']),
+    `the only target is NYC Waterproofing (got ${JSON.stringify(after.targetNames)})`);
+  for (const page of ['Sidewalks Repair NYC', 'Pioneer Construction NYC', 'NYC Concrete Contractor',
+    'Roofing Contractor NYC', 'Brick Pointing NYC', 'Brownstone Repair NYC']) {
+    ok(!after.targetNames.includes(page), `${page} is not attached`);
+  }
+
   // Repeat through the same supported path: no duplicate.
   await queue();
   after = await state(b);
   ok(after.scheduledPosts === 1, `repeating the action creates no duplicate (${after.scheduledPosts})`);
   ok(after.targets === 1, `and no duplicate target (${after.targets})`);
+  ok(JSON.stringify(after.targetNames) === JSON.stringify(['NYC Waterproofing']),
+    'and the repeat does not broaden the target list');
 
   await b.goto(`${BASE}/queue`, { waitMs: 500 });
   await waitFor(b, SETTLED);

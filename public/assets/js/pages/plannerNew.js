@@ -224,10 +224,51 @@ export async function render(root, ctx) {
         Boolean(prefs?.platforms?.includes(p)),
         { 'data-platform': p })));
 
+  /*
+   * WHICH ACCOUNT, not just which platform.
+   *
+   * A platform tick is not a destination when the user has several Pages on
+   * that platform. It used to be treated as one: the plan stored a platform,
+   * and queueing later matched every active account of that type, so one plan
+   * fanned out to every Page the user had connected. The choice is made here,
+   * by a human, and stored with the plan.
+   *
+   * Only shown for platforms with more than one connected account. Where there
+   * is exactly one, the destination is not ambiguous and asking would be
+   * ceremony — the server resolves it and stores it just the same.
+   */
+  const accountHost = el('div', { attrs: { style: 'display:grid;gap:.75rem' } });
+
+  const renderAccountChoices = () => {
+    const chosen = [...platformHost.querySelectorAll('input[data-platform]')]
+      .filter((i) => i.checked).map((i) => i.getAttribute('data-platform'));
+    accountHost.replaceChildren();
+    for (const platform of chosen) {
+      const forPlatform = accounts.filter((a) => ACCOUNT_PLATFORM[a.accountType] === platform);
+      if (forPlatform.length < 2) continue;
+      accountHost.appendChild(el('div', {}, [
+        el('p', { className: 'hint', attrs: { style: 'margin:0 0 .35rem' },
+          text: `You have ${forPlatform.length} ${PLATFORM_LABELS[platform] || platform} accounts connected. Choose which one this plan posts to.` }),
+        el('div', { className: 'row', attrs: { style: 'gap:.5rem;flex-wrap:wrap' } },
+          forPlatform.map((a) => {
+            const radio = el('label', { className: 'choice' }, [
+              el('input', { attrs: { type: 'radio', name: `acct-${platform}`, value: String(a.id), 'data-account-platform': platform } }),
+              el('span', { text: a.displayName || 'Unnamed account' }),
+            ]);
+            return radio;
+          })),
+      ]));
+    }
+  };
+
+  platformHost.addEventListener('change', renderAccountChoices);
+  renderAccountChoices();
+
   const platformCard = card([
     el('div', { className: 'card-head' }, [el('span', { className: 'card-title', text: '2. Where' })]),
     platformHost,
     el('p', { className: 'hint', text: 'Only accounts you have connected are listed. Posts are written for the platforms you tick here, and no others.' }),
+    accountHost,
   ]);
 
   // --- approval ------------------------------------------------------------
@@ -261,6 +302,14 @@ export async function render(root, ctx) {
         .filter((i) => i.checked).map((i) => i.getAttribute('data-time')),
       platforms: [...platformHost.querySelectorAll('input[data-platform]')]
         .filter((i) => i.checked).map((i) => i.getAttribute('data-platform')),
+      /*
+       * Sent only where the user was actually asked. An empty list means every
+       * chosen platform had exactly one account, and the server resolves it;
+       * it does NOT mean "all accounts", which is the reading that produced
+       * the fan-out.
+       */
+      accountIds: [...accountHost.querySelectorAll('input[data-account-platform]')]
+        .filter((i) => i.checked).map((i) => i.value),
       timezone: tzPicker.getValue(),
       approvalMode: val('approvalMode'),
       // The rhythm the user chose HERE wins over their saved default.

@@ -75,16 +75,37 @@ async function seed() {
     'Basement Waterproofing', 'Foundation Waterproofing', 'French Drain Installation',
   ]).catch(() => {});
 
-  await socialAccounts.upsertSocialAccount({
-    userId, provider: 'meta', accountType: 'facebook_page',
-    providerAccountId: 'fb-page-nycwp', displayName: 'NYC Waterproofing',
-    username: 'private-handle-not-user-facing',
-    encryptedAccessToken: 'v1:local-disposable-token-not-real',
-    scopes: [], providerMetadata: {}, status: 'active',
-  });
+  /*
+   * SEVEN active Facebook Pages, which is the operator's real account list.
+   *
+   * One Page is not enough to test this. With a single connected account,
+   * "the selected account" and "every active account" are the same set, and the
+   * fan-out that shipped was invisible — one target either way. The other six
+   * exist so that a regression has somewhere to leak to.
+   */
+  const FACEBOOK_PAGES = [
+    'NYC Waterproofing',
+    'Sidewalks Repair NYC',
+    'Pioneer Construction NYC',
+    'NYC Concrete Contractor',
+    'Roofing Contractor NYC',
+    'Brick Pointing NYC',
+    'Brownstone Repair NYC',
+  ];
+  for (const [i, displayName] of FACEBOOK_PAGES.entries()) {
+    // eslint-disable-next-line no-await-in-loop
+    await socialAccounts.upsertSocialAccount({
+      userId, provider: 'meta', accountType: 'facebook_page',
+      providerAccountId: `fb-page-${i}`, displayName,
+      username: `private-handle-${i}-not-user-facing`,
+      encryptedAccessToken: `v1:local-disposable-token-${i}-not-real`,
+      scopes: [], providerMetadata: {}, status: 'active',
+    });
+  }
 
   const accounts = await socialAccounts.listAccountsForUser(userId);
-  const fbAccountId = accounts[0].id;
+  // The automation selects THIS one, and only this one.
+  const fbAccountId = accounts.find((a) => a.displayName === 'NYC Waterproofing').id;
 
   /*
    * A REAL automation, with the Facebook Page explicitly selected, and a run
@@ -164,10 +185,29 @@ wrapper.get('/__e2e/state', async (req, res) => {
   const [revisions] = await pool.query(
     "SELECT COUNT(*) AS n FROM post_revisions WHERE user_id = ? AND revision_type = 'manual_edit'", [seeded.userId],
   );
+  /*
+   * WHICH Pages, by name, not just how many rows.
+   *
+   * A count alone would have passed the fan-out if the operator had one Page
+   * connected, and would have failed uninformatively with seven. The names make
+   * the assertion say what actually went wrong.
+   */
+  const [targetNames] = await pool.query(
+    `SELECT sa.display_name AS name
+       FROM scheduled_post_targets t
+       JOIN scheduled_posts p ON p.id = t.scheduled_post_id
+       JOIN social_accounts sa ON sa.id = t.social_account_id
+      WHERE p.user_id = ? ORDER BY sa.display_name`, [seeded.userId],
+  );
+  const [activeAccounts] = await pool.query(
+    "SELECT COUNT(*) AS n FROM social_accounts WHERE user_id = ? AND status = 'active'", [seeded.userId],
+  );
   res.json({
     ...seeded,
     scheduledPosts: Number(posts[0].n),
     targets: Number(targets[0].n),
+    targetNames: targetNames.map((r) => r.name),
+    activeAccounts: Number(activeAccounts[0].n),
     manualEditRevisions: Number(revisions[0].n),
     providerCalls,
   });

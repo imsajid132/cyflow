@@ -34,6 +34,8 @@ export const preferencesValidator = [
   body('times.*').optional().matches(/^([01]\d|2[0-3]):[0-5]\d$/).withMessage('Times must be HH:MM'),
   body('platforms').optional({ nullable: true }).isArray({ max: 3 }).withMessage('Invalid platforms'),
   body('platforms.*').optional().isIn(PLATFORM_VALUES).withMessage('Unsupported platform'),
+  body('accountIds').optional({ nullable: true }).isArray({ max: 20 }).withMessage('Invalid accounts'),
+  body('accountIds.*').optional().isString().trim().notEmpty().withMessage('Invalid account'),
   body('goals').optional({ nullable: true }).isArray({ max: 7 }).withMessage('Invalid goals'),
   body('goals.*').optional().isIn(PLANNER_GOALS).withMessage('Invalid goal'),
   body('contentMix').optional({ nullable: true }).isObject().withMessage('Invalid content mix'),
@@ -75,6 +77,8 @@ export const generatePlanValidator = [
     .withMessage('Invalid posts per day'),
   body('platforms').optional({ nullable: true }).isArray({ max: 3 }).withMessage('Invalid platforms'),
   body('platforms.*').optional().isIn(PLATFORM_VALUES).withMessage('Unsupported platform'),
+  body('accountIds').optional({ nullable: true }).isArray({ max: 20 }).withMessage('Invalid accounts'),
+  body('accountIds.*').optional().isString().trim().notEmpty().withMessage('Invalid account'),
   body('timezone').optional({ nullable: true }).isString().isLength({ max: 64 }).withMessage('Invalid timezone'),
   body('approvalMode').optional({ nullable: true }).isIn(PLANNER_APPROVAL_MODES).withMessage('Invalid approval mode'),
   // A run may name its own rhythm. Without this the wizard's choice could not

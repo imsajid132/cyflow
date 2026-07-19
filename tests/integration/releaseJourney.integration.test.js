@@ -109,7 +109,15 @@ beforeEach(async () => {
 async function seedReviewItems() {
   const run = await runsRepo.createRun({
     userId, name: 'Final Acceptance Automation', status: 'review', timezone: 'Asia/Karachi',
-    startDate: null, endDate: null, settings: {}, resolvedRhythm: {},
+    startDate: null, endDate: null,
+    /*
+     * The run stores WHICH account it posts to. It stored nothing, and queueing
+     * filled that silence by matching every active account on the platform —
+     * the fan-out that shipped. A run with no stored selection is refused now,
+     * so the journey seeds the selection the real flow freezes at generation.
+     */
+    settings: { selectedAccountIds: [String(fbAccountId)] },
+    resolvedRhythm: {},
   });
   const mk = (utcInstant, position) => runsRepo.createItem({
     userId, plannerRunId: run.id, scheduledFor: utcInstant, originalTimezone: 'Asia/Karachi',

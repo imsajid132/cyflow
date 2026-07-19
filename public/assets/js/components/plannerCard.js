@@ -198,9 +198,10 @@ function failureDetails(item) {
  * automation-to-account relation; the client never labels a post from anything
  * it was handed by a form.
  *
- * Falls back to the bare platform name when no account is resolved (a manual
- * plan, or an automation whose account was disconnected). Saying "Facebook" is
- * honest; inventing a name would not be.
+ * When a platform resolves to no account the label says so, rather than
+ * printing a bare "Facebook" that reads like a working destination. These posts
+ * cannot be queued, and the card is where an operator finds that out — the old
+ * bare label meant Queue refused items the board had shown as ready.
  */
 export function platformTargetLabel(item) {
   const accounts = Array.isArray(item?.targetAccounts) ? item.targetAccounts : [];
@@ -209,7 +210,8 @@ export function platformTargetLabel(item) {
   return targets.map((platform, i) => {
     const label = names[i] || platform;
     const match = accounts.find((a) => a.platform === platform && a.accountName);
-    return match ? `${label} · ${match.accountName}` : label;
+    if (match) return `${label} · ${match.accountName}`;
+    return `${label} · Account unavailable`;
   }).join(', ');
 }
 

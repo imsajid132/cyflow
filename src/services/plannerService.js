@@ -166,6 +166,7 @@ import * as defaultPlannerRuns from '../repositories/plannerRunRepository.js';
 import * as defaultPlannerRevisions from '../repositories/plannerRevisionRepository.js';
 import * as defaultBusinessProfiles from '../repositories/businessProfileRepository.js';
 import * as defaultSocialAccounts from '../repositories/socialAccountRepository.js';
+import * as defaultAutomations from '../repositories/automationRepository.js';
 import * as defaultPostRepo from '../repositories/postRepository.js';
 import * as defaultMediaRepo from '../repositories/mediaAssetRepository.js';
 import * as defaultApiUsage from '../repositories/apiUsageRepository.js';
@@ -222,7 +223,16 @@ export function createPlannerService({
    * instead of just "Facebook". Absent in tests that do not care, hence the
    * guard in resolveTargetAccounts.
    */
-  automations = null,
+  /*
+   * Defaults to the real repository, not null.
+   *
+   * It was null, and the account selection now READS from it: an instance built
+   * without it would treat every automation-backed run as having no selection.
+   * The container has always injected it, so this only closes the gap between
+   * the wired instance and the module-level singleton that plannerController
+   * and automationService import as their fallback.
+   */
+  automations = defaultAutomations,
   posts = defaultPostRepo,
   mediaRepository = defaultMediaRepo,
   apiUsage = defaultApiUsage,
@@ -545,6 +555,79 @@ export function createPlannerService({
   }
 
   /**
+   * Freeze WHICH accounts a manual plan may post to, at generation time.
+   *
+   * A manual plan has no automation to carry a selection, and for a long time
+   * it carried none of its own either. Queueing filled that silence by matching
+   * on platform, so a user with seven Facebook Pages got seven targets from a
+   * plan that named one. Silence is no longer an input: this returns a concrete
+   * list of account ids that gets frozen onto the run, or it throws.
+   *
+   * An explicit choice is validated and honoured. Where none is sent, a
+   * platform with exactly ONE active account has an unambiguous destination and
+   * is resolved to it — that is the single-Page case, and demanding a choice
+   * between one option would be ceremony. A platform with SEVERAL active
+   * accounts is genuinely ambiguous, and ambiguity is answered by asking rather
+   * than by broadcasting.
+   *
+   * @throws {ValidationError} on a foreign, inactive, unknown or ambiguous account
+   */
+  async function resolveAccountSelection(userId, platforms, requested) {
+    const owned = await socialAccounts.listAccountsForUser(userId);
+    const active = (owned || []).filter((a) => a.status === SOCIAL_ACCOUNT_STATUS.ACTIVE);
+    const forPlatform = (p) => active.filter((a) => ACCOUNT_TYPE_TO_PLATFORM[a.accountType] === p);
+
+    if (Array.isArray(requested) && requested.length) {
+      const byId = new Map(active.map((a) => [String(a.id), a]));
+      const chosen = [];
+      const seen = new Set();
+      for (const raw of requested) {
+        const key = String(raw);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        // An id this user does not own is indistinguishable from one that does
+        // not exist, deliberately: neither confirms another user's account.
+        const account = byId.get(key);
+        if (!account) {
+          throw new ValidationError('That account cannot be used for this plan', [
+            { field: 'accountIds', message: 'Choose a connected account you own' },
+          ]);
+        }
+        const platform = ACCOUNT_TYPE_TO_PLATFORM[account.accountType];
+        if (!platforms.includes(platform)) {
+          throw new ValidationError('That account is not on a platform this plan targets', [
+            { field: 'accountIds', message: `${account.displayName || 'That account'} is not one of the chosen platforms` },
+          ]);
+        }
+        chosen.push(account.id);
+      }
+      // Every chosen platform needs somewhere to go, or the plan generates
+      // content that can never be queued.
+      for (const platform of platforms) {
+        if (!chosen.some((id) => ACCOUNT_TYPE_TO_PLATFORM[byId.get(String(id)).accountType] === platform)) {
+          throw new ValidationError('Choose an account for every platform in this plan', [
+            { field: 'accountIds', message: `Choose which ${PLATFORM_LABELS[platform] || platform} account these posts go to` },
+          ]);
+        }
+      }
+      return chosen;
+    }
+
+    const resolved = [];
+    for (const platform of platforms) {
+      const candidates = forPlatform(platform);
+      if (candidates.length === 1) { resolved.push(candidates[0].id); continue; }
+      if (candidates.length > 1) {
+        throw new ValidationError('Choose which account these posts go to', [{
+          field: 'accountIds',
+          message: `You have ${candidates.length} ${PLATFORM_LABELS[platform] || platform} accounts connected. Choose which one this plan posts to.`,
+        }]);
+      }
+    }
+    return resolved;
+  }
+
+  /**
    * Turn an empty platform resolution into the RIGHT error.
    *
    * Three different situations used to collapse into one silent fallback:
@@ -671,6 +754,14 @@ export function createPlannerService({
      */
     assertPlatformContract(platforms, briefs);
 
+    /*
+     * Resolved BEFORE the run row exists, so an ambiguous or invalid account
+     * choice costs nothing: no run, no items, no OpenAI spend. This is also the
+     * last point at which the answer is cheap to change — once frozen into
+     * settings below it is what queueing will obey.
+     */
+    const selectedAccountIds = await resolveAccountSelection(userId, platforms, options.accountIds);
+
     const run = await runsRepo.createRun({
       userId,
       businessProfileId: profile?.id ?? null,
@@ -691,6 +782,12 @@ export function createPlannerService({
         postsPerDay: schedule.postsPerDay,
         activeDays: schedule.activeDays,
         platforms,
+        /*
+         * The frozen destination. Queueing reads this and nothing else for a
+         * manual plan, so a later change to the user's connected accounts
+         * cannot silently redirect posts this plan already generated.
+         */
+        selectedAccountIds: selectedAccountIds.map(String),
         timezone: schedule.timezone,
         startDate: schedule.startDate,
         endDate: schedule.endDate,
@@ -1348,12 +1445,29 @@ export function createPlannerService({
      * Resolved ONCE per plan, not per item: it is one automation lookup and one
      * account list for the whole board, and every card needs the same answer.
      */
-    const accounts = await resolveTargetAccounts(userId, run);
-    const attach = (item) => ({
-      ...item,
+    const { hasSelection, accounts } = await resolveRunTargetAccounts(userId, run);
+    const attach = (item) => {
       // Only the accounts for the platforms THIS post targets.
-      targetAccounts: accounts.filter((a) => (item.platformTargets || []).includes(a.platform)),
-    });
+      const matched = accounts.filter((a) => (item.platformTargets || []).includes(a.platform));
+      /*
+       * Platform and display name ONLY. The resolver carries the account id
+       * because queueing needs it; the board does not, and the payload shape is
+       * a fixed contract asserted by its own test. Spreading the resolver's
+       * objects here would have quietly widened it.
+       */
+      const targetAccounts = matched.map((a) => ({ platform: a.platform, accountName: a.accountName }));
+      return {
+        ...item,
+        targetAccounts,
+        /*
+         * The board says so explicitly rather than leaving the operator to
+         * infer it from a missing name. Queue refuses these items, and a
+         * refusal the UI did not predict reads as a bug.
+         */
+        targetsUnavailable: targetAccounts.length === 0,
+        targetsUnconfigured: !hasSelection,
+      };
+    };
 
     const decorated = await Promise.all(items.map(async (i) => attach(await decorateItem(userId, i))));
     return {
@@ -1402,47 +1516,89 @@ export function createPlannerService({
    * operator needs to know it is going to "NYC Waterproofing", not which row
    * that is.
    */
-  async function resolveTargetAccounts(userId, run) {
+  /**
+   * The accounts a run is allowed to post to. The ONLY answer to that question.
+   *
+   * A post goes to the accounts a human explicitly chose and the system stored.
+   * There is no inference step: "which accounts could this go to" is never
+   * treated as "which accounts should this go to".
+   *
+   * This function exists because those two questions had two different answers.
+   * The board asked the automation and correctly showed one Page; queueing
+   * ignored the automation entirely and attached every active account matching
+   * the platform. An automation configured for one Page produced seven targets,
+   * and the board that was supposed to reveal that showed the reassuring
+   * answer. Board and queue now read the same resolution, so a wrong answer can
+   * no longer hide behind a right-looking one.
+   *
+   * Returns { hasSelection, accounts }. Those two are NOT the same thing:
+   *
+   *   hasSelection false — the run stores no selection at all. Unconfigured.
+   *   accounts empty     — a selection exists but resolves to nothing live
+   *                        (disconnected, revoked, deleted). Unavailable.
+   *
+   * Both block queueing, and neither may fall back to "every active account".
+   * The distinction is kept because the operator needs different things in each
+   * case: one is a plan that was never told where to go, the other a plan whose
+   * destination went away.
+   */
+  async function resolveRunTargetAccounts(userId, run) {
     const owned = await socialAccounts.listAccountsForUser(userId).catch(() => []);
     const active = (owned || []).filter((a) => a.status === SOCIAL_ACCOUNT_STATUS.ACTIVE);
+    const activeById = new Map(active.map((a) => [String(a.id), a]));
 
-    const named = (accounts) => {
-      const out = [];
-      for (const account of accounts) {
-        const platform = ACCOUNT_TYPE_TO_PLATFORM[account.accountType];
-        if (!platform) continue;
-        const accountName = (account.displayName || '').trim();
-        if (!accountName) continue;
-        out.push({ platform, accountName });
-      }
-      return out;
-    };
+    const selectedIds = await persistedAccountSelection(userId, run);
+    if (!Array.isArray(selectedIds)) return { hasSelection: false, accounts: [] };
 
-    // An automation-backed plan has an explicit, persisted account selection.
+    /*
+     * Driven by the STORED selection, not by the account list. Iterating the
+     * selection and looking each id up means an account the user never chose
+     * has no path into the result: it is not filtered out late, it is never
+     * considered. Ownership survives the same way — activeById holds only this
+     * user's accounts, so another user's id resolves to nothing.
+     */
+    const accounts = [];
+    const seen = new Set();
+    for (const id of selectedIds) {
+      const key = String(id);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const account = activeById.get(key);
+      if (!account) continue;
+      const platform = ACCOUNT_TYPE_TO_PLATFORM[account.accountType];
+      if (!platform) continue;
+      accounts.push({
+        id: account.id,
+        platform,
+        accountName: (account.displayName || '').trim() || null,
+      });
+    }
+    return { hasSelection: true, accounts };
+  }
+
+  /**
+   * The stored account selection for a run, or null when it stores none.
+   *
+   * Automation-backed runs carry it on the automation. Manual runs carry it in
+   * the settings snapshot frozen at generation. A run predating that snapshot
+   * returns null and is treated as unconfigured rather than as permission to
+   * post everywhere.
+   */
+  async function persistedAccountSelection(userId, run) {
     if (run?.contentAutomationId && automations?.findAutomationByIdForUser) {
       const automation = await automations
         .findAutomationByIdForUser(run.contentAutomationId, userId)
         .catch(() => null);
-      if (automation) {
-        const selected = new Set((automation.selectedAccountIds || []).map(String));
-        return named(active.filter((a) => selected.has(String(a.id))));
-      }
+      /*
+       * A missing automation returns null, not "no restriction". Failing to
+       * READ the selection must never widen it — that read is the only thing
+       * standing between one chosen Page and every Page the user connected.
+       */
+      if (!automation) return null;
+      return Array.isArray(automation.selectedAccountIds) ? automation.selectedAccountIds : null;
     }
-
-    /*
-     * A manually generated plan has no automation, so there is no stored
-     * selection to read — and the board used to fall back to a bare "Facebook",
-     * leaving an operator with several Pages unable to tell where a post was
-     * going.
-     *
-     * The honest answer is the one QUEUEING itself already uses: the user's
-     * ACTIVE accounts for the platforms the item targets. That is the same
-     * persisted relation, resolved the same way, so the board cannot promise a
-     * destination different from the one the post will actually get. Nothing is
-     * invented: an account that is not connected simply does not appear, and
-     * the card falls back to the platform name alone.
-     */
-    return named(active);
+    const stored = run?.settings?.selectedAccountIds;
+    return Array.isArray(stored) ? stored : null;
   }
 
   /**
@@ -2656,8 +2812,17 @@ export function createPlannerService({
       throw new ValidationError('Approve at least one post before queueing');
     }
 
-    const accounts = await socialAccounts.listAccountsForUser(userId);
-    const active = (accounts || []).filter((a) => a.status === SOCIAL_ACCOUNT_STATUS.ACTIVE);
+    /*
+     * The SAME resolution the board displayed. Queueing used to build its own
+     * answer here — every active account whose type matched the platform — and
+     * so an automation configured for one Facebook Page attached seven targets,
+     * one per Page the user had ever connected. With live publishing on that is
+     * six posts to six businesses that never agreed to them.
+     *
+     * There is no account list in this function any more, on purpose: the way
+     * to reintroduce the defect is to have one here to filter.
+     */
+    const { hasSelection, accounts: selectedAccounts } = await resolveRunTargetAccounts(userId, run);
 
     const queued = [];
     const skipped = [];
@@ -2678,11 +2843,16 @@ export function createPlannerService({
         skipped.push({ id: item.id, reason: 'generation failed, needs a retry or an edit' });
         continue;
       }
-      const accountIds = active
-        .filter((a) => item.platformTargets.includes(ACCOUNT_TYPE_TO_PLATFORM[a.accountType]))
+      const accountIds = selectedAccounts
+        .filter((a) => item.platformTargets.includes(a.platform))
         .map((a) => a.id);
       if (accountIds.length === 0) {
-        skipped.push({ id: item.id, reason: 'no active account for the selected platforms' });
+        skipped.push({
+          id: item.id,
+          reason: hasSelection
+            ? 'account unavailable for the selected platforms'
+            : 'this plan has no saved account selection, so there is nowhere to send it',
+        });
         continue;
       }
       if (item.scheduledFor && new Date(`${item.scheduledFor.replace(' ', 'T')}Z`).getTime() <= now().getTime()) {

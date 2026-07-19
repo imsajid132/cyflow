@@ -261,8 +261,13 @@ test('the board and the drawer render platform and account the same way', () => 
     'the label must join platform and account with a separator');
   assert.match(card, /const platforms = platformTargetLabel\(item\)/, 'the card uses it');
   assert.match(week, /platformTargetLabel\(item\)/, 'the drawer uses the same one');
-  // Falls back to the platform alone rather than inventing a name.
-  assert.match(card, /return match \? .* : label;/);
+  /*
+   * An unresolved account says "Account unavailable", it does not fall back to
+   * the bare platform name. A bare "Facebook" looks like a working destination,
+   * and these posts are exactly the ones Queue refuses — the board has to say
+   * so or the refusal arrives as a surprise.
+   */
+  assert.match(card, /Account unavailable/, 'an unresolved account is named as unavailable');
 });
 
 // ------------------------------------------------------------------ plan range
@@ -364,14 +369,63 @@ test('no migration was added or modified', () => {
   assert.ok(files.includes('017_user_data_export_and_deletion.sql'), '017 must still be the last migration');
 });
 
-test('a manual plan with no automation still names its target account', async () => {
+test('a manual plan uses its own stored selection, not every active account', async () => {
   /*
-   * A manually generated plan has no automation, so there is no stored account
-   * selection to read, and the board used to fall back to a bare "Facebook" —
-   * leaving an operator with several Pages unable to tell where a post was
-   * going. The honest answer is the one QUEUEING already uses: the user's ACTIVE
-   * accounts for the platforms the item targets, so the board cannot promise a
-   * destination different from the one the post will actually get.
+   * This test asserted the opposite one commit ago, and the behaviour it
+   * asserted was the defect.
+   *
+   * A manual plan has no automation, so the board fell back to "the user's
+   * active accounts for this platform" — and queueing did the same thing, which
+   * is why the two agreed and why the agreement was worthless. A user with
+   * several Pages got all of them. The stored selection frozen onto the run at
+   * generation is the only thing either surface may read.
+   */
+  const { app, overrides } = makeApp();
+  const { agent } = await registerUser(app);
+  const me = await agent.get('/api/auth/me');
+  const userId = String(me.body.data.user.id);
+
+  const mkAccount = (providerAccountId, displayName) =>
+    overrides.socialAccountRepository.upsertSocialAccount({
+      userId, provider: 'meta', accountType: 'facebook_page', providerAccountId, displayName,
+      username: 'private', encryptedAccessToken: 'v1:tok', scopes: [], providerMetadata: {}, status: 'active',
+    });
+  await mkAccount('fb-chosen', 'NYC Waterproofing');
+  await mkAccount('fb-other-1', 'Sidewalks Repair NYC');
+  await mkAccount('fb-other-2', 'Brownstone Repair NYC');
+
+  const all = await overrides.socialAccountRepository.listAccountsForUser(userId);
+  const chosen = all.find((a) => a.displayName === 'NYC Waterproofing');
+
+  const runs = overrides.plannerRunRepository;
+  const run = await runs.createRun({
+    userId, contentAutomationId: null, status: 'review', timezone: 'Asia/Karachi',
+    startDate: null, endDate: null,
+    // The frozen selection a manual plan carries.
+    settings: { selectedAccountIds: [String(chosen.id)] },
+    resolvedRhythm: {},
+  });
+  await runs.createItem({
+    userId, plannerRunId: run.id, scheduledFor: '2026-07-25 21:45:00',
+    originalTimezone: 'Asia/Karachi', contentType: 'insight', goal: 'awareness',
+    templateKey: 'editorial-premium', aspectRatio: '1:1', backgroundStyle: 'light',
+    headline: 'h', subheadline: 's', summary: 's', caption: 'c', altText: 'a',
+    hashtags: [], platformTargets: ['facebook'],
+    platformCaptions: { facebook: { postCopy: 'c', hashtags: [], validationStatus: 'passed' } },
+    approvalStatus: 'needs_review', position: 0,
+  });
+
+  const plan = await agent.get(`/api/planner/plans/${run.id}`);
+  const item = plan.body.data.items[0];
+  assert.deepEqual(item.targetAccounts, [{ platform: 'facebook', accountName: 'NYC Waterproofing' }],
+    'only the stored account, though three are active');
+  assert.equal(item.targetsUnavailable, false);
+});
+
+test('a manual plan with no stored selection resolves to nothing and is flagged', async () => {
+  /*
+   * The legacy shape: a run generated before the selection was stored. It is
+   * unconfigured, not unrestricted. Queue refuses it and the board says so.
    */
   const { app, overrides } = makeApp();
   const { agent } = await registerUser(app);
@@ -379,10 +433,9 @@ test('a manual plan with no automation still names its target account', async ()
   const userId = String(me.body.data.user.id);
 
   await overrides.socialAccountRepository.upsertSocialAccount({
-    userId, provider: 'meta', accountType: 'facebook_page',
-    providerAccountId: 'fb-manual', displayName: 'NYC Waterproofing',
-    username: 'private', encryptedAccessToken: 'v1:tok', scopes: [],
-    providerMetadata: {}, status: 'active',
+    userId, provider: 'meta', accountType: 'facebook_page', providerAccountId: 'fb-a',
+    displayName: 'NYC Waterproofing', username: 'private', encryptedAccessToken: 'v1:tok',
+    scopes: [], providerMetadata: {}, status: 'active',
   });
 
   const runs = overrides.plannerRunRepository;
@@ -402,8 +455,9 @@ test('a manual plan with no automation still names its target account', async ()
 
   const plan = await agent.get(`/api/planner/plans/${run.id}`);
   const item = plan.body.data.items[0];
-  assert.deepEqual(item.targetAccounts, [{ platform: 'facebook', accountName: 'NYC Waterproofing' }],
-    'a manual plan must name the account it will actually post to');
+  assert.deepEqual(item.targetAccounts, [], 'no stored selection means no destination');
+  assert.equal(item.targetsUnavailable, true);
+  assert.equal(item.targetsUnconfigured, true, 'unconfigured is distinct from unavailable');
 });
 
 test('a disconnected account is not named, and nothing is invented', async () => {
