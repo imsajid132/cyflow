@@ -19,7 +19,8 @@
     "staging:health": "node tools/staging-health.mjs",
     "staging:init-storage": "node tools/staging-init-storage.mjs",
     "migrate:status": "node tools/migration-status.mjs",
-    "migrate:check": "node tools/migration-check.mjs"
+    "migrate:check": "node tools/migration-check.mjs",
+    "test:integration": "node --import ./tests/integration/helpers/preload.js --test tests/integration/*.test.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

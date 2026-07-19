@@ -65,27 +65,49 @@ function safeJson(text) {
 export async function enqueueJob(input, connection) {
   const conn = runner(connection);
   const availableAt = input.availableAt ? toMysqlUtc(input.availableAt) : toMysqlUtc(new Date());
-  const [result] = await conn.execute(
-    `INSERT INTO background_jobs
-       (user_id, automation_id, job_type, status, idempotency_key, payload_json,
-        scheduled_for, available_at, attempt_count, max_attempts)
-     VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, 0, ?)
-     ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)`,
-    [
-      input.userId ?? null,
-      input.automationId ?? null,
-      input.jobType,
-      input.idempotencyKey,
-      input.payload == null ? null : JSON.stringify(input.payload),
-      input.scheduledFor ? toMysqlUtc(input.scheduledFor) : null,
-      availableAt,
-      Number.isInteger(input.maxAttempts) ? input.maxAttempts : 5,
-    ],
-  );
-  // affectedRows: 1 = inserted (created), 2 = matched an existing row (not created).
-  const created = result.affectedRows === 1;
-  const [rows] = await conn.execute('SELECT * FROM background_jobs WHERE id = ? LIMIT 1', [result.insertId]);
-  return { job: sanitizeJob(rows[0]), created };
+  const params = [
+    input.userId ?? null,
+    input.automationId ?? null,
+    input.jobType,
+    input.idempotencyKey,
+    input.payload == null ? null : JSON.stringify(input.payload),
+    input.scheduledFor ? toMysqlUtc(input.scheduledFor) : null,
+    availableAt,
+    Number.isInteger(input.maxAttempts) ? input.maxAttempts : 5,
+  ];
+
+  /*
+   * A plain INSERT, with the duplicate-key ERROR as the signal.
+   *
+   * This used to be `ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)` with
+   * `created = affectedRows === 1`. That reads correctly on MySQL, where a
+   * matched row reports 0 or 2 — and WRONGLY on MariaDB, which reports 1 for a
+   * matched row whose update changes nothing. Every duplicate enqueue therefore
+   * claimed to have created a job. No duplicate row was ever written (the unique
+   * index held), but the caller was told it had scheduled work it had not, so
+   * "Refill now" reported jobs it did not enqueue.
+   *
+   * The unique index is the authority either way; ER_DUP_ENTRY is unambiguous on
+   * both engines, and the race is still resolved by the database rather than by
+   * a read-then-write.
+   */
+  try {
+    const [result] = await conn.execute(
+      `INSERT INTO background_jobs
+         (user_id, automation_id, job_type, status, idempotency_key, payload_json,
+          scheduled_for, available_at, attempt_count, max_attempts)
+       VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, 0, ?)`,
+      params,
+    );
+    const [rows] = await conn.execute('SELECT * FROM background_jobs WHERE id = ? LIMIT 1', [result.insertId]);
+    return { job: sanitizeJob(rows[0]), created: true };
+  } catch (err) {
+    if (err?.code !== 'ER_DUP_ENTRY') throw err;
+    const [rows] = await conn.execute(
+      'SELECT * FROM background_jobs WHERE idempotency_key = ? LIMIT 1', [input.idempotencyKey],
+    );
+    return { job: sanitizeJob(rows[0]), created: false };
+  }
 }
 
 /**
@@ -293,6 +315,25 @@ export async function acquireLease({ lockName, owner, ttlMs, now = new Date() },
  */
 export async function acquireLeaseDbTime({ lockName, owner, ttlSeconds }, connection) {
   const run = async (conn) => {
+    /*
+     * Make sure the row EXISTS before locking it.
+     *
+     * `SELECT ... FOR UPDATE` on a row that does not exist takes a gap lock over
+     * the range rather than a row lock. Two instances starting at the same time
+     * against an empty table therefore both held a gap lock and both then tried
+     * to insert, which InnoDB resolves as a deadlock — reproduced against real
+     * MariaDB, and impossible to see against an in-memory fake. It happened only
+     * on the very first tick after deployment, which is exactly when both
+     * instances start together.
+     *
+     * INSERT IGNORE is atomic and creates an already-expired placeholder, so the
+     * lock below is always a plain row lock and the loser simply waits.
+     */
+    await conn.execute(
+      `INSERT IGNORE INTO worker_leases (lock_name, owner, acquired_at, expires_at, heartbeat_at)
+       VALUES (?, '', UTC_TIMESTAMP(), UTC_TIMESTAMP(), UTC_TIMESTAMP())`,
+      [lockName],
+    );
     const [rows] = await conn.execute(
       `SELECT owner, (expires_at > UTC_TIMESTAMP()) AS live
          FROM worker_leases WHERE lock_name = ? FOR UPDATE`,

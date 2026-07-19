@@ -102,6 +102,14 @@ const CANCELLABLE_STATUSES = Object.freeze([
   POST_STATUS.RETRYING,
 ]);
 import { ValidationError, NotFoundError, ConflictError, RateLimitError } from '../utils/errors.js';
+
+/**
+ * Thrown inside the queue transaction when another request claimed the item
+ * first. Internal only: it rolls the transaction back — taking the duplicate
+ * post with it — and the item is reported as skipped, never surfaced to the
+ * client as an error, because nothing went wrong from the user's point of view.
+ */
+class QueueRaceLost extends Error {}
 import { toMysqlUtc, addSecondsUtc, isValidTimezone } from '../utils/time.js';
 import { isSupportedTimezone } from './timezoneService.js';
 import { normalizeTemplate } from '../templates/socialImageTemplates.js';
@@ -2683,19 +2691,49 @@ export function createPlannerService({
           accountIds.map((id) => ({ socialAccountId: id, captionOverride: null })),
           conn,
         );
-        return posts.schedulePost(
+        const scheduled = await posts.schedulePost(
           draft.id,
           userId,
           { scheduledAtUtc: item.scheduledFor, originalTimezone: item.originalTimezone || run.timezone },
           conn,
         );
+
+        /*
+         * Claim the item INSIDE the same transaction, guarded on it still being
+         * approved. The database decides the winner.
+         *
+         * This flip used to happen after the transaction committed, with the
+         * "is it approved?" decision taken from an unlocked read at the top of
+         * the function. Two concurrent requests therefore both saw an approved
+         * item and both created a scheduled post. Verified against real
+         * MariaDB: a sequential double-click was already safe, and genuine
+         * concurrency — a double-click on a slow connection, or a client retry
+         * after a timeout — was not. With live publishing enabled that is two
+         * real posts on a customer's page.
+         *
+         * Returning null rolls the whole transaction back, taking the duplicate
+         * post, its targets and its schedule with it.
+         */
+        const won = await runsRepo.claimItemForQueue(
+          { itemId: item.id, userId, postId: draft.id }, conn,
+        );
+        if (!won) throw new QueueRaceLost();
+        return scheduled;
+      }).catch((err) => {
+        if (err instanceof QueueRaceLost) return null;
+        throw err;
       });
 
-      // eslint-disable-next-line no-await-in-loop
-      await runsRepo.updateItem(item.id, userId, {
-        postId: post.id,
-        approvalStatus: PLANNER_ITEM_STATUS.QUEUED,
-      });
+      /*
+       * If the claim below returned false, another request queued this item
+       * while this one was building its post. The post it built is therefore a
+       * duplicate and must not survive.
+       */
+      if (post === null) {
+        skipped.push({ id: item.id, reason: 'already queued by another request' });
+        // eslint-disable-next-line no-continue
+        continue;
+      }
       // The copy as it went into the queue, per platform. `item` here still
       // carries platformCaptions and caption, which is what was just queued.
       // eslint-disable-next-line no-await-in-loop

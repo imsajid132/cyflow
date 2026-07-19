@@ -1453,6 +1453,20 @@ export function createFakePlannerRunRepository() {
       Object.assign(item, fields);
       return { ...item };
     },
+    /**
+     * Mirrors the guarded UPDATE: only an item still `approved` can be claimed,
+     * and the caller learns whether IT won. The real one leaves the decision to
+     * MariaDB's WHERE clause; concurrency itself is proved in the integration
+     * suite, since a single-threaded fake cannot demonstrate a race.
+     */
+    async claimItemForQueue({ itemId, userId, postId }) {
+      const item = items.get(String(itemId));
+      if (!item || item.userId !== String(userId)) return false;
+      if (item.approvalStatus !== 'approved') return false;
+      item.postId = String(postId);
+      item.approvalStatus = 'queued';
+      return true;
+    },
     async deleteItem(itemId, userId) {
       const item = items.get(String(itemId));
       if (!item || item.userId !== String(userId)) return { deleted: false };

@@ -336,6 +336,31 @@ export async function updateItem(itemId, userId, fields, connection) {
   return findItemByIdForUser(itemId, userId, connection);
 }
 
+/**
+ * Atomically claim an APPROVED item for queueing.
+ *
+ * The guard is in the WHERE clause, so the database decides the winner. Two
+ * concurrent "Queue approved posts" requests both read the item as approved and
+ * both created a scheduled post: the status flip happened after, outside the
+ * transaction, with nothing to serialise them. Verified against real MariaDB —
+ * a sequential double-click was safe and genuine concurrency was not, which is
+ * exactly the case a double-click on a slow connection produces.
+ *
+ * `affectedRows` is the proof of winning, the same way claimNextJob proves it
+ * won a job. A loser gets false and its caller must roll the post back.
+ *
+ * @returns {Promise<boolean>} true when THIS caller flipped the row
+ */
+export async function claimItemForQueue({ itemId, userId, postId }, connection) {
+  const [res] = await runner(connection).execute(
+    `UPDATE planner_run_items
+        SET post_id = ?, approval_status = 'queued'
+      WHERE id = ? AND user_id = ? AND approval_status = 'approved'`,
+    [postId, itemId, userId],
+  );
+  return res.affectedRows > 0;
+}
+
 export async function deleteItem(itemId, userId, connection) {
   const [result] = await runner(connection).execute(
     'DELETE FROM planner_run_items WHERE id = ? AND user_id = ?',
@@ -423,6 +448,7 @@ export default {
   findItemByIdForUser,
   listItemsForRun,
   updateItem,
+  claimItemForQueue,
   deleteItem,
   listRecentFingerprintsForUser,
   countItemsByStatus,
