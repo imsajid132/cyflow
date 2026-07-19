@@ -42,3 +42,8 @@ temp/
 # design-references/ and must keep being tracked. Without this, every smoke run
 # leaves loose PNGs at the repo root, one `git add .` away from being committed.
 /*.png
+
+# Raw Make.com blueprints carry live connection, datastore and account ids.
+# The redacted extractions under make-scenario/extracted/ are the reviewable
+# form and are committed instead.
+design-references/make-scenario/*-blueprint.json

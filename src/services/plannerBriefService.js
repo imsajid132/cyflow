@@ -53,6 +53,9 @@ import {
  * Keyed by strategic FORMAT. The spread deliberately favours teaching over
  * selling: a plan of seven service adverts is the failure mode this replaces.
  */
+import { resolveNiche, strategyForNiche, dayTypeFor } from './makeContentStrategy.js';
+import { planBatch } from './batchDiversityPlanner.js';
+
 export const DEFAULT_CONTENT_MIX = Object.freeze({
   educational_insight: 3,
   quick_tip: 2,
@@ -468,6 +471,24 @@ export function buildBriefSet({ slots = [], preferences = {}, profile = null, pl
   const snapshot = rhythm && rhythm.weekdays ? rhythm : resolveRhythm({ preset: preferences.contentRhythmPreset, customRhythm: preferences.contentRhythm });
 
   const services = Array.isArray(profile?.services) ? profile.services.filter(Boolean) : [];
+
+  /*
+   * The Make-derived layer, resolved once per batch.
+   *
+   * `niche` comes from the workspace's own business category and description,
+   * so a waterproofing profile gets the local service rhythm and an SEO agency
+   * gets the knowledge rhythm without either being named in code. `diversity`
+   * assigns each slot its own opening, closing, structure, hashtag angle and
+   * image concept, which is what stops a ten-post batch from becoming ten
+   * statements of one idea.
+   */
+  const niche = resolveNiche(profile);
+  const strategy = strategyForNiche(niche);
+  const diversity = planBatch({
+    slots: slots.slice(0, count),
+    dayTypeAt: (isoWeekday) => dayTypeFor(strategy, isoWeekday),
+    services,
+  });
   const location = [profile?.city, profile?.region].filter(Boolean).join(', ') || null;
 
   // Per-format occurrence (for angle + layout alternation) and per-day index.
@@ -519,11 +540,18 @@ export function buildBriefSet({ slots = [], preferences = {}, profile = null, pl
     const occurrence = seenFormat.get(format) || 0;
     seenFormat.set(format, occurrence + 1);
 
-    const service = pick(services, i, null);
+    const assignment = diversity[i] || {};
+    const service = assignment.service ?? pick(services, i, null);
     const goal = pick(activeGoals, i, 'awareness');
     const angleList = ANGLES[format] || ANGLES.educational_insight;
     const angle = pick(angleList, occurrence, angleList[0]);
-    const audienceProblem = pick(AUDIENCE_PROBLEMS, i, AUDIENCE_PROBLEMS[0]);
+    /*
+     * Derived from THIS business's services rather than drawn from a fixed list
+     * of eight generic worries. The old list meant every business in every
+     * niche worried about the same things, and a batch longer than eight posts
+     * cycled back to the first one.
+     */
+    const audienceProblem = assignment.audienceProblem || pick(AUDIENCE_PROBLEMS, i, AUDIENCE_PROBLEMS[0]);
     const cta = ctaFromRhythm(config?.ctaMode || 'automatic', runCtaMode, i);
     const resolvedTone = toneForPosition(tone, i);
     const templateKey = layoutForFormat(format, occurrence, previousTemplate);
@@ -555,8 +583,34 @@ export function buildBriefSet({ slots = [], preferences = {}, profile = null, pl
       callToAction: cta.include ? profile?.defaultCallToAction || null : null,
       templateKey,
       platforms: [...platforms],
+      /*
+       * The Make-derived assignment travels WITH the brief.
+       *
+       * The writer needs it (how to open, how to close, which hashtag angle)
+       * and so does the image step (which card concept, which headline
+       * treatment), and a retry needs to know what this slot was supposed to be
+       * so it can produce a different post in the same role rather than a
+       * paraphrase of the one that failed.
+       */
+      niche,
+      dayType: assignment.dayTypeKey || null,
+      dayTypeLabel: assignment.dayTypeLabel || null,
+      dayPurpose: assignment.purpose || null,
+      imageConcept: assignment.imageConcept || null,
+      openingStyle: assignment.openingStyle || null,
+      openingGuidance: assignment.openingGuidance || null,
+      closingStyle: assignment.closingStyle || null,
+      closingGuidance: assignment.closingGuidance || null,
+      writingFormat: assignment.writingFormat || null,
+      writingGuidance: assignment.writingGuidance || null,
+      hashtagFamily: assignment.hashtagFamily || null,
+      hashtagGuidance: assignment.hashtagGuidance || null,
+      headlineStyle: assignment.headlineStyle || null,
+      headlineGuidance: assignment.headlineGuidance || null,
       // The instruction text handed to the writer as DATA, never as commands.
-      brief: composeBriefText({ pillar, format, angle, service, goal, audienceProblem, profile }),
+      brief: composeBriefText({
+        pillar, format, angle, service, goal, audienceProblem, profile, assignment,
+      }),
     });
   }
   return briefs;
@@ -569,7 +623,7 @@ export function buildBriefSet({ slots = [], preferences = {}, profile = null, pl
  * price, guarantee, statistic, or credential — the writer is explicitly told to
  * work from this data alone.
  */
-export function composeBriefText({ pillar, format, contentType, angle, service, goal, audienceProblem, profile }) {
+export function composeBriefText({ pillar, format, contentType, angle, service, goal, audienceProblem, profile, assignment = null }) {
   const shape = format || contentType || 'educational_insight';
   const parts = [];
   if (pillar && CONTENT_PILLAR_PURPOSE[pillar]) {
