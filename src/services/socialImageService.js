@@ -22,6 +22,8 @@ import {
   ERROR_CODES,
 } from '../config/constants.js';
 import { AppError } from '../utils/errors.js';
+import { PROVIDER_NAMES } from '../config/constants.js';
+import { normalizeProviderError } from '../utils/providerErrors.js';
 import { buildTemplate, normalizeTemplate, safeImageUrl } from '../templates/socialImageTemplates.js';
 
 import * as defaultIntegrationRepo from '../repositories/integrationRepository.js';
@@ -189,14 +191,27 @@ export function createSocialImageService({
       hctiUserId = undefined;
       hctiApiKey = undefined;
       await meter(input.userId, ctx.postId, template, aspectRatio, false).catch(() => {});
-      // hctiService errors are already safe/credential-free; surface a generic one.
-      throw new SocialImageError(IMAGE_ERROR_CODES.IMAGE_GENERATION_FAILED, 502);
+      const normalized = normalizeProviderError(err, { provider: PROVIDER_NAMES.HCTI, operation: 'render_social_image' });
+      await recordHealth(input.userId, { success: false, category: normalized.category }).catch(() => {});
+      /*
+       * PRESERVE the specific failure category instead of collapsing every HCTI
+       * error into a single generic "image_generation_failed". A 402 (credits),
+       * a 401 (bad credentials), a 429 (rate limit) and a timeout are different
+       * problems with different fixes, and the operator must see which one it was
+       * — that is the whole point of surfacing the error. hctiService already
+       * threw a normalized, credential-free ProviderError; normalizeProviderError
+       * is idempotent, so this just tags the operation and returns it.
+       */
+      throw normalized;
     } finally {
       hctiUserId = undefined;
       hctiApiKey = undefined;
     }
 
     await meter(input.userId, ctx.postId, template, aspectRatio, true).catch(() => {});
+    // Record a SAFE health signal so the Integrations panel can show "last
+    // successful render". Best-effort; a health write must never fail a render.
+    await recordHealth(input.userId, { success: true, category: null }).catch(() => {});
 
     return {
       imageId: rendered.imageId,
@@ -208,6 +223,17 @@ export function createSocialImageService({
       aspectRatio,
       backgroundStyle,
     };
+  }
+
+  /**
+   * Record a SAFE provider health signal (success flag + normalized category +
+   * timestamp). Never stores a credential or a provider body. Best-effort and
+   * tolerant of a repository that predates the health functions.
+   */
+  async function recordHealth(userId, { success, category }) {
+    if (typeof integrationRepository.recordHctiHealth !== 'function') return;
+    const at = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    await integrationRepository.recordHctiHealth(userId, { success, category: category ?? null, at });
   }
 
   async function meter(userId, postId, template, aspectRatio, success) {

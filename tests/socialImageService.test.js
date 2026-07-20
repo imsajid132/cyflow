@@ -4,6 +4,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createSocialImageService } from '../src/services/socialImageService.js';
+import { ProviderError } from '../src/utils/providerErrors.js';
+import { PROVIDER_ERROR_CATEGORY as CAT, PROVIDER_NAMES } from '../src/config/constants.js';
 import { createFakeIntegrationRepository, createFakeApiUsageRepository } from './helpers/fakes.js';
 
 // A fake HCTI service that captures the html/css it is asked to render.
@@ -109,14 +111,40 @@ test('arbitrary background style is ignored (safe preset only)', async () => {
   assert.equal(call.css.includes('evil'), false);
 });
 
-test('HCTI failure is classified safely with no credential leakage', async () => {
-  const hcti = fakeHcti({ error: new Error('HCTI 401 body with secret') });
+test('an HCTI render failure PRESERVES the specific category, safely', async () => {
+  // A 402 (out of credits) must not be flattened to a generic failure: the
+  // operator has to see that it was a credits problem, not a bad key.
+  const hctiErr = new ProviderError({
+    provider: PROVIDER_NAMES.HCTI,
+    operation: 'render_social_image',
+    category: CAT.CREDITS_EXHAUSTED,
+    httpStatus: 402,
+    cause: new Error('HCTI 402 body with secret HCTI_KEY'),
+  });
+  const hcti = fakeHcti({ error: hctiErr });
   const b = build({ hcti });
   await seedHcti(b.integration);
   await assert.rejects(
     () => b.svc.generateSocialImage({ userId: '5', headline: 'Hi' }),
     (e) => {
-      assert.equal(e.classification, 'image_generation_failed');
+      assert.equal(e.category, CAT.CREDITS_EXHAUSTED, 'category preserved, not collapsed');
+      assert.equal(e.classification, CAT.CREDITS_EXHAUSTED);
+      assert.match(e.userMessage, /credits may be exhausted/i);
+      assert.equal(e.message.includes('secret'), false);
+      assert.equal(e.message.includes('HCTI_KEY'), false);
+      return true;
+    },
+  );
+});
+
+test('an unclassified HCTI error normalizes to a safe unknown category', async () => {
+  const hcti = fakeHcti({ error: new Error('mystery body with secret HCTI_KEY') });
+  const b = build({ hcti });
+  await seedHcti(b.integration);
+  await assert.rejects(
+    () => b.svc.generateSocialImage({ userId: '5', headline: 'Hi' }),
+    (e) => {
+      assert.equal(e.category, CAT.UNKNOWN_PROVIDER_ERROR);
       assert.equal(e.message.includes('secret'), false);
       assert.equal(e.message.includes('HCTI_KEY'), false);
       return true;

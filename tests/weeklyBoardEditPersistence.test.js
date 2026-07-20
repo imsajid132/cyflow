@@ -365,8 +365,8 @@ test('update and revision are written in one transaction', () => {
 
 test('no migration was added or modified', () => {
   const files = readdirSync(path.join(ROOT, 'database', 'migrations')).filter((f) => f.endsWith('.sql'));
-  assert.equal(files.some((f) => f.startsWith('018')), false, 'no migration 018 may be introduced');
-  assert.ok(files.includes('017_user_data_export_and_deletion.sql'), '017 must still be the last migration');
+  assert.equal(files.some((f) => f.startsWith('019')), false, 'this edit-persistence change adds no migration (018 is a separate feature)');
+  assert.ok(files.includes('018_provider_error_visibility.sql'), '018 is the current migration head');
 });
 
 test('a manual plan uses its own stored selection, not every active account', async () => {

@@ -45,6 +45,8 @@ import {
   SOCIAL_ACCOUNT_STATUS,
   POST_STATUS,
   EVENT_TYPES,
+  PROVIDER_NAMES,
+  IMAGE_RENDER_STATUS,
   USAGE_OPERATIONS,
   IMAGE_TEMPLATE_VALUES,
 } from '../config/constants.js';
@@ -161,6 +163,8 @@ import {
   isCompleteWithinTolerance,
 } from './contentStyleGuard.js';
 import { normalizePlatformCopy, applyPlatformEdit } from './platformCopy.js';
+import { normalizeProviderError, shortCategoryLabel } from '../utils/providerErrors.js';
+import { logProviderFailure } from '../utils/providerLog.js';
 
 import * as defaultPlannerPrefs from '../repositories/plannerPreferenceRepository.js';
 import * as defaultPlannerRuns from '../repositories/plannerRunRepository.js';
@@ -987,9 +991,16 @@ export function createPlannerService({
           },
           { userId },
         );
-      } catch {
+      } catch (err) {
         // One post failing must not lose the plan; try again, then give up on
-        // this slot only.
+        // this slot only — but the failure is RECORDED, not silent, so a run
+        // that produced fewer posts than expected is explainable.
+        logProviderFailure(
+          normalizeProviderError(err, {
+            provider: PROVIDER_NAMES.OPENAI, operation: 'generate_planner_post', attemptNumber: attempt + 1,
+          }),
+          { jobType: 'planner_generate' },
+        );
         // eslint-disable-next-line no-continue
         continue;
       }
@@ -1123,29 +1134,18 @@ export function createPlannerService({
     for (const note of platformNotes) notes.push(note);
     const duplicationNotes = notes.length ? notes.join(' ').slice(0, 500) : null;
 
-    let mediaAssetId = null;
-    let imageError = null;
-    if (wantImages && content.headline) {
-      /*
-       * The render is RETRIED, and its failure is not swallowed silently.
-       *
-       * Staging showed two cards with no image while the posts still read as
-       * reviewable, because a single render exception was caught and turned into
-       * null. A transient renderer error now gets a second attempt, and a
-       * failure that survives both is recorded as an explicit, actionable note
-       * on the item rather than a silent blank — the board can then show "image
-       * generation failed, retry" instead of an unexplained "No image".
-       */
-      for (let imgAttempt = 0; imgAttempt < 2 && mediaAssetId == null; imgAttempt += 1) {
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          mediaAssetId = await renderItemImage({ userId, profile, brief, content });
-          imageError = null;
-        } catch (err) {
-          imageError = err?.code || 'image_generation_failed';
-        }
-      }
-    }
+    /*
+     * Render the image and capture a NORMALIZED, safe image state — never a
+     * silent null. A transient error is retried once; a failure that survives
+     * is recorded with its SPECIFIC category (credits, auth, rate limit,
+     * timeout, media storage) so the board can show "Image failed / HCTI ·
+     * Credits exhausted" and a Retry image action instead of a bare "No image".
+     */
+    const imageOutcome = await renderItemImageWithStatus({
+      userId, profile, brief, content, wantImages,
+      logContext: { plannerRunId: run.id, automationId: run.contentAutomationId ?? null },
+    });
+    const mediaAssetId = imageOutcome.mediaAssetId;
 
     const item = await runsRepo.createItem({
       plannerRunId: run.id,
@@ -1183,6 +1183,8 @@ export function createPlannerService({
       altText: content.imageAltText,
       brief: brief.brief,
       mediaAssetId,
+      // The queryable, safe image render state (migration 018).
+      ...imageOutcome.image,
       /*
        * A hard failure gets its own status, never "needs review": it cannot be
        * approved, only retried, edited or deleted. Auto-queue still holds merely
@@ -1200,10 +1202,13 @@ export function createPlannerService({
       fingerprint: {
         ...fingerprint,
         visualExtras: extrasFor(content, brief),
-        // An explicit, actionable image state, so a failed render is never a
-        // silent "No image": null when an image rendered, the failure code when
-        // both attempts failed, and 'skipped' when images were off for the run.
-        imageStatus: !wantImages ? 'skipped' : (mediaAssetId != null ? null : (imageError || 'image_generation_failed')),
+        // Legacy mirror kept for any reader of an old fingerprint; the queryable
+        // image_* columns (above) are now the source of truth for the board.
+        imageStatus: imageOutcome.image.imageStatus === IMAGE_RENDER_STATUS.READY
+          ? null
+          : (imageOutcome.image.imageStatus === IMAGE_RENDER_STATUS.NOT_REQUESTED
+            ? 'skipped'
+            : (imageOutcome.image.imageErrorCategory || 'image_generation_failed')),
         /*
          * The assignment travels ONTO the item, not just into the request.
          *
@@ -1307,10 +1312,15 @@ export function createPlannerService({
           { ...request, platform, siblingCopy, styleIssues, repairNotes, targetBand },
           { userId },
         );
-      } catch {
+      } catch (err) {
         // A call that threw told us nothing, so it cannot inform the next
         // attempt. It still counts against the budget: an unavailable model
-        // must not become an unbounded loop.
+        // must not become an unbounded loop. Record it safely so it is not a
+        // silent swallow.
+        logProviderFailure(
+          normalizeProviderError(err, { provider: PROVIDER_NAMES.OPENAI, operation: 'generate_planner_post_repair' }),
+          { jobType: 'planner_generate' },
+        );
         // eslint-disable-next-line no-continue
         continue;
       }
@@ -1618,6 +1628,93 @@ export function createPlannerService({
     }
   }
 
+  /** The default, "no image asked for" column set. */
+  function baseImageFields() {
+    return {
+      imageStatus: IMAGE_RENDER_STATUS.NOT_REQUESTED,
+      imageProvider: null,
+      imageErrorCategory: null,
+      imageErrorCode: null,
+      imageErrorMessage: null,
+      imageHttpStatus: null,
+      imageRetryable: null,
+      imageAttemptCount: 0,
+      imageLastAttemptAt: null,
+    };
+  }
+
+  /**
+   * Render an item's image and return a NORMALIZED, SAFE, persisted image state.
+   *
+   * Never throws — an image failure is data on the item, not a crash of the
+   * whole generation. A transient error is retried once; a failure that survives
+   * both attempts is normalized to its SPECIFIC category (credits, auth, rate
+   * limit, timeout, media storage) and returned as the queryable image_* column
+   * set, plus logged safely (stdout structured line + a redacted activity_logs
+   * event). The board reads these columns to show "Image failed / HCTI ·
+   * Credits exhausted" and a Retry image action.
+   *
+   * @returns {Promise<{ mediaAssetId: (string|null), image: object }>}
+   */
+  async function renderItemImageWithStatus({
+    userId, profile, brief, content, wantImages, overrides = {}, logContext = {},
+  }) {
+    if (!wantImages || !content?.headline) {
+      return { mediaAssetId: null, image: baseImageFields() };
+    }
+    const MAX_ATTEMPTS = 2;
+    let lastErr = null;
+    let attempt = 0;
+    for (; attempt < MAX_ATTEMPTS; attempt += 1) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const mediaAssetId = await renderItemImage({ userId, profile, brief, content, overrides });
+        return {
+          mediaAssetId,
+          image: {
+            ...baseImageFields(),
+            imageStatus: IMAGE_RENDER_STATUS.READY,
+            imageProvider: PROVIDER_NAMES.HCTI,
+            imageAttemptCount: attempt + 1,
+            imageLastAttemptAt: toMysqlUtc(now()),
+          },
+        };
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    // Both attempts failed: normalize to a specific, credential-free category.
+    const pe = normalizeProviderError(lastErr, {
+      provider: PROVIDER_NAMES.HCTI,
+      operation: 'render_social_image',
+      attemptNumber: attempt,
+      maximumAttempts: MAX_ATTEMPTS,
+      occurredAt: toMysqlUtc(now()),
+    });
+    logProviderFailure(pe, { jobType: 'planner_image_render', ...logContext });
+    await logging.record(EVENT_TYPES.PLANNER_IMAGE_RENDER_FAILED, {
+      userId,
+      level: 'warn',
+      message: 'Planner image render failed',
+      context: { ...pe.toSafeJSON(), ...logContext },
+    }).catch(() => {});
+    return {
+      mediaAssetId: null,
+      image: {
+        ...baseImageFields(),
+        imageStatus: IMAGE_RENDER_STATUS.FAILED,
+        imageProvider: PROVIDER_NAMES.HCTI,
+        imageErrorCategory: pe.category,
+        imageErrorCode: pe.errorCode,
+        imageErrorMessage: pe.userMessage,
+        imageHttpStatus: pe.httpStatus,
+        imageRetryable: pe.retryable,
+        imageAttemptCount: attempt,
+        imageLastAttemptAt: toMysqlUtc(now()),
+      },
+    };
+  }
+
   async function renderItemImage({ userId, profile, brief, content, overrides = {} }) {
     const rendered = await socialImageService.generateSocialImage({
       userId,
@@ -1903,11 +2000,51 @@ export function createPlannerService({
      * from item.caption — the gap C2 closes. Selected platforms only; validation
      * and measurements included so the tabs need no second round-trip.
      */
-    // The image state travels to the board so a failed render shows an explicit,
-    // actionable status instead of a silent "No image".
-    const imageStatus = item.mediaAssetId ? null : (fingerprint?.imageStatus ?? null);
+    // A rich, safe image state so the board shows WHY an image is missing
+    // (credits, auth, rate limit, media storage) instead of a bare "No image".
+    const image = buildImageState(item, media, fingerprint);
     return {
-      ...rest, media, imageStatus, platformCopy: normalizePlatformCopy(item),
+      ...rest,
+      media,
+      // Back-compat scalar for older readers; `image` is the full state.
+      imageStatus: image.status === IMAGE_RENDER_STATUS.READY ? null : image.status,
+      image,
+      platformCopy: normalizePlatformCopy(item),
+    };
+  }
+
+  /**
+   * The safe, board-facing image state derived from the queryable image_*
+   * columns. A present media asset is READY regardless of any stale failure row;
+   * a pre-migration item (columns still at their defaults) falls back to the old
+   * fingerprint hint so historical failures are not silently relabelled "ok".
+   */
+  function buildImageState(item, media, fingerprint) {
+    if (media) {
+      return { status: IMAGE_RENDER_STATUS.READY, provider: item.imageProvider ?? null, error: null };
+    }
+    let status = item.imageStatus ?? IMAGE_RENDER_STATUS.NOT_REQUESTED;
+    const legacy = fingerprint?.imageStatus;
+    if (status === IMAGE_RENDER_STATUS.NOT_REQUESTED && legacy && legacy !== 'skipped') {
+      status = IMAGE_RENDER_STATUS.FAILED;
+    }
+    if (status !== IMAGE_RENDER_STATUS.FAILED) {
+      return { status, provider: item.imageProvider ?? null, error: null };
+    }
+    const category = item.imageErrorCategory ?? (legacy && legacy !== 'skipped' ? legacy : null);
+    return {
+      status: IMAGE_RENDER_STATUS.FAILED,
+      provider: item.imageProvider ?? PROVIDER_NAMES.HCTI,
+      error: {
+        category,
+        code: item.imageErrorCode ?? category,
+        message: item.imageErrorMessage ?? 'The image could not be generated.',
+        httpStatus: item.imageHttpStatus ?? null,
+        retryable: item.imageRetryable ?? null,
+        shortLabel: category ? shortCategoryLabel(category) : 'Error',
+        attemptCount: item.imageAttemptCount ?? 0,
+        lastAttemptAt: item.imageLastAttemptAt ?? null,
+      },
     };
   }
 
@@ -2773,9 +2910,17 @@ export function createPlannerService({
       await assertUnderDailyLimit(userId, 1);
 
       const extras = item.fingerprint?.visualExtras ?? {};
-      const mediaAssetId = await renderItemImage({
+      /*
+       * Retry ONLY the image. The caption, per-platform copy and approval status
+       * are never touched here, so a "Retry image" cannot discard a rewrite. The
+       * outcome (ready OR the specific failure) is PERSISTED to the image_*
+       * columns and returned, so a retry that fails again shows the reason on
+       * the card rather than throwing an opaque API error.
+       */
+      const outcome = await renderItemImageWithStatus({
         userId,
         profile,
+        wantImages: true,
         brief: {
           templateKey: item.templateKey,
           callToAction: profile?.defaultCallToAction ?? null,
@@ -2799,11 +2944,20 @@ export function createPlannerService({
           badge: extras.badge ?? null,
           locationLabel: extras.locationLabel ?? null,
         },
+        logContext: { plannerRunId: item.plannerRunId, plannerItemId: itemId, retry: true },
       });
 
-      const updated = await runsRepo.updateItem(itemId, userId, { mediaAssetId });
-      await logging.record(EVENT_TYPES.PLANNER_ITEM_REGENERATED, {
-        req, userId, message: 'Planned image regenerated', context: { itemId },
+      // Clear a prior failure on success; record the new failure on repeat.
+      const updated = await runsRepo.updateItem(itemId, userId, {
+        ...(outcome.mediaAssetId != null ? { mediaAssetId: outcome.mediaAssetId } : {}),
+        ...outcome.image,
+      });
+      await logging.record(EVENT_TYPES.PLANNER_IMAGE_RETRIED, {
+        req,
+        userId,
+        level: outcome.mediaAssetId != null ? 'info' : 'warn',
+        message: outcome.mediaAssetId != null ? 'Planned image re-rendered' : 'Planned image retry failed',
+        context: { itemId, imageStatus: outcome.image.imageStatus, category: outcome.image.imageErrorCategory ?? null },
       });
       return decorateItem(userId, updated);
     }

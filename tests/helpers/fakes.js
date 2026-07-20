@@ -115,7 +115,36 @@ export function createFakeIntegrationRepository() {
         encryptionVersion: r.encryptionVersion,
         verifiedAt: r.verifiedAt,
         configured: r.encryptedUserId != null && r.encryptedApiKey != null,
+        health: {
+          connectionLabel: r.hctiLabel ?? null,
+          lastSuccessAt: r.hctiLastSuccessAt ?? null,
+          lastFailureAt: r.hctiLastFailureAt ?? null,
+          lastErrorCategory: r.hctiLastErrorCategory ?? null,
+          lastCheckedAt: r.hctiLastCheckedAt ?? null,
+        },
       };
+    },
+    async recordHctiHealth(userId, { success, category = null, at }) {
+      const r = map.get(String(userId));
+      if (!r) return;
+      r.hctiLastCheckedAt = at;
+      if (success) r.hctiLastSuccessAt = at;
+      else { r.hctiLastFailureAt = at; r.hctiLastErrorCategory = category; }
+    },
+    async setHctiLabel(userId, label) {
+      const r = map.get(String(userId));
+      if (r) r.hctiLabel = label;
+    },
+    async recordOpenAiHealth(userId, { success, category = null, at }) {
+      const r = map.get(String(userId));
+      if (!r) return;
+      r.openaiLastCheckedAt = at;
+      if (success) r.openaiLastSuccessAt = at;
+      else { r.openaiLastFailureAt = at; r.openaiLastErrorCategory = category; }
+    },
+    async setOpenAiLabel(userId, label) {
+      const r = map.get(String(userId));
+      if (r) r.openaiLabel = label;
     },
     async hasConfiguredHctiCredentials(userId) {
       const r = map.get(String(userId));
@@ -160,6 +189,13 @@ export function createFakeIntegrationRepository() {
         model: r.openaiModel ?? null,
         verifiedAt: r.openaiVerifiedAt ?? null,
         configured: r.openaiEncryptedApiKey != null,
+        health: {
+          connectionLabel: r.openaiLabel ?? null,
+          lastSuccessAt: r.openaiLastSuccessAt ?? null,
+          lastFailureAt: r.openaiLastFailureAt ?? null,
+          lastErrorCategory: r.openaiLastErrorCategory ?? null,
+          lastCheckedAt: r.openaiLastCheckedAt ?? null,
+        },
       };
     },
     async hasConfiguredOpenAiCredentials(userId) {
@@ -1424,6 +1460,16 @@ export function createFakePlannerRunRepository() {
         altText: input.altText ?? null,
         brief: input.brief ?? null,
         mediaAssetId: input.mediaAssetId ?? null,
+        // Image render lifecycle + normalized failure (migration 018).
+        imageStatus: input.imageStatus ?? 'not_requested',
+        imageProvider: input.imageProvider ?? null,
+        imageErrorCategory: input.imageErrorCategory ?? null,
+        imageErrorCode: input.imageErrorCode ?? null,
+        imageErrorMessage: input.imageErrorMessage ?? null,
+        imageHttpStatus: input.imageHttpStatus ?? null,
+        imageRetryable: input.imageRetryable ?? null,
+        imageAttemptCount: input.imageAttemptCount ?? 0,
+        imageLastAttemptAt: input.imageLastAttemptAt ?? null,
         approvalStatus: input.approvalStatus ?? 'needs_review',
         duplicationScore: Number(input.duplicationScore ?? 0),
         duplicationNotes: input.duplicationNotes ?? null,

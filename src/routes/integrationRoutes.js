@@ -64,6 +64,9 @@ export function createIntegrationRoutes({ integrationController, requireAuth }) 
     integrationController.deleteHctiCredentials,
   );
 
+  // A connection label is a name, not a credential — CSRF-protected, no limiter.
+  router.put('/hcti/label', requireAuth, csrfProtection, integrationController.setHctiLabel);
+
   // --- OpenAI ---------------------------------------------------------------
 
   router.get('/openai', requireAuth, integrationController.getOpenAiStatus);
@@ -92,6 +95,8 @@ export function createIntegrationRoutes({ integrationController, requireAuth }) 
     validate(deleteOpenAiValidator),
     integrationController.deleteOpenAiCredentials,
   );
+
+  router.put('/openai/label', requireAuth, csrfProtection, integrationController.setOpenAiLabel);
 
   return router;
 }

@@ -186,6 +186,13 @@ export const EVENT_TYPES = Object.freeze({
   POST_DELETED: 'post.deleted',
   MEDIA_ASSET_CREATED: 'media.asset_created',
   MEDIA_ASSET_FAILED: 'media.asset_failed',
+  // Normalized provider + image-render observability. One event shape for any
+  // provider failure, plus the planner image lifecycle the board reads.
+  PROVIDER_OPERATION_FAILED: 'provider.operation_failed',
+  PROVIDER_HEALTH_CHECKED: 'provider.health_checked',
+  PLANNER_IMAGE_RENDER_FAILED: 'planner.image_render_failed',
+  PLANNER_IMAGE_RENDER_RECOVERED: 'planner.image_render_recovered',
+  PLANNER_IMAGE_RETRIED: 'planner.image_retried',
   // Phase 4.5: business onboarding + website brand extraction
   BUSINESS_PROFILE_UPDATED: 'business.profile_updated',
   BUSINESS_PROFILE_DELETED: 'business.profile_deleted',
@@ -218,6 +225,9 @@ export const EVENT_TYPES = Object.freeze({
   AUTOMATION_STOPPED: 'automation.stopped',
   AUTOMATION_REFILL_STARTED: 'automation.refill_started',
   AUTOMATION_REFILL_COMPLETED: 'automation.refill_completed',
+  // A refill that prepared fewer posts than the horizon expected, with the safe
+  // reason breakdown the operator needs to understand "only 2 of 7".
+  AUTOMATION_REFILL_SHORTFALL: 'automation.refill_shortfall',
   AUTOMATION_SLOT_PREPARED: 'automation.slot_prepared',
   AUTOMATION_SLOT_FAILED: 'automation.slot_failed',
   AUTOMATION_SLOT_SKIPPED: 'automation.slot_skipped',
@@ -1553,3 +1563,83 @@ export const TRANSIENT_PUBLISH_CATEGORIES = Object.freeze([
   PUBLISH_ERROR_CATEGORY.PROVIDER_TRANSIENT,
   PUBLISH_ERROR_CATEGORY.TIMEOUT_UNKNOWN,
 ]);
+
+// =============================================================================
+// Normalized provider + background-job error model (cross-provider)
+//
+// One vocabulary for EVERY external provider (OpenAI, HCTI, Facebook, Instagram,
+// Threads) and the background systems around them, so a failure reads the same
+// wherever it came from and can be shown to the operator as a safe, actionable
+// message. This is the canonical set; the older PUBLISH_ERROR_CATEGORY above is
+// kept for the publishing subsystem and maps into this (providerCategoryOf).
+// =============================================================================
+
+/** The systems a normalized error can be attributed to. Safe identifiers only. */
+export const PROVIDER_NAMES = Object.freeze({
+  OPENAI: 'openai',
+  HCTI: 'hcti',
+  FACEBOOK: 'facebook',
+  INSTAGRAM: 'instagram',
+  THREADS: 'threads',
+  MEDIA: 'media',
+  DATABASE: 'database',
+  SCHEDULER: 'scheduler',
+  WORKER: 'worker',
+});
+export const PROVIDER_NAME_VALUES = Object.freeze(Object.values(PROVIDER_NAMES));
+
+/**
+ * The one safe error category set. Never carries a provider body, an API key,
+ * an access token or private post content — only which KIND of failure it was.
+ */
+export const PROVIDER_ERROR_CATEGORY = Object.freeze({
+  CREDENTIALS_MISSING: 'credentials_missing',
+  AUTHENTICATION_FAILED: 'authentication_failed',
+  PERMISSION_DENIED: 'permission_denied',
+  PAYMENT_REQUIRED: 'payment_required',
+  CREDITS_EXHAUSTED: 'credits_exhausted',
+  QUOTA_EXCEEDED: 'quota_exceeded',
+  RATE_LIMITED: 'rate_limited',
+  REQUEST_INVALID: 'request_invalid',
+  PROVIDER_UNAVAILABLE: 'provider_unavailable',
+  NETWORK_TIMEOUT: 'network_timeout',
+  NETWORK_FAILURE: 'network_failure',
+  RESPONSE_INVALID: 'response_invalid',
+  RENDER_FAILED: 'render_failed',
+  MEDIA_PERSISTENCE_FAILED: 'media_persistence_failed',
+  INTERNAL_FAILURE: 'internal_failure',
+  UNKNOWN_PROVIDER_ERROR: 'unknown_provider_error',
+});
+export const PROVIDER_ERROR_CATEGORY_VALUES = Object.freeze(Object.values(PROVIDER_ERROR_CATEGORY));
+
+/**
+ * Categories worth another automatic attempt (transient). Everything NOT listed
+ * is a standing condition — a missing/rejected key, no credits, a bad request —
+ * that a retry cannot fix and that must be surfaced to the operator instead of
+ * being retried into the ground.
+ */
+export const RETRYABLE_PROVIDER_CATEGORIES = Object.freeze([
+  PROVIDER_ERROR_CATEGORY.RATE_LIMITED,
+  PROVIDER_ERROR_CATEGORY.PROVIDER_UNAVAILABLE,
+  PROVIDER_ERROR_CATEGORY.NETWORK_TIMEOUT,
+  PROVIDER_ERROR_CATEGORY.NETWORK_FAILURE,
+  PROVIDER_ERROR_CATEGORY.RENDER_FAILED,
+  PROVIDER_ERROR_CATEGORY.MEDIA_PERSISTENCE_FAILED,
+  PROVIDER_ERROR_CATEGORY.UNKNOWN_PROVIDER_ERROR,
+]);
+
+/**
+ * A planner item's image lifecycle, persisted as its own column so the board can
+ * tell a never-requested image from a queued one, a queued one from a failed
+ * render, and a failed render from a ready image. Replaces the old "present
+ * mediaAssetId or the word No image" guess.
+ */
+export const IMAGE_RENDER_STATUS = Object.freeze({
+  NOT_REQUESTED: 'not_requested',
+  QUEUED: 'queued',
+  RENDERING: 'rendering',
+  RETRYING: 'retrying',
+  READY: 'ready',
+  FAILED: 'failed',
+});
+export const IMAGE_RENDER_STATUS_VALUES = Object.freeze(Object.values(IMAGE_RENDER_STATUS));

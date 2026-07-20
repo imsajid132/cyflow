@@ -26,6 +26,8 @@ import { createAutomationService } from '../../src/services/automationService.js
 import { createDurableJobService } from '../../src/services/durableJobService.js';     // eslint-disable-line import/first
 import { postCopyIssues, isCompleteWithinTolerance } from '../../src/services/contentStyleGuard.js'; // eslint-disable-line import/first
 import { fingerprint } from '../../src/services/contentUniquenessService.js';         // eslint-disable-line import/first
+import { ProviderError } from '../../src/utils/providerErrors.js';                     // eslint-disable-line import/first
+import { PROVIDER_ERROR_CATEGORY as CAT, PROVIDER_NAMES } from '../../src/config/constants.js'; // eslint-disable-line import/first
 
 let pool;
 
@@ -323,25 +325,43 @@ test('every post gets a rendered image, even when a render fails once', SKIP, as
   assert.equal(items.length, 7, 'seven items');
   const withImage = items.filter((i) => i.mediaAssetId != null);
   assert.equal(withImage.length, 7, `all seven have an image, got ${withImage.length}`);
-  // None is left with a silent no-image: imageStatus is null (rendered) on all.
+  // Every item persists image_status = 'ready' (the queryable column), never a
+  // silent blank.
   for (const it of items) {
-    const status = it.mediaAssetId ? null : (it.fingerprint?.imageStatus ?? null);
-    assert.equal(status, null, `item has no image and status ${status}`);
+    assert.equal(it.imageStatus, 'ready', `item image_status should be ready, got ${it.imageStatus}`);
+    assert.equal(it.imageErrorCategory, null, 'a ready image carries no error category');
   }
 });
 
-test('a render that never succeeds surfaces an explicit status, not a silent blank', SKIP, async () => {
-  // A render that fails BOTH attempts must record an actionable status so the
-  // board can show "image generation failed" rather than an unexplained blank.
+test('a render that never succeeds persists the SPECIFIC safe reason, not a silent blank', SKIP, async () => {
+  // A render that fails BOTH attempts must record an ACTIONABLE, specific status
+  // — here an HCTI 402 (out of credits) — so the board shows "Image failed /
+  // HCTI · Credits exhausted", never an unexplained "No image".
   const alwaysFail = {
     isReadyForUser: async () => true,
-    async generateSocialImage() { const e = new Error('down'); e.code = 'image_generation_failed'; throw e; },
+    async generateSocialImage() {
+      throw new ProviderError({
+        provider: PROVIDER_NAMES.HCTI,
+        operation: 'render_social_image',
+        category: CAT.CREDITS_EXHAUSTED,
+        httpStatus: 402,
+        cause: new Error('HCTI 402 body containing a secret HCTI_KEY'),
+      });
+    },
   };
   const { items } = await runAutomation({ openai: echoOpenAI({ fbWords: 150 }), imageService: alwaysFail });
   const noImage = items.filter((i) => i.mediaAssetId == null);
   assert.ok(noImage.length > 0, 'some items could not render');
   for (const it of noImage) {
-    assert.equal(it.fingerprint?.imageStatus, 'image_generation_failed', 'the failure is explicit, not silent');
+    // The queryable columns carry the specific, safe failure — never generic.
+    assert.equal(it.imageStatus, 'failed', 'image_status is failed');
+    assert.equal(it.imageProvider, 'hcti');
+    assert.equal(it.imageErrorCategory, CAT.CREDITS_EXHAUSTED, 'the specific category is preserved');
+    assert.equal(it.imageRetryable, false, 'credits is not auto-retryable');
+    assert.equal(it.imageHttpStatus, 402);
+    assert.ok(it.imageErrorMessage && it.imageErrorMessage.length > 0, 'a safe message is stored');
+    assert.equal(it.imageErrorMessage.includes('HCTI_KEY'), false, 'no secret leaks into the stored message');
+    assert.match(it.imageErrorMessage, /credits/i);
   }
 });
 

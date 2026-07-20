@@ -20,7 +20,9 @@
     "staging:init-storage": "node tools/staging-init-storage.mjs",
     "migrate:status": "node tools/migration-status.mjs",
     "migrate:check": "node tools/migration-check.mjs",
-    "test:integration": "node --import ./tests/integration/helpers/preload.js --test --test-concurrency=1 tests/integration/*.test.js"
+    "test:integration": "node --import ./tests/integration/helpers/preload.js --test --test-concurrency=1 tests/integration/*.test.js",
+    "project:status": "node tools/project-status.mjs",
+    "project:handoff": "node tools/project-handoff.mjs"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

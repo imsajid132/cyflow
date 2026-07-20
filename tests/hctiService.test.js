@@ -40,12 +40,21 @@ test('hcti: testCredentials succeeds and passes dynamic Basic auth', async () =>
   assert.equal(decoded, `${CREDS.hctiUserId}:${CREDS.hctiApiKey}`);
 });
 
-test('hcti: 401 classified as invalid_credentials (safe message)', async () => {
+test('hcti: 401 classified as authentication_failed (safe message)', async () => {
   const svc = createHctiService({ fetchImpl: fakeFetch({ status: 401 }) });
   const result = await svc.testCredentials(CREDS);
   assert.equal(result.success, false);
-  assert.equal(result.classification, 'invalid_credentials');
+  assert.equal(result.classification, 'authentication_failed');
   assert.equal(result.message.includes(CREDS.hctiApiKey), false);
+});
+
+test('hcti: 402 classified as credits_exhausted (the "No image" cause)', async () => {
+  const svc = createHctiService({ fetchImpl: fakeFetch({ status: 402 }) });
+  const result = await svc.testCredentials(CREDS);
+  assert.equal(result.success, false);
+  assert.equal(result.classification, 'credits_exhausted');
+  assert.equal(result.httpStatus, 402);
+  assert.match(result.message, /credits may be exhausted/i);
 });
 
 test('hcti: 429 classified as rate_limited', async () => {
@@ -55,19 +64,19 @@ test('hcti: 429 classified as rate_limited', async () => {
   assert.equal(result.classification, 'rate_limited');
 });
 
-test('hcti: 5xx classified as service_error', async () => {
+test('hcti: 5xx classified as provider_unavailable', async () => {
   const svc = createHctiService({ fetchImpl: fakeFetch({ status: 503 }) });
   const result = await svc.testCredentials(CREDS);
   assert.equal(result.success, false);
-  assert.equal(result.classification, 'service_error');
+  assert.equal(result.classification, 'provider_unavailable');
 });
 
-test('hcti: timeout/abort classified safely', async () => {
+test('hcti: timeout/abort classified as network_timeout', async () => {
   const abortErr = Object.assign(new Error('aborted'), { name: 'AbortError' });
   const svc = createHctiService({ fetchImpl: fakeFetch({ throwErr: abortErr }) });
   const result = await svc.testCredentials(CREDS);
   assert.equal(result.success, false);
-  assert.equal(result.classification, 'service_error');
+  assert.equal(result.classification, 'network_timeout');
 });
 
 test('hcti: generateImage throws classified, credential-free errors', async () => {
@@ -90,9 +99,9 @@ test('hcti: generateImage returns imageId + url on success', async () => {
   assert.equal(out.url, 'https://hcti.io/img/x.png');
 });
 
-test('hcti: incomplete provider response is a service error', async () => {
+test('hcti: incomplete provider response is response_invalid', async () => {
   const svc = createHctiService({ fetchImpl: fakeFetch({ body: { id: 'x' } }) }); // no url
   const result = await svc.testCredentials(CREDS);
   assert.equal(result.success, false);
-  assert.equal(result.classification, 'service_error');
+  assert.equal(result.classification, 'response_invalid');
 });

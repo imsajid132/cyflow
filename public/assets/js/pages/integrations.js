@@ -27,10 +27,46 @@ const OPENAI_MODEL_OPTIONS = [
   { value: 'gpt-4o', label: 'GPT-4o' },
 ];
 
+/**
+ * The SAFE provider health block: an overall status, the operator label, the
+ * last successful and last failed use, the last safe error category and the last
+ * check. Never a key — only names, categories, statuses and timestamps.
+ */
+function healthBits(status) {
+  const out = [];
+  if (status?.connectionLabel) {
+    out.push(el('span', { className: 'card-sub', text: `Label: ${status.connectionLabel}` }));
+  }
+  if (status?.lastSuccessAt) {
+    out.push(el('span', { className: 'card-sub', text: `Last success ${formatDate(status.lastSuccessAt)}` }));
+  }
+  if (status?.lastErrorCategory) {
+    out.push(badge(`Last error: ${status.lastErrorCategory.replace(/_/g, ' ')}`, 'err'));
+  }
+  if (status?.lastFailureAt) {
+    out.push(el('span', { className: 'card-sub', text: `Last failure ${formatDate(status.lastFailureAt)}` }));
+  }
+  if (status?.lastCheckedAt) {
+    out.push(el('span', { className: 'card-sub', text: `Checked ${formatDate(status.lastCheckedAt)}` }));
+  }
+  return out;
+}
+
+/** The overall status chip: Error / Connected / Not configured. */
+function overallChip(status) {
+  if (!status?.configured) return badge('Not configured', 'warn');
+  const failedRecently = status.lastFailureAt
+    && (!status.lastSuccessAt || String(status.lastFailureAt) >= String(status.lastSuccessAt));
+  if (failedRecently && status.lastErrorCategory) return badge('Error', 'err');
+  if (status.verified) return badge('Connected', 'ok');
+  return badge('Saved, not verified', 'warn');
+}
+
 function statusRow(status) {
   const configured = Boolean(status?.configured);
   const verified = Boolean(status?.verified);
   const bits = [
+    overallChip(status),
     badge(configured ? 'Credentials saved' : 'Not configured', configured ? 'ok' : 'warn'),
     badge(verified ? 'Verified' : 'Not verified', verified ? 'ok' : 'warn'),
   ];
@@ -41,6 +77,7 @@ function statusRow(status) {
   if (status?.verifiedAt) {
     bits.push(el('span', { className: 'card-sub', text: `Last verified ${formatDate(status.verifiedAt)}` }));
   }
+  bits.push(...healthBits(status));
   return el('div', { className: 'row', attrs: { style: 'gap:.5rem;flex-wrap:wrap' } }, bits);
 }
 
@@ -54,6 +91,7 @@ function openAiStatusRow(status) {
   const configured = Boolean(status?.configured);
   const verified = Boolean(status?.verified);
   const bits = [
+    overallChip(status),
     badge(configured ? 'Key saved' : 'Not configured', configured ? 'ok' : 'warn'),
     badge(verified ? 'Verified' : 'Not verified', verified ? 'ok' : 'warn'),
   ];
@@ -64,6 +102,7 @@ function openAiStatusRow(status) {
   if (status?.verifiedAt) {
     bits.push(el('span', { className: 'card-sub', text: `Last verified ${formatDate(status.verifiedAt)}` }));
   }
+  bits.push(...healthBits(status));
   return el('div', { className: 'row', attrs: { style: 'gap:.5rem;flex-wrap:wrap' } }, bits);
 }
 

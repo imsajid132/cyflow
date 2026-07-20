@@ -811,6 +811,17 @@ legend { padding: 0; }
   border: 1px dashed var(--ink-200);
 }
 .thumb-note { font-size: .65rem; color: var(--ink-400); }
+/* A failed render is visually distinct from a not-yet-rendered one, and names
+   the reason ("HCTI · Credits exhausted") rather than a bare "No image". */
+.planner-thumb-failed {
+  flex-direction: column; gap: 2px; padding: 4px;
+  border-color: var(--danger-400, #e11d48);
+  background: var(--danger-50, #fff1f2);
+}
+.thumb-note-err { color: var(--danger-600, #be123c); font-weight: 700; }
+.thumb-sub { font-size: .58rem; color: var(--danger-600, #be123c); text-align: center; line-height: 1.15; }
+.planner-image-failure .planner-failure-summary { color: var(--danger-700, #9f1239); }
+.drawer-preview-failed { flex-direction: column; gap: .35rem; padding: .75rem; text-align: center; border-color: var(--danger-400, #e11d48); }
 .planner-card-text { min-width: 0; display: flex; flex-direction: column; gap: .3rem; }
 .planner-template { font-size: .7rem; color: var(--ink-500); }
 .planner-headline { font-size: .88rem; font-weight: 700; color: var(--ink-900); line-height: 1.25; }

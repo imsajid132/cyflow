@@ -315,8 +315,8 @@ test('JSON columns are written as plain bound parameters', () => {
 
 test('no migration was added or modified for this fix', () => {
   const files = readdirSync(path.join(ROOT, 'database', 'migrations')).filter((f) => f.endsWith('.sql')).sort();
-  assert.equal(files.some((f) => f.startsWith('018')), false, 'no migration 018 may be introduced');
-  assert.ok(files.includes('017_user_data_export_and_deletion.sql'), '017 must still be the last migration');
+  assert.equal(files.some((f) => f.startsWith('019')), false, 'this code-only fix adds no migration (018 is a separate feature)');
+  assert.ok(files.includes('018_provider_error_visibility.sql'), '018 is the current migration head');
 
   // The column types were never the problem, so nothing about them changed.
   const schema = read('database', 'schema.sql');

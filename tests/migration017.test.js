@@ -49,11 +49,11 @@ test('schema.sql reflects both G tables', () => {
   assert.match(schema, /CREATE TABLE IF NOT EXISTS `account_deletion_requests`/);
 });
 
-test('migrations run in an unbroken 010..017 sequence', () => {
+test('migrations run in an unbroken 010..018 sequence', () => {
   const nums = readdirSync(migrationsDir)
     .filter((f) => /^\d{3}_.*\.sql$/.test(f))
     .map((f) => Number(f.slice(0, 3)))
     .sort((a, b) => a - b);
-  assert.equal(nums[nums.length - 1], 17, 'the latest migration is 017');
-  for (let n = 10; n <= 17; n += 1) assert.ok(nums.includes(n), `migration ${String(n).padStart(3, '0')} exists`);
+  assert.equal(nums[nums.length - 1], 18, 'the latest migration is 018');
+  for (let n = 10; n <= 18; n += 1) assert.ok(nums.includes(n), `migration ${String(n).padStart(3, '0')} exists`);
 });

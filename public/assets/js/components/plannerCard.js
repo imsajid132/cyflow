@@ -229,6 +229,13 @@ export function plannerCard(item, handlers = {}) {
   const emptyThumb = (note) => el('div', { className: 'planner-thumb planner-thumb-empty' }, [
     el('span', { className: 'thumb-note', text: note }),
   ]);
+  /*
+   * A failed render shows WHY — "Image failed" plus the provider and the safe
+   * reason ("HCTI · Credits exhausted") — never a bare "No image" that hides a
+   * known, actionable problem. The full safe message and a Retry image action
+   * live in the details block below and in the drawer.
+   */
+  const imageErr = item.image?.status === 'failed' ? (item.image.error || {}) : null;
   let thumb;
   if (item.media?.publicToken) {
     thumb = el('img', {
@@ -240,6 +247,14 @@ export function plannerCard(item, handlers = {}) {
     thumb.addEventListener('error', () => {
       thumb.replaceWith(emptyThumb('Image unavailable'));
     }, { once: true });
+  } else if (imageErr) {
+    const provider = String(item.image.provider || '').toUpperCase();
+    thumb = el('div', { className: 'planner-thumb planner-thumb-empty planner-thumb-failed' }, [
+      el('span', { className: 'thumb-note thumb-note-err', text: 'Image failed' }),
+      el('span', { className: 'thumb-sub', text: `${provider || 'Image'} · ${imageErr.shortLabel || 'Error'}` }),
+    ]);
+  } else if (item.image?.status === 'not_requested') {
+    thumb = emptyThumb('No image yet');
   } else {
     thumb = emptyThumb('No image');
   }
@@ -286,6 +301,17 @@ export function plannerCard(item, handlers = {}) {
       rejectBtn.addEventListener('click', () => handlers.onReject?.(item));
       actions.appendChild(rejectBtn);
     }
+    // A failed image gets its own retry, separate from a generation retry, so a
+    // credits/auth problem can be fixed and the image re-rendered WITHOUT
+    // touching the approved caption.
+    if (imageErr && handlers.onRetryImage) {
+      const retryImgBtn = el('button', { className: 'btn btn-secondary btn-sm', text: 'Retry image', attrs: { type: 'button' } });
+      retryImgBtn.addEventListener('click', () => {
+        if (retryImgBtn.disabled) return;
+        handlers.onRetryImage?.(item, retryImgBtn);
+      });
+      actions.appendChild(retryImgBtn);
+    }
   }
 
   // platformTargets holds PLATFORM ids. PROVIDER_LABELS is keyed by provider,
@@ -328,6 +354,13 @@ export function plannerCard(item, handlers = {}) {
       ? el('p', { className: 'planner-warning', attrs: { role: 'status' }, text: item.duplicationNotes })
       : null,
     failureDetails(item),
+    // The safe, actionable image-failure reason (credits, auth, rate limit,
+    // media storage) — never a bare "No image".
+    imageErr
+      ? el('div', { className: 'planner-failure planner-image-failure', attrs: { 'data-image-error': imageErr.category || 'error' } }, [
+        el('p', { className: 'planner-failure-summary', attrs: { role: 'status' }, text: imageErr.message || 'The image could not be generated.' }),
+      ])
+      : null,
     actions.childNodes.length ? actions : null,
   ]);
 }

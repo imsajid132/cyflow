@@ -336,8 +336,8 @@ test('the runner starts only after the database check, and stops before the pool
 // ------------------------------------------------------------------ migrations
 test('no migration was added or modified for this change', () => {
   const files = readdirSync(path.join(ROOT, 'database', 'migrations')).filter((f) => f.endsWith('.sql')).sort();
-  assert.ok(files.includes('017_user_data_export_and_deletion.sql'), '017 must still be the last migration');
-  assert.equal(files.some((f) => f.startsWith('018')), false, 'no migration 018 may be introduced');
+  assert.ok(files.includes('018_provider_error_visibility.sql'), '018 is the current migration head');
+  assert.equal(files.some((f) => f.startsWith('019')), false, 'this change adds no migration (018 is a separate feature)');
   // Single-process mode reuses the existing job tables; it needs no schema at all.
   const runner = read('src', 'jobs', 'backgroundRunner.js');
   assert.doesNotMatch(runner, /CREATE TABLE|ALTER TABLE|INSERT INTO|SELECT .* FROM/i,

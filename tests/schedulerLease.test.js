@@ -316,8 +316,8 @@ test('the lease uses the existing table and adds no migration', () => {
   assert.match(repo, /DATE_ADD\(UTC_TIMESTAMP\(\), INTERVAL \? SECOND\)/);
 
   const files = readdirSync(path.join(ROOT, 'database', 'migrations')).filter((f) => f.endsWith('.sql'));
-  assert.equal(files.some((f) => f.startsWith('018')), false, 'no migration 018 may be introduced');
-  assert.ok(files.includes('017_user_data_export_and_deletion.sql'), '017 must still be the last migration');
+  assert.equal(files.some((f) => f.startsWith('019')), false, 'the lease reuses existing tables and adds no migration (018 is a separate feature)');
+  assert.ok(files.includes('018_provider_error_visibility.sql'), '018 is the current migration head');
 });
 
 test('the lock name is stable', () => {

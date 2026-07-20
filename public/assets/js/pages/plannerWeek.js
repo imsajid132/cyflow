@@ -346,6 +346,8 @@ export async function render(root, ctx) {
             // comes through so it can show that it is working and refuse to be
             // clicked twice.
             onRetry: (i, btn) => retryGeneration(i, btn),
+            // Retry ONLY the image (a failed render), never the caption.
+            onRetryImage: (i, btn) => retryImage(i, btn),
           }))),
       ]));
     }
@@ -408,6 +410,38 @@ export async function render(root, ctx) {
     } finally {
       // The board has re-rendered, so `btn` is usually detached by now; calling
       // setLoading on it is harmless and matters in the paths where it is not.
+      retrying.delete(item.id);
+      setLoading(btn, false);
+    }
+  }
+
+  /**
+   * Retry ONLY the image on a card whose render failed. The caption is never
+   * touched. A retry that fails again surfaces the SPECIFIC safe reason
+   * (credits, auth, rate limit, media storage) as a toast, not a generic error.
+   */
+  async function retryImage(item, btn) {
+    if (retrying.has(item.id)) return;
+    retrying.add(item.id);
+    setLoading(btn, true, 'Rendering…');
+    try {
+      const res = await api.apiRequest(
+        `/api/planner/items/${encodeURIComponent(item.id)}/regenerate`,
+        { method: 'POST', body: { target: 'image' } },
+      );
+      if (res.unauthorized) { ctx.navigate('/login'); return; }
+      if (!res.ok) {
+        toast(api.errorMessage(res, 'The image could not be generated.'), 'err');
+        return;
+      }
+      const updated = api.payload(res)?.item;
+      if (updated?.image?.status === 'failed') {
+        toast(updated.image.error?.message || 'The image still could not be generated.', 'err');
+      } else {
+        toast('Image generated.', 'ok');
+      }
+      await load();
+    } finally {
       retrying.delete(item.id);
       setLoading(btn, false);
     }
@@ -505,14 +539,26 @@ export async function render(root, ctx) {
     const closeBtn = el('button', { className: 'btn btn-ghost btn-sm', text: 'Close', attrs: { type: 'button' } });
     closeBtn.addEventListener('click', () => closeDrawer());
 
-    const preview = item.media?.publicToken
-      ? el('img', {
-          className: 'drawer-preview',
-          attrs: { src: `/media/${encodeURIComponent(item.media.publicToken)}`, alt: item.altText || 'Generated post image' },
-        })
-      : el('div', { className: 'drawer-preview drawer-preview-empty' }, [
-          el('span', { className: 'card-sub', text: 'No image yet' }),
-        ]);
+    const imageErr = item.image?.status === 'failed' ? (item.image.error || {}) : null;
+    let preview;
+    if (item.media?.publicToken) {
+      preview = el('img', {
+        className: 'drawer-preview',
+        attrs: { src: `/media/${encodeURIComponent(item.media.publicToken)}`, alt: item.altText || 'Generated post image' },
+      });
+    } else if (imageErr) {
+      // A failed render shows the provider + safe reason and the full message,
+      // never a bare "No image yet".
+      const provider = String(item.image.provider || '').toUpperCase();
+      preview = el('div', { className: 'drawer-preview drawer-preview-empty drawer-preview-failed' }, [
+        el('span', { className: 'card-sub', attrs: { style: 'font-weight:600' }, text: `Image failed — ${provider || 'Image'} · ${imageErr.shortLabel || 'Error'}` }),
+        el('span', { className: 'card-sub', text: imageErr.message || 'The image could not be generated.' }),
+      ]);
+    } else {
+      preview = el('div', { className: 'drawer-preview drawer-preview-empty' }, [
+        el('span', { className: 'card-sub', text: 'No image yet' }),
+      ]);
+    }
 
     // Choose an image from the library. Copy-only: this changes only the image,
     // never the post copy, schedule or timezone, and calls neither OpenAI nor
@@ -630,7 +676,15 @@ export async function render(root, ctx) {
           method: 'POST', body: { target: 'image' },
         });
         if (!res.ok) { toast(api.errorMessage(res, 'The image could not be regenerated.'), 'err'); return; }
-        toast('Image regenerated.', 'ok');
+        // The image render can fail without failing the request: the item comes
+        // back with a persisted, safe failure reason. Surface that specific
+        // reason instead of a false "regenerated".
+        const updated = api.payload(res)?.item;
+        if (updated?.image?.status === 'failed') {
+          toast(updated.image.error?.message || 'The image still could not be generated.', 'err');
+        } else {
+          toast('Image regenerated.', 'ok');
+        }
         // Stay open so unsaved copy edits are not lost; the reload refreshes the
         // preview in place via refreshDrawer.
         await load();

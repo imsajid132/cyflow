@@ -17,11 +17,80 @@ function runner(connection) {
 export async function findIntegrationByUserId(userId, connection) {
   const [rows] = await runner(connection).execute(
     `SELECT id, user_id, hcti_user_id_encrypted, hcti_api_key_encrypted,
-            hcti_encryption_version, hcti_verified_at, created_at, updated_at
+            hcti_encryption_version, hcti_verified_at,
+            hcti_connection_label, hcti_last_success_at, hcti_last_failure_at,
+            hcti_last_error_category, hcti_last_checked_at,
+            openai_api_key_encrypted, openai_encryption_version, openai_model,
+            openai_verified_at, openai_connection_label, openai_last_success_at,
+            openai_last_failure_at, openai_last_error_category, openai_last_checked_at,
+            created_at, updated_at
        FROM user_integrations WHERE user_id = ? LIMIT 1`,
     [userId],
   );
   return rows[0] ?? null;
+}
+
+/** The safe, credential-free health block for a provider (for the panel). */
+function hctiHealthOf(row) {
+  return {
+    connectionLabel: row.hcti_connection_label ?? null,
+    lastSuccessAt: row.hcti_last_success_at ?? null,
+    lastFailureAt: row.hcti_last_failure_at ?? null,
+    lastErrorCategory: row.hcti_last_error_category ?? null,
+    lastCheckedAt: row.hcti_last_checked_at ?? null,
+  };
+}
+function openAiHealthOf(row) {
+  return {
+    connectionLabel: row.openai_connection_label ?? null,
+    lastSuccessAt: row.openai_last_success_at ?? null,
+    lastFailureAt: row.openai_last_failure_at ?? null,
+    lastErrorCategory: row.openai_last_error_category ?? null,
+    lastCheckedAt: row.openai_last_checked_at ?? null,
+  };
+}
+
+/**
+ * Record a SAFE provider health signal. Never stores a body/key — only a
+ * normalized category, timestamps and a success flag. Best-effort UPDATE of the
+ * existing row (a signal for a user with no row is a no-op).
+ */
+export async function recordHctiHealth(userId, { success, category = null, at }, connection) {
+  await runner(connection).execute(
+    `UPDATE user_integrations
+        SET hcti_last_checked_at = ?,
+            hcti_last_success_at = CASE WHEN ? THEN ? ELSE hcti_last_success_at END,
+            hcti_last_failure_at = CASE WHEN ? THEN hcti_last_failure_at ELSE ? END,
+            hcti_last_error_category = CASE WHEN ? THEN hcti_last_error_category ELSE ? END
+      WHERE user_id = ?`,
+    [at, success ? 1 : 0, at, success ? 1 : 0, at, success ? 1 : 0, category, userId],
+  );
+}
+
+export async function recordOpenAiHealth(userId, { success, category = null, at }, connection) {
+  await runner(connection).execute(
+    `UPDATE user_integrations
+        SET openai_last_checked_at = ?,
+            openai_last_success_at = CASE WHEN ? THEN ? ELSE openai_last_success_at END,
+            openai_last_failure_at = CASE WHEN ? THEN openai_last_failure_at ELSE ? END,
+            openai_last_error_category = CASE WHEN ? THEN openai_last_error_category ELSE ? END
+      WHERE user_id = ?`,
+    [at, success ? 1 : 0, at, success ? 1 : 0, at, success ? 1 : 0, category, userId],
+  );
+}
+
+/** Set the operator-chosen connection label (a name, never a credential). */
+export async function setHctiLabel(userId, label, connection) {
+  await runner(connection).execute(
+    'UPDATE user_integrations SET hcti_connection_label = ? WHERE user_id = ?',
+    [label, userId],
+  );
+}
+export async function setOpenAiLabel(userId, label, connection) {
+  await runner(connection).execute(
+    'UPDATE user_integrations SET openai_connection_label = ? WHERE user_id = ?',
+    [label, userId],
+  );
 }
 
 /**
@@ -39,6 +108,7 @@ export async function getHctiCredentialRecord(userId, connection) {
     verifiedAt: row.hcti_verified_at,
     configured:
       row.hcti_user_id_encrypted != null && row.hcti_api_key_encrypted != null,
+    health: hctiHealthOf(row),
   };
 }
 
@@ -128,13 +198,7 @@ export async function deleteHctiCredentials(userId, connection) {
  * that immediately before use, exactly as with HCTI.
  */
 export async function getOpenAiCredentialRecord(userId, connection) {
-  const [rows] = await runner(connection).execute(
-    `SELECT openai_api_key_encrypted, openai_encryption_version, openai_model,
-            openai_verified_at
-       FROM user_integrations WHERE user_id = ? LIMIT 1`,
-    [userId],
-  );
-  const row = rows[0];
+  const row = await findIntegrationByUserId(userId, connection);
   if (!row) return null;
   return {
     encryptedApiKey: row.openai_api_key_encrypted,
@@ -142,6 +206,7 @@ export async function getOpenAiCredentialRecord(userId, connection) {
     model: row.openai_model,
     verifiedAt: row.openai_verified_at,
     configured: row.openai_api_key_encrypted != null,
+    health: openAiHealthOf(row),
   };
 }
 
@@ -253,4 +318,8 @@ export default {
   clearHctiVerification,
   deleteHctiCredentials,
   ensureIntegrationRow,
+  recordHctiHealth,
+  recordOpenAiHealth,
+  setHctiLabel,
+  setOpenAiLabel,
 };

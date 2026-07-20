@@ -121,12 +121,26 @@ test('the retry handler shows it is working and ignores clicks while in flight',
 
 test('one retry produces exactly one toast', () => {
   const start = WEEK.indexOf('async function retryGeneration');
-  const body = WEEK.slice(start, WEEK.indexOf('\n  async function setStatus', start));
+  // Bound to the NEXT function so this counts retryGeneration only.
+  const body = WEEK.slice(start, WEEK.indexOf('\n  async function retryImage', start));
   // Three outcomes, mutually exclusive: request failed, still failing, worked.
   // The error path returns, so no call can ever reach a second toast.
   const toasts = body.match(/toast\(/g) ?? [];
   assert.equal(toasts.length, 3, `expected exactly three exclusive outcomes: ${toasts.length}`);
   assert.match(body, /toast\(api\.errorMessage[\s\S]*?return;/, 'the error path must return before the others');
+});
+
+test('one image retry produces exactly one toast', () => {
+  const start = WEEK.indexOf('async function retryImage');
+  const body = WEEK.slice(start, WEEK.indexOf('\n  async function setStatus', start));
+  // Same three mutually-exclusive outcomes for the image-only retry: request
+  // failed, still failing (with the specific reason), or worked.
+  const toasts = body.match(/toast\(/g) ?? [];
+  assert.equal(toasts.length, 3, `expected exactly three exclusive outcomes: ${toasts.length}`);
+  assert.match(body, /toast\(api\.errorMessage[\s\S]*?return;/, 'the error path must return before the others');
+  // The image retry must NOT touch the caption — it posts target:'image' only.
+  assert.match(body, /target: 'image'/, 'image retry targets the image only');
+  assert.doesNotMatch(body, /target: 'caption'/, 'image retry never regenerates the caption');
 });
 
 // --- the user can see why it failed ------------------------------------------

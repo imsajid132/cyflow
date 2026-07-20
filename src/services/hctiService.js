@@ -14,13 +14,19 @@
 import { Buffer } from 'node:buffer';
 
 import { config } from '../config/env.js';
-import {
-  ValidationError,
-  AuthenticationError,
-  AuthorizationError,
-  RateLimitError,
-  ExternalServiceError,
-} from '../utils/errors.js';
+import { ValidationError } from '../utils/errors.js';
+import { PROVIDER_ERROR_CATEGORY as CAT, PROVIDER_NAMES } from '../config/constants.js';
+import { ProviderError, normalizeProviderError, classifyHttpStatus } from '../utils/providerErrors.js';
+
+const HCTI = PROVIDER_NAMES.HCTI;
+const OP = 'render_social_image';
+
+/** A normalized HCTI ProviderError for a given category + status. */
+function hctiError(category, httpStatus, userMessage) {
+  return new ProviderError({
+    provider: HCTI, operation: OP, category, httpStatus, userMessage,
+  });
+}
 
 // A minimal, safe template used only to validate credentials.
 const TEST_HTML = '<div style="width:8px;height:8px;background:#111"></div>';
@@ -29,34 +35,31 @@ function basicAuthHeader(userId, apiKey) {
   return `Basic ${Buffer.from(`${userId}:${apiKey}`).toString('base64')}`;
 }
 
-/** Map an HTTP status to a classified, credential-free error. */
+/**
+ * Map an HTTP status to a normalized, credential-free ProviderError.
+ *
+ * HCTI returns 402 specifically when an account is out of render credits or has
+ * an unpaid balance, so 402 refines to `credits_exhausted` rather than the
+ * generic `payment_required` — that is the exact "No image" cause the operator
+ * needs to see. Everything else uses the shared status classifier.
+ */
 function classifyStatus(status) {
-  if (status === 400) {
-    return new ValidationError('The image template was rejected by the renderer');
-  }
-  if (status === 401) {
-    return new AuthenticationError('The HCTI credentials were rejected');
-  }
-  if (status === 403) {
-    return new AuthorizationError('The HCTI account is not authorized for this action');
-  }
-  if (status === 429) {
-    return new RateLimitError('HCTI quota or rate limit reached');
-  }
-  if (status >= 500) {
-    return new ExternalServiceError('The image service is temporarily unavailable');
-  }
-  return new ExternalServiceError('The image service returned an unexpected response');
+  if (status === 402) return hctiError(CAT.CREDITS_EXHAUSTED, 402);
+  return new ProviderError({
+    provider: HCTI,
+    operation: OP,
+    category: classifyHttpStatus(status),
+    httpStatus: status,
+  });
 }
 
-/** Map a thrown classified error to a stable, safe classification token. */
+/**
+ * The normalized category for a thrown HCTI error. Kept exported for callers
+ * that still ask for a token; a ProviderError already knows its category.
+ */
 export function classificationOf(err) {
-  if (err instanceof AuthenticationError) return 'invalid_credentials';
-  if (err instanceof AuthorizationError) return 'unauthorized';
-  if (err instanceof RateLimitError) return 'rate_limited';
-  if (err instanceof ValidationError) return 'validation_error';
-  if (err instanceof ExternalServiceError) return 'service_error';
-  return 'service_error';
+  if (err instanceof ProviderError) return err.category;
+  return normalizeProviderError(err, { provider: HCTI, operation: OP }).category;
 }
 
 export function createHctiService({ fetchImpl = globalThis.fetch } = {}) {
@@ -104,10 +107,9 @@ export function createHctiService({ fetchImpl = globalThis.fetch } = {}) {
       });
     } catch (err) {
       // Never include the request (which carries the Authorization header).
-      if (err && err.name === 'AbortError') {
-        throw new ExternalServiceError('The image service timed out');
-      }
-      throw new ExternalServiceError('Could not reach the image service');
+      if (err instanceof ProviderError) throw err;
+      if (err && err.name === 'AbortError') throw hctiError(CAT.NETWORK_TIMEOUT, null);
+      throw hctiError(CAT.NETWORK_FAILURE, null);
     } finally {
       clearTimeout(timer);
     }
@@ -120,20 +122,20 @@ export function createHctiService({ fetchImpl = globalThis.fetch } = {}) {
     try {
       payload = await res.json();
     } catch {
-      throw new ExternalServiceError('The image service returned an invalid response');
+      throw hctiError(CAT.RESPONSE_INVALID, null);
     }
 
     const url = payload && typeof payload.url === 'string' ? payload.url : null;
     const imageId = payload && typeof payload.id === 'string' ? payload.id : null;
     if (!url || !imageId) {
-      throw new ExternalServiceError('The image service returned an incomplete response');
+      throw hctiError(CAT.RESPONSE_INVALID, null);
     }
     // Validate the URL shape.
     try {
       // eslint-disable-next-line no-new
       new URL(url);
     } catch {
-      throw new ExternalServiceError('The image service returned an invalid URL');
+      throw hctiError(CAT.RESPONSE_INVALID, null);
     }
 
     return { imageId, url };
@@ -171,18 +173,17 @@ export function createHctiService({ fetchImpl = globalThis.fetch } = {}) {
       });
       return { success: true, imageId, message: 'HCTI credentials verified successfully.' };
     } catch (err) {
-      const classification = classificationOf(err);
-      const messages = {
-        invalid_credentials: 'The HCTI credentials were rejected.',
-        unauthorized: 'The HCTI account is not authorized.',
-        rate_limited: 'HCTI quota or rate limit reached. Try again later.',
-        validation_error: 'The credential test request was rejected.',
-        service_error: 'The image service is temporarily unavailable.',
-      };
+      // Normalize to the shared safe model so the Integrations "Test connection"
+      // result classifies auth / permission / credits / rate / network the same
+      // way the render path does — and never echoes a provider body.
+      const pe = normalizeProviderError(err, { provider: HCTI, operation: 'test_credentials' });
       return {
         success: false,
-        classification,
-        message: messages[classification] || 'HCTI credential test failed.',
+        classification: pe.category,
+        category: pe.category,
+        httpStatus: pe.httpStatus,
+        retryable: pe.retryable,
+        message: pe.userMessage,
       };
     }
   }

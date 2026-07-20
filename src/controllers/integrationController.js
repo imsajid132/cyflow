@@ -9,7 +9,8 @@
  * comes from the session (`req.user.id`) — never from the body/params.
  */
 
-import { EVENT_TYPES, ENCRYPTION_VERSION } from '../config/constants.js';
+import { EVENT_TYPES, ENCRYPTION_VERSION, PROVIDER_NAMES } from '../config/constants.js';
+import { normalizeProviderError } from '../utils/providerErrors.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { sendSuccess } from '../utils/apiResponse.js';
 import { ConflictError } from '../utils/errors.js';
@@ -49,11 +50,18 @@ export function createIntegrationController({
       // Corrupt/unreadable ciphertext — do not expose anything.
       maskedUserId = null;
     }
+    const health = record.health ?? {};
     return {
       configured: true,
       verified: record.verifiedAt != null,
       verifiedAt: record.verifiedAt ?? null,
       maskedUserId,
+      // Safe health panel (credential-free).
+      connectionLabel: health.connectionLabel ?? null,
+      lastSuccessAt: health.lastSuccessAt ?? null,
+      lastFailureAt: health.lastFailureAt ?? null,
+      lastErrorCategory: health.lastErrorCategory ?? null,
+      lastCheckedAt: health.lastCheckedAt ?? null,
     };
   }
 
@@ -124,10 +132,12 @@ export function createIntegrationController({
     if (result.success) {
       const verifiedAt = nowIso();
       await integrations.markHctiVerified(userId, verifiedAt);
-      await logging.record(EVENT_TYPES.HCTI_CREDENTIALS_VERIFIED, {
+      await integrations.recordHctiHealth(userId, { success: true, category: null, at: verifiedAt }).catch(() => {});
+      await logging.record(EVENT_TYPES.PROVIDER_HEALTH_CHECKED, {
         req,
         userId,
         message: 'HCTI credentials verified',
+        context: { provider: 'hcti', success: true },
       });
       return sendSuccess(res, {
         success: true,
@@ -138,17 +148,21 @@ export function createIntegrationController({
     }
 
     // Failure: keep configured but unverified. Never expose provider body.
+    const at = nowIso();
     await integrations.clearHctiVerification(userId);
-    await logging.record(EVENT_TYPES.HCTI_CREDENTIALS_VERIFICATION_FAILED, {
+    await integrations.recordHctiHealth(userId, { success: false, category: result.category ?? 'unknown_provider_error', at }).catch(() => {});
+    await logging.record(EVENT_TYPES.PROVIDER_HEALTH_CHECKED, {
       req,
       userId,
       level: 'warn',
       message: 'HCTI credential verification failed',
-      context: { classification: result.classification ?? 'service_error' },
+      context: { provider: 'hcti', success: false, category: result.category ?? result.classification ?? 'unknown_provider_error' },
     });
     return sendSuccess(res, {
       success: false,
       verified: false,
+      category: result.category ?? null,
+      retryable: result.retryable ?? null,
       message: result.message,
     });
   });
@@ -188,12 +202,18 @@ export function createIntegrationController({
       // with a decryption failure.
       maskedKey = null;
     }
+    const health = record.health ?? {};
     return {
       configured: true,
       verified: record.verifiedAt != null,
       verifiedAt: record.verifiedAt ?? null,
       maskedKey,
       model: record.model ?? null,
+      connectionLabel: health.connectionLabel ?? null,
+      lastSuccessAt: health.lastSuccessAt ?? null,
+      lastFailureAt: health.lastFailureAt ?? null,
+      lastErrorCategory: health.lastErrorCategory ?? null,
+      lastCheckedAt: health.lastCheckedAt ?? null,
     };
   }
 
@@ -248,23 +268,29 @@ export function createIntegrationController({
     if (result.success) {
       const verifiedAt = nowIso();
       await integrations.markOpenAiVerified(userId, verifiedAt);
-      await logging.record(EVENT_TYPES.OPENAI_CREDENTIALS_VERIFIED, {
-        req, userId, message: 'OpenAI API key verified',
+      await integrations.recordOpenAiHealth(userId, { success: true, category: null, at: verifiedAt }).catch(() => {});
+      await logging.record(EVENT_TYPES.PROVIDER_HEALTH_CHECKED, {
+        req, userId, message: 'OpenAI API key verified', context: { provider: 'openai', success: true },
       });
       return sendSuccess(res, { success: true, verified: true, verifiedAt, message: result.message });
     }
 
-    // Failure keeps the key configured but unverified. The provider body is
-    // never echoed — only our own classification.
+    // Failure keeps the key configured but unverified. Normalize the verifier's
+    // own token into the shared safe category vocabulary for the health panel.
+    const category = normalizeProviderError(
+      { classification: result.classification }, { provider: PROVIDER_NAMES.OPENAI },
+    ).category;
+    const at = nowIso();
     await integrations.clearOpenAiVerification(userId);
-    await logging.record(EVENT_TYPES.OPENAI_CREDENTIALS_VERIFICATION_FAILED, {
+    await integrations.recordOpenAiHealth(userId, { success: false, category, at }).catch(() => {});
+    await logging.record(EVENT_TYPES.PROVIDER_HEALTH_CHECKED, {
       req,
       userId,
       level: 'warn',
       message: 'OpenAI API key verification failed',
-      context: { classification: result.classification ?? 'service_error' },
+      context: { provider: 'openai', success: false, category },
     });
-    return sendSuccess(res, { success: false, verified: false, verifiedAt: null, message: result.message });
+    return sendSuccess(res, { success: false, verified: false, verifiedAt: null, category, message: result.message });
   });
 
   const deleteOpenAiCredentials = asyncHandler(async (req, res) => {
@@ -279,15 +305,36 @@ export function createIntegrationController({
     });
   });
 
+  /**
+   * Set an operator-chosen connection label (a name like "Main HCTI"), so a
+   * team can tell WHICH account is connected without revealing the credential.
+   * The label is trimmed, length-capped, and never a credential.
+   */
+  const setHctiLabel = asyncHandler(async (req, res) => {
+    const userId = req.user.id;
+    const label = typeof req.body.label === 'string' ? req.body.label.trim().slice(0, 120) : null;
+    await integrations.setHctiLabel(userId, label || null);
+    return sendSuccess(res, await buildStatus(userId));
+  });
+
+  const setOpenAiLabel = asyncHandler(async (req, res) => {
+    const userId = req.user.id;
+    const label = typeof req.body.label === 'string' ? req.body.label.trim().slice(0, 120) : null;
+    await integrations.setOpenAiLabel(userId, label || null);
+    return sendSuccess(res, await buildOpenAiStatus(userId));
+  });
+
   return {
     getOpenAiStatus,
     saveOpenAiCredentials,
     testOpenAiCredentials,
     deleteOpenAiCredentials,
+    setOpenAiLabel,
     getHctiStatus,
     saveHctiCredentials,
     testHctiCredentials,
     deleteHctiCredentials,
+    setHctiLabel,
   };
 }
 

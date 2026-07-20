@@ -38,6 +38,8 @@ const ITEM_COLUMNS =
   'template_key, aspect_ratio, background_style, ' +
   'generated_headline, generated_subheadline, generated_summary, generated_caption, ' +
   'generated_hashtags_json, platform_captions_json, generated_alt_text, brief, media_asset_id, ' +
+  'image_status, image_provider, image_error_category, image_error_code, image_error_message, ' +
+  'image_http_status, image_retryable, image_attempt_count, image_last_attempt_at, ' +
   'approval_status, duplication_score, duplication_notes, regeneration_count, ' +
   'content_fingerprint_json, edited_fields_json, created_at, updated_at';
 
@@ -104,6 +106,16 @@ export function sanitizeItem(row) {
     altText: row.generated_alt_text ?? null,
     brief: row.brief ?? null,
     mediaAssetId: row.media_asset_id == null ? null : String(row.media_asset_id),
+    // Image render lifecycle + normalized, credential-free failure (migration 018).
+    imageStatus: row.image_status ?? 'not_requested',
+    imageProvider: row.image_provider ?? null,
+    imageErrorCategory: row.image_error_category ?? null,
+    imageErrorCode: row.image_error_code ?? null,
+    imageErrorMessage: row.image_error_message ?? null,
+    imageHttpStatus: row.image_http_status == null ? null : Number(row.image_http_status),
+    imageRetryable: row.image_retryable == null ? null : Boolean(row.image_retryable),
+    imageAttemptCount: Number(row.image_attempt_count ?? 0),
+    imageLastAttemptAt: row.image_last_attempt_at ?? null,
     approvalStatus: row.approval_status,
     duplicationScore: Number(row.duplication_score),
     duplicationNotes: row.duplication_notes ?? null,
@@ -218,9 +230,11 @@ export async function createItem(input, connection) {
         goal, platform_targets_json, template_key, aspect_ratio, background_style,
         generated_headline, generated_subheadline, generated_summary, generated_caption,
         generated_hashtags_json, platform_captions_json, generated_alt_text, brief,
-        media_asset_id, approval_status, duplication_score, duplication_notes,
+        media_asset_id, image_status, image_provider, image_error_category, image_error_code,
+        image_error_message, image_http_status, image_retryable, image_attempt_count,
+        image_last_attempt_at, approval_status, duplication_score, duplication_notes,
         regeneration_count, content_fingerprint_json, edited_fields_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.plannerRunId,
       input.userId,
@@ -250,6 +264,15 @@ export async function createItem(input, connection) {
       input.altText ?? null,
       input.brief ?? null,
       input.mediaAssetId ?? null,
+      input.imageStatus ?? 'not_requested',
+      input.imageProvider ?? null,
+      input.imageErrorCategory ?? null,
+      input.imageErrorCode ?? null,
+      input.imageErrorMessage ?? null,
+      input.imageHttpStatus ?? null,
+      input.imageRetryable == null ? null : (input.imageRetryable ? 1 : 0),
+      input.imageAttemptCount ?? 0,
+      input.imageLastAttemptAt ?? null,
       input.approvalStatus ?? PLANNER_ITEM_STATUS.NEEDS_REVIEW,
       input.duplicationScore ?? 0,
       input.duplicationNotes ?? null,
@@ -314,6 +337,16 @@ const ITEM_FIELD_COLUMNS = {
   position: 'position',
   qualityStatus: 'quality_status',
   visualFamily: 'visual_family',
+  // Image render lifecycle + normalized failure (safe fields only).
+  imageStatus: 'image_status',
+  imageProvider: 'image_provider',
+  imageErrorCategory: 'image_error_category',
+  imageErrorCode: 'image_error_code',
+  imageErrorMessage: 'image_error_message',
+  imageHttpStatus: 'image_http_status',
+  imageRetryable: 'image_retryable',
+  imageAttemptCount: 'image_attempt_count',
+  imageLastAttemptAt: 'image_last_attempt_at',
 };
 
 const ITEM_JSON_COLUMNS = {

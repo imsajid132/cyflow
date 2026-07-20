@@ -38,6 +38,7 @@ import { plannerService as defaultPlanner } from './plannerService.js';
 import { openaiContentService as defaultOpenAI } from './openaiContentService.js';
 import { socialImageService as defaultImages } from './socialImageService.js';
 import { loggingService as defaultLogging } from './loggingService.js';
+import { logProviderEvent } from '../utils/providerLog.js';
 
 const ACCOUNT_TYPE_TO_PLATFORM = Object.freeze({
   facebook_page: PLATFORMS.FACEBOOK,
@@ -592,6 +593,31 @@ export function createAutomationService({
       nextRefillAt: addSecondsUtc(refillIntervalHours * 3600, now()),
     });
 
+    /*
+     * Diagnostics that make "only 2 of 7" explainable at a glance, distinguishing
+     * the two very different causes:
+     *   - a refill SHORTFALL (candidate < expected: the horizon/weekday math
+     *     produced fewer target slots than the horizon), vs
+     *   - a worker still CATCHING UP (created 7, ready 2, pending 5: the bounded
+     *     60s drain has not finished the queue yet — not a bug).
+     * Safe counts only; no post content, no DB ids in the normal UI.
+     */
+    const expected = keepDates.size * a.postsPerDay;
+    const candidate = slots.length;
+    const byStatus = buf.byStatus || {};
+    const diag = {
+      expected,
+      candidate,
+      skippedPast: schedule.skippedPast ?? 0,
+      created: enqueued,
+      alreadyPresent: Math.max(0, candidate - enqueued),
+      ready: Number(byStatus.ready ?? 0),
+      pending: Number(byStatus.planned ?? 0),
+      failed: Number(byStatus.failed ?? 0),
+      horizon: a.generationHorizonDays,
+    };
+    logProviderEvent('automation_refill', { ...diag, automationId: String(a.id), jobType: 'automation_refill' }, 'info');
+
     // Buffer is genuinely low and cannot grow (nothing new to enqueue) -> warn.
     if (buf.readyDays < a.lowBufferDays && enqueued === 0) {
       await record(EVENT_TYPES.AUTOMATION_BUFFER_LOW, {
@@ -599,8 +625,17 @@ export function createAutomationService({
         context: { readyDays: buf.readyDays, lowBufferDays: a.lowBufferDays },
       });
     }
+    // A genuine refill shortfall (fewer target slots than the horizon expects)
+    // gets its own actionable event with the safe reason breakdown.
+    if (candidate < expected) {
+      await record(EVENT_TYPES.AUTOMATION_REFILL_SHORTFALL, {
+        userId, automationId: a.id, level: 'warn',
+        message: `Refill prepared ${candidate} of ${expected} expected slots`,
+        context: diag,
+      });
+    }
     await record(EVENT_TYPES.AUTOMATION_REFILL_COMPLETED, {
-      userId, automationId: a.id, message: 'Refill completed', context: { enqueued, readyDays: buf.readyDays },
+      userId, automationId: a.id, message: 'Refill completed', context: diag,
     });
   }
 
