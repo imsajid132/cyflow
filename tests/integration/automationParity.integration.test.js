@@ -25,6 +25,7 @@ import { createPlannerService } from '../../src/services/plannerService.js';    
 import { createAutomationService } from '../../src/services/automationService.js';     // eslint-disable-line import/first
 import { createDurableJobService } from '../../src/services/durableJobService.js';     // eslint-disable-line import/first
 import { postCopyIssues, isCompleteWithinTolerance } from '../../src/services/contentStyleGuard.js'; // eslint-disable-line import/first
+import { fingerprint } from '../../src/services/contentUniquenessService.js';         // eslint-disable-line import/first
 
 let pool;
 
@@ -50,9 +51,23 @@ beforeEach(async () => { if (hasDatabase) await resetDatabase(pool); });
  */
 function echoOpenAI({ fbWords = 150 } = {}) {
   const requests = [];
+  // Fill to length by CYCLING the distinctive lead tokens, so a post assigned a
+  // different service/topic/opening produces genuinely different body prose —
+  // the way a real model would — rather than shared generic filler that would
+  // make every editorial body look alike.
   const words = (n, ...lead) => {
-    const w = [...lead];
-    for (let i = w.length; i < n; i += 1) w.push(`word${i}`);
+    // Flatten seed tokens to individual words FIRST, so a multi-word token like
+    // the service name ("Basement Waterproofing") contributes its own words and
+    // the result is EXACTLY n whitespace-delimited words. Cycling whole elements
+    // and slicing to n elements over-counts whenever a seed token has a space,
+    // which inflated a 50-element paragraph past the 75-word limit and pushed a
+    // 124-word repair case up to 152 (over the maximum). The planner's word-range
+    // validator and these tests both measure whitespace words, so this must too.
+    const seed = lead.filter(Boolean).flatMap((t) => String(t).split(/\s+/)).filter(Boolean);
+    if (seed.length === 0) seed.push('work');
+    const w = [];
+    let i = 0;
+    while (w.length < n) { w.push(seed[i % seed.length]); i += 1; }
     return w.join(' ');
   };
   // A short, stable token from a string, so a genuinely different assignment
@@ -75,9 +90,12 @@ function echoOpenAI({ fbWords = 150 } = {}) {
       // posts assigned differently cannot collide and two assigned the same
       // legitimately do (which a similarity retry must then break).
       const third = Math.max(12, Math.round(fbWords / 3));
-      const caption = `${words(third, 'Opening', open, s, problem)}.\n\n`
-        + `${words(third, 'Middle', s, problem)}.\n\n`
-        + `${words(fbWords - 2 * third, 'Closing', close, s)}.`;
+      // A unique token per call keeps even same-service posts from being
+      // byte-identical, the way a real model never repeats verbatim.
+      const uniq = `u${requests.length}`;
+      const caption = `${words(third, 'Opening', open, s, problem, uniq)}.\n\n`
+        + `${words(third, 'Middle', s, problem, uniq)}.\n\n`
+        + `${words(fbWords - 2 * third, 'Closing', close, s, uniq)}.`;
       return {
         caption,
         hashtags: [`#${String(s).replace(/\s+/g, '')}`, `#${hf}`, '#nyc'],
@@ -124,27 +142,59 @@ async function seedWorkspace(profile = CONTRACTOR_PROFILE) {
   return { userId, chosenId: accts.find((x) => x.displayName === 'NYC Waterproofing').id };
 }
 
+/**
+ * A rendering image service that stands in for HCTI: it records every render
+ * and returns an image, so the REAL mediaAssetService persists a real
+ * media_assets row and the item gets a real image. `failFirstFor` reproduces the
+ * staging behaviour where a concept's first render throws and the retry
+ * recovers.
+ */
+function renderingImageService({ failFirstFor = new Set() } = {}) {
+  const renders = [];
+  const attemptsByConcept = new Map();
+  return {
+    renders,
+    isReadyForUser: async () => true,
+    async generateSocialImage(input) {
+      renders.push({ template: input.template, poster: input.poster });
+      const t = input.template;
+      const n = (attemptsByConcept.get(t) || 0) + 1;
+      attemptsByConcept.set(t, n);
+      if (failFirstFor.has(t) && n === 1) {
+        const e = new Error('transient render failure');
+        e.code = 'image_generation_failed';
+        throw e;
+      }
+      return { sourceUrl: 'https://example.test/i.png', imageId: `img-${renders.length}` };
+    },
+  };
+}
+
 // Real time is used: the durable job rows are stamped with the DB clock, so an
 // injected past clock would make them unclaimable. The seven-slot count is
 // deterministic anyway — the refill keeps exactly the horizon's worth of future
 // active days whether or not today's slot has already passed.
-function stack(openai) {
+function stack(openai, imageService) {
+  // The REAL mediaAssetService persists the rendered asset (a real FK row), so a
+  // rendered item ends up with a genuine mediaAssetId; only HCTI is faked.
   const planner = createPlannerService({
     openaiContentService: openai,
-    socialImageService: { isReadyForUser: async () => false },
+    socialImageService: imageService || { isReadyForUser: async () => false },
   });
   const svc = createAutomationService({
     automations: automationsRepo, jobs: jobsRepo, runsRepo, socialAccounts: social, planner,
-    openai, images: { isReadyForUser: async () => false }, logging: { async record() {} },
+    openai, images: imageService || { isReadyForUser: async () => false }, logging: { async record() {} },
     config: { worker: { maxAttempts: 3, refillIntervalHours: 6 } },
   });
   const worker = createDurableJobService({ jobs: jobsRepo, handlers: svc.handlers, options: { heartbeatMs: 0, leaseMs: 60000 } });
   return { planner, svc, worker };
 }
 
-async function runAutomation({ openai, generationHorizonDays = 7, profile = CONTRACTOR_PROFILE }) {
+async function runAutomation({
+  openai, generationHorizonDays = 7, profile = CONTRACTOR_PROFILE, imageService = null,
+}) {
   const { userId, chosenId } = await seedWorkspace(profile);
-  const { svc, worker } = stack(openai);
+  const { svc, worker } = stack(openai, imageService);
   const a = await svc.createAutomation(userId, {
     name: 'NYC Waterproofing Final Parity Test', mode: 'review', timezone: 'Asia/Karachi',
     selectedWeekdays: [1, 2, 3, 4, 5, 6, 7], postingTimes: ['09:00'], postsPerDay: 1,
@@ -182,6 +232,14 @@ test('a Mon-Sun seven-day automation produces seven varied, valid items', SKIP, 
   // 2. Zero generation failures.
   const failed = items.filter((i) => i.qualityStatus === 'generation_failed');
   assert.equal(failed.length, 0, `expected 0 failures, got ${failed.length}`);
+
+  // 2b. No two items share a core editorial fingerprint (requirement: no
+  // duplicate core editorial fingerprints). Distinct services and topics mean
+  // distinct editorial content; the shared brand CTA/hashtags do not collapse
+  // them. The boilerplate-exclusion is proven deterministically in the unit
+  // suite (contentUniquenessService.test.js).
+  const editorialKeys = items.map((i) => JSON.stringify(i.fingerprint?.editorialTrigrams || []));
+  assert.equal(new Set(editorialKeys).size, editorialKeys.length, 'no two posts share a core editorial fingerprint');
 
   // 3. Exact Make contractor day sequence (by weekday of the slot).
   const byDate = [...items].sort((a, b) => String(a.scheduledFor).localeCompare(String(b.scheduledFor)));
@@ -255,6 +313,70 @@ test('every item targets only the one selected Facebook Page', SKIP, async () =>
   assert.ok(openai.requests.length >= 7, 'generation ran for the week');
 });
 
+// --------------------------------------------------- images and board ordering
+test('every post gets a rendered image, even when a render fails once', SKIP, async () => {
+  // The two staging concepts that showed "No image": a transient first-render
+  // failure that the retry must recover.
+  const image = renderingImageService({ failFirstFor: new Set(['poster-warning', 'poster-service']) });
+  const { items } = await runAutomation({ openai: echoOpenAI({ fbWords: 150 }), imageService: image });
+
+  assert.equal(items.length, 7, 'seven items');
+  const withImage = items.filter((i) => i.mediaAssetId != null);
+  assert.equal(withImage.length, 7, `all seven have an image, got ${withImage.length}`);
+  // None is left with a silent no-image: imageStatus is null (rendered) on all.
+  for (const it of items) {
+    const status = it.mediaAssetId ? null : (it.fingerprint?.imageStatus ?? null);
+    assert.equal(status, null, `item has no image and status ${status}`);
+  }
+});
+
+test('a render that never succeeds surfaces an explicit status, not a silent blank', SKIP, async () => {
+  // A render that fails BOTH attempts must record an actionable status so the
+  // board can show "image generation failed" rather than an unexplained blank.
+  const alwaysFail = {
+    isReadyForUser: async () => true,
+    async generateSocialImage() { const e = new Error('down'); e.code = 'image_generation_failed'; throw e; },
+  };
+  const { items } = await runAutomation({ openai: echoOpenAI({ fbWords: 150 }), imageService: alwaysFail });
+  const noImage = items.filter((i) => i.mediaAssetId == null);
+  assert.ok(noImage.length > 0, 'some items could not render');
+  for (const it of noImage) {
+    assert.equal(it.fingerprint?.imageStatus, 'image_generation_failed', 'the failure is explicit, not silent');
+  }
+});
+
+test('the board returns items in chronological order regardless of generation order', SKIP, async () => {
+  /*
+   * The Friday-before-Thursday bug: position is assigned in GENERATION order,
+   * and the automation's jobs finish out of order, so a later day generated
+   * first got a lower position and sorted first. This seeds exactly that
+   * mismatch — position DESCENDING as the date ascends — and proves the repo
+   * returns the items by their scheduled instant, not by position.
+   */
+  const { userId } = await seedWorkspace();
+  const run = await runsRepo.createRun({
+    userId, contentAutomationId: null, status: 'review', timezone: 'Asia/Karachi',
+    startDate: null, endDate: null, settings: {}, resolvedRhythm: {},
+  });
+  const days = ['2027-03-23', '2027-03-24', '2027-03-25', '2027-03-26', '2027-03-27']; // Thu..Mon
+  // Insert with position REVERSED relative to date (last day gets position 0).
+  for (let i = 0; i < days.length; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await runsRepo.createItem({
+      userId, plannerRunId: run.id, scheduledFor: `${days[i]} 09:00:00`,
+      originalTimezone: 'Asia/Karachi', contentType: 'insight', goal: 'awareness',
+      templateKey: 'poster-service', aspectRatio: '1:1', backgroundStyle: 'light',
+      headline: `Day ${days[i]}`, subheadline: 's', summary: 's', caption: 'c', altText: 'a',
+      hashtags: [], platformTargets: ['facebook'],
+      platformCaptions: { facebook: { postCopy: 'c', hashtags: [], validationStatus: 'passed' } },
+      approvalStatus: 'needs_review', position: days.length - 1 - i,
+    });
+  }
+  const items = await runsRepo.listItemsForRun(run.id, userId);
+  const dates = items.map((i) => String(i.scheduledFor).slice(0, 10));
+  assert.deepEqual(dates, days, `items must be chronological by scheduledFor, not position: ${JSON.stringify(dates)}`);
+});
+
 // ------------------------------------------------ history-scope policy per status
 test('similarity history excludes failed and rejected items, keeps real ones', SKIP, async () => {
   const { userId } = await seedWorkspace();
@@ -292,6 +414,54 @@ test('similarity history excludes failed and rejected items, keeps real ones', S
   // Failed and rejected staging output does not poison future generation.
   assert.ok(!heads.includes('dropped-failed'), 'a generation-failed item must not count');
   assert.ok(!heads.includes('dropped-rejected'), 'a rejected item must not count');
+});
+
+test('an old failed staging plan does not poison a fresh seven-post batch', SKIP, async () => {
+  /*
+   * The observed staging states: a prior run left generation_failed and rejected
+   * items behind. Before the history policy, those poisoned every fresh
+   * generation. This seeds exactly that debris, then runs the real refill flow
+   * and proves the fresh batch still generates seven clean posts.
+   */
+  const { userId, chosenId } = await seedWorkspace();
+  // A prior abandoned run full of the debris.
+  const oldRun = await runsRepo.createRun({
+    userId, contentAutomationId: null, status: 'failed', timezone: 'Asia/Karachi',
+    startDate: null, endDate: null, settings: {}, resolvedRhythm: {},
+  });
+  const debris = (headline, { qualityStatus, approvalStatus }) => runsRepo.createItem({
+    userId, plannerRunId: oldRun.id, scheduledFor: '2020-01-01 09:00:00',
+    originalTimezone: 'Asia/Karachi', contentType: 'insight', goal: 'awareness',
+    templateKey: 'poster-service', aspectRatio: '1:1', backgroundStyle: 'light',
+    headline, subheadline: 's', summary: 's',
+    caption: 'Basement waterproofing keeps your home dry through the winter rains.',
+    altText: 'a', hashtags: ['#waterproofing', '#nyc'], platformTargets: ['facebook'],
+    platformCaptions: { facebook: { postCopy: 'Basement waterproofing keeps your home dry.', hashtags: ['#waterproofing'], validationStatus: 'passed' } },
+    qualityStatus, approvalStatus, position: 0,
+    fingerprint: fingerprint({ caption: 'Basement waterproofing keeps your home dry through the winter rains.', headline, serviceEmphasis: 'basement waterproofing', hashtags: ['#waterproofing', '#nyc'] }),
+  });
+  // Five failed and two rejected — the exact kind of debris staging accumulated.
+  for (let i = 0; i < 5; i += 1) await debris(`failed staging post ${i}`, { qualityStatus: 'generation_failed', approvalStatus: 'needs_review' });
+  for (let i = 0; i < 2; i += 1) await debris(`rejected staging post ${i}`, { qualityStatus: 'passed', approvalStatus: 'rejected' });
+
+  // Now run the real fresh automation for the SAME user.
+  const image = renderingImageService();
+  const { svc, worker } = stack(echoOpenAI({ fbWords: 150 }), image);
+  const a = await svc.createAutomation(userId, {
+    name: 'Fresh After Debris', mode: 'review', timezone: 'Asia/Karachi',
+    selectedWeekdays: [1, 2, 3, 4, 5, 6, 7], postingTimes: ['09:00'], postsPerDay: 1,
+    selectedPlatforms: ['facebook'], selectedAccountIds: [String(chosenId)],
+    missedPostPolicy: 'skip', generationHorizonDays: 7, minimumReadyDays: 7, lowBufferDays: 3,
+  });
+  await svc.activate(userId, a.id);
+  await worker.runOne({ workerId: 'W' });
+  for (let i = 0; i < 60; i += 1) { const r = await worker.runOne({ workerId: 'W' }); if (!r.ran) break; } // eslint-disable-line no-await-in-loop
+  const updated = await automationsRepo.findAutomationByIdForUser(a.id, userId);
+  const fresh = await runsRepo.listItemsForRun(updated.plannerRunId, userId);
+
+  assert.equal(fresh.length, 7, `seven fresh items despite the debris, got ${fresh.length}`);
+  const failed = fresh.filter((i) => i.qualityStatus === 'generation_failed');
+  assert.equal(failed.length, 0, `the debris must not fail the fresh batch (${failed.length} failed)`);
 });
 
 // --------------------------------------- knowledge business stays on its rhythm

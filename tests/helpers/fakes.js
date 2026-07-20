@@ -1444,7 +1444,13 @@ export function createFakePlannerRunRepository() {
     async listItemsForRun(runId, userId) {
       return [...items.values()]
         .filter((i) => i.plannerRunId === String(runId) && i.userId === String(userId))
-        .sort((a, b) => a.position - b.position || Number(a.id) - Number(b.id))
+        // Mirror the real query's ORDER BY scheduled_for ASC, position ASC,
+        // id ASC. The board is chronological, not generation-order; a fake that
+        // sorted by position alone would hide the very drift the ordering fix
+        // corrects (a datetime string sorts lexically = chronologically).
+        .sort((a, b) => String(a.scheduledFor ?? '').localeCompare(String(b.scheduledFor ?? ''))
+          || a.position - b.position
+          || Number(a.id) - Number(b.id))
         .map((i) => ({ ...i }));
     },
     async updateItem(itemId, userId, fields) {

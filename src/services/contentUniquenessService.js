@@ -120,6 +120,43 @@ export function lastParagraph(caption) {
   return (paragraphs[paragraphs.length - 1] || '').slice(0, 400);
 }
 
+/*
+ * Lines that are a business's fixed contact boilerplate, not editorial content.
+ *
+ * A phone number, a website, an email, or a "call/visit/email us" line is the
+ * same on every post a business publishes, because that is the point of a
+ * contact footer. The Make contractor scenarios end every post with exactly this
+ * — "phone, email, website on separate lines" — so it is fixed boilerplate the
+ * reference intentionally reuses, and comparing it makes seven genuinely
+ * different service posts look like one repeated post.
+ */
+const CONTACT_LINE = new RegExp(
+  '(\\(\\d{3}\\)\\s?\\d{3}[-.\\s]?\\d{4})' // (917) 415-1383
+  + '|(\\b\\d{3}[-.\\s]\\d{3}[-.\\s]\\d{4}\\b)' // 917-415-1383
+  + '|([a-z0-9.-]+\\.(com|net|org|io|co|us|biz)\\b)' // a website
+  + '|([a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,})' // an email
+  + '|(^\\s*(call|phone|text|visit|email|dm)\\b)', // a contact call-to-action prefix
+  'i',
+);
+
+/**
+ * The caption with its fixed contact boilerplate removed.
+ *
+ * This is the CANONICAL EDITORIAL representation: what varies day to day, with
+ * the standard footer stripped out. Similarity is judged on this so a shared
+ * contact block cannot condemn posts that differ everywhere that matters. The
+ * full caption is still fingerprinted separately for exact-duplicate detection.
+ */
+export function editorialBody(caption) {
+  if (typeof caption !== 'string') return '';
+  return caption
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter((line) => line && !CONTACT_LINE.test(line))
+    .join('\n')
+    .trim();
+}
+
 /**
  * Are two platforms' posts the same post?
  *
@@ -209,9 +246,19 @@ function listItemSet(caption) {
 export function fingerprint(post = {}) {
   const caption = typeof post.caption === 'string' ? post.caption : '';
   const opening = firstSentence(caption);
+  /*
+   * The editorial body drives semantic similarity; the full caption drives
+   * exact-duplicate detection. Storing both is the two-fingerprint design: a
+   * repeated approved contact footer never fails a semantically different post,
+   * while a byte-identical repeat still does.
+   */
+  const editorial = editorialBody(caption);
   return {
     captionTrigrams: [...trigrams(caption)],
     captionTokens: [...new Set(tokenize(caption))],
+    // Editorial (boilerplate-stripped) trigrams for the semantic axes.
+    editorialTrigrams: [...trigrams(editorial)],
+    editorialConclusionTrigrams: [...trigrams(lastParagraph(editorial))],
     headlineTokens: [...new Set(tokenize(post.headline))],
     headlineNormalized: normalizeText(post.headline),
     openingTrigrams: [...trigrams(opening)],
@@ -263,12 +310,22 @@ export function fingerprint(post = {}) {
  * @returns {{ score:number, axes:object, reasons:string[] }}
  */
 export function compareFingerprints(a, b) {
+  /*
+   * The caption and conclusion axes compare the EDITORIAL body (boilerplate
+   * stripped), so a shared contact footer cannot inflate them. Older
+   * fingerprints, stored before this field existed, fall back to the full
+   * trigrams so they keep comparing.
+   */
+  const aEd = a.editorialTrigrams ?? a.captionTrigrams;
+  const bEd = b.editorialTrigrams ?? b.captionTrigrams;
+  const aEdConc = a.editorialConclusionTrigrams ?? a.conclusionTrigrams;
+  const bEdConc = b.editorialConclusionTrigrams ?? b.conclusionTrigrams;
   const axes = {
-    caption: jaccard(a.captionTrigrams, b.captionTrigrams),
+    caption: jaccard(aEd, bEd),
     headline: 0,
     opening: jaccard(a.openingTrigrams, b.openingTrigrams),
     openingParagraph: jaccard(a.openingParagraphTrigrams, b.openingParagraphTrigrams),
-    conclusion: jaccard(a.conclusionTrigrams, b.conclusionTrigrams),
+    conclusion: jaccard(aEdConc, bEdConc),
     cta: 0,
     topic: 0,
     structure: 0,
@@ -285,8 +342,14 @@ export function compareFingerprints(a, b) {
     axes.headline = jaccard(a.headlineTokens, b.headlineTokens);
   }
 
-  // An identical caption is absolute too.
-  if (a.captionTokens.length && b.captionTokens.length && axes.caption >= 0.98) {
+  /*
+   * Exact-duplicate detection stays on the FULL caption, not the editorial one.
+   * Two byte-identical posts must still fail even if all their difference was in
+   * the footer — that is the full fingerprint's job, distinct from the semantic
+   * comparison above.
+   */
+  const fullCaption = jaccard(a.captionTrigrams, b.captionTrigrams);
+  if (a.captionTokens.length && b.captionTokens.length && fullCaption >= 0.98) {
     axes.caption = DUPLICATION_THRESHOLDS.EXACT;
     reasons.push('near-identical caption');
   }
@@ -369,8 +432,22 @@ export function compareFingerprints(a, b) {
    * and cannot push brand-consistent reuse over the line, while sharing the
    * format AND the layout adds the full 0.10 and can.
    */
+  /*
+   * The CTA and hashtags are brand boilerplate, not editorial content, so they
+   * are weighted as weak tie-breakers rather than drivers.
+   *
+   * A business ends every post with the same call to action and reuses its own
+   * hashtags — that is brand consistency, and the Make contractor scenarios do
+   * exactly this. At the previous weights (cta 0.15, hashtags 0.22) a fixed CTA
+   * and a fixed hashtag set alone contributed 0.37, so combined with a weakly
+   * shared angle they pushed seven genuinely different service posts over the
+   * warning line. They are not DISABLED — an identical CTA and hashtag set still
+   * nudge the score — but they can no longer condemn a post on their own or
+   * dominate a real editorial signal. The angle (topic) and the editorial body
+   * remain the drivers.
+   */
   const SOFT_WEIGHTS = {
-    topic: 0.5, hashtags: 0.22, cta: 0.15, structure: 0.1, conclusion: 0.1,
+    topic: 0.5, hashtags: 0.1, cta: 0.05, structure: 0.1, conclusion: 0.1,
   };
   /*
    * `listItems` is STRONG, and weighted just above the hard-duplicate line.

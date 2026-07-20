@@ -270,10 +270,21 @@ export async function findItemByIdForUser(itemId, userId, connection) {
 }
 
 export async function listItemsForRun(runId, userId, connection) {
+  /*
+   * Chronological by the scheduled instant, not by generation order.
+   *
+   * `position` is assigned when an item is CREATED, and the automation creates
+   * items as its durable jobs finish, which is not the order the posts are
+   * scheduled for. Ordering by position therefore showed a Friday post that
+   * happened to generate first ahead of a Thursday post that generated later.
+   * The board, the drawer and every reader want the posts in the order they go
+   * out, so the scheduled instant leads; position and id only break ties (two
+   * posts at the same instant, or legacy rows with no scheduled_for).
+   */
   const [rows] = await runner(connection).execute(
     `SELECT ${ITEM_COLUMNS} FROM planner_run_items
       WHERE planner_run_id = ? AND user_id = ?
-      ORDER BY position ASC, id ASC`,
+      ORDER BY scheduled_for ASC, position ASC, id ASC`,
     [runId, userId],
   );
   return rows.map(sanitizeItem);

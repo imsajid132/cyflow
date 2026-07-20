@@ -1124,11 +1124,27 @@ export function createPlannerService({
     const duplicationNotes = notes.length ? notes.join(' ').slice(0, 500) : null;
 
     let mediaAssetId = null;
+    let imageError = null;
     if (wantImages && content.headline) {
-      // eslint-disable-next-line no-await-in-loop
-      mediaAssetId = await renderItemImage({
-        userId, profile, brief, content,
-      }).catch(() => null);
+      /*
+       * The render is RETRIED, and its failure is not swallowed silently.
+       *
+       * Staging showed two cards with no image while the posts still read as
+       * reviewable, because a single render exception was caught and turned into
+       * null. A transient renderer error now gets a second attempt, and a
+       * failure that survives both is recorded as an explicit, actionable note
+       * on the item rather than a silent blank — the board can then show "image
+       * generation failed, retry" instead of an unexplained "No image".
+       */
+      for (let imgAttempt = 0; imgAttempt < 2 && mediaAssetId == null; imgAttempt += 1) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          mediaAssetId = await renderItemImage({ userId, profile, brief, content });
+          imageError = null;
+        } catch (err) {
+          imageError = err?.code || 'image_generation_failed';
+        }
+      }
     }
 
     const item = await runsRepo.createItem({
@@ -1184,6 +1200,10 @@ export function createPlannerService({
       fingerprint: {
         ...fingerprint,
         visualExtras: extrasFor(content, brief),
+        // An explicit, actionable image state, so a failed render is never a
+        // silent "No image": null when an image rendered, the failure code when
+        // both attempts failed, and 'skipped' when images were off for the run.
+        imageStatus: !wantImages ? 'skipped' : (mediaAssetId != null ? null : (imageError || 'image_generation_failed')),
         /*
          * The assignment travels ONTO the item, not just into the request.
          *
@@ -1514,7 +1534,88 @@ export function createPlannerService({
         location: brief.review.location || null,
       };
     }
+    /*
+     * Content-derived fallbacks for the assigned concept's required fields.
+     *
+     * If the model returned an empty or partial group, the card would render
+     * sparse or, worse, contribute to a render failure. The gaps are filled from
+     * this post's OWN assigned service and reader problem and its generated
+     * headline and summary — never another business's text, never an invented
+     * statistic (the stat card has no numeric fallback and its layout drops to a
+     * plain statement instead). Model values always win; this only fills blanks.
+     */
+    const filled = fillPosterConcept(brief?.imageConcept, out[conceptGroupKey(brief?.imageConcept)], brief, content);
+    if (filled) out[conceptGroupKey(brief?.imageConcept)] = filled;
     return Object.keys(out).length ? out : null;
+  }
+
+  /** The poster group key a concept owns (service_card -> service, and so on). */
+  function conceptGroupKey(concept) {
+    return ({
+      service_card: 'service', stat_card: 'stat', cheatsheet: 'cheatsheet',
+      project_card: 'project', warning_card: 'warning', quote_card: 'quote',
+    })[concept] || null;
+  }
+
+  /**
+   * Ensure the concept's required fields are present, filling blanks from the
+   * post's own service, reader problem, headline and summary.
+   */
+  function fillPosterConcept(concept, group, brief, content) {
+    const key = conceptGroupKey(concept);
+    if (!key) return null;
+    const g = group && typeof group === 'object' ? { ...group } : {};
+    const svc = brief?.serviceEmphasis || null;
+    const problem = brief?.audienceProblem || null;
+    const nz = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+    const list = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x.trim()) : []);
+    // A short line derived from the post's own summary/headline, never invented.
+    const aboutSvc = svc ? `Professional ${svc.toLowerCase()} for your property.` : (nz(content?.summary) || nz(content?.headline) || null);
+
+    switch (concept) {
+      case 'service_card':
+        return {
+          problem: nz(g.problem) || problem || (svc ? `Choosing the right ${svc.toLowerCase()} is hard to judge.` : 'It is hard to know what you actually need.'),
+          solution: nz(g.solution) || aboutSvc || 'Work done properly, explained plainly.',
+          result: nz(g.result) || 'A result that lasts.',
+          tags: list(g.tags).length ? g.tags : (svc ? [svc] : []),
+        };
+      case 'warning_card':
+        return {
+          highlight: nz(g.highlight) || (svc ? svc.toLowerCase() : ''),
+          mistake: nz(g.mistake) || problem || 'Leaving it too long before acting.',
+          consequence: nz(g.consequence) || 'A small problem becomes an expensive one.',
+          fix: nz(g.fix) || aboutSvc || 'Act at the first sign, not the last.',
+          proTip: nz(g.proTip) || (svc ? `Have your ${svc.toLowerCase()} checked before the season turns.` : 'Check it before it becomes urgent.'),
+        };
+      case 'project_card':
+        return {
+          details: list(g.details).length ? g.details : [aboutSvc || 'Assess the site', 'Do the work', 'Confirm the result'].filter(Boolean),
+          timeline: nz(g.timeline) || '',
+          result: nz(g.result) || 'Done properly',
+          location: nz(g.location) || nz(brief?.location) || '',
+        };
+      case 'cheatsheet': {
+        const tips = Array.isArray(g.tips) ? g.tips.filter((t) => t && nz(t.main)) : [];
+        return {
+          overline: nz(g.overline) || 'Quick guide',
+          highlight: nz(g.highlight) || (svc ? svc.toLowerCase() : ''),
+          tips: tips.length ? g.tips : [{ main: aboutSvc || 'Know what to check', sub: problem || '' }],
+        };
+      }
+      case 'quote_card':
+        return {
+          part1: nz(g.part1) || nz(content?.headline) || 'Work worth',
+          part2: nz(g.part2) || 'doing once',
+          subquote: nz(g.subquote) || aboutSvc || '',
+        };
+      case 'stat_card':
+        // No numeric fallback: an empty figure lets the layout render the
+        // plain proof/evidence statement instead of inventing a number.
+        return nz(g.bigStat) ? g : null;
+      default:
+        return group || null;
+    }
   }
 
   async function renderItemImage({ userId, profile, brief, content, overrides = {} }) {
@@ -1802,7 +1903,12 @@ export function createPlannerService({
      * from item.caption — the gap C2 closes. Selected platforms only; validation
      * and measurements included so the tabs need no second round-trip.
      */
-    return { ...rest, media, platformCopy: normalizePlatformCopy(item) };
+    // The image state travels to the board so a failed render shows an explicit,
+    // actionable status instead of a silent "No image".
+    const imageStatus = item.mediaAssetId ? null : (fingerprint?.imageStatus ?? null);
+    return {
+      ...rest, media, imageStatus, platformCopy: normalizePlatformCopy(item),
+    };
   }
 
   async function listPlans(userId, opts = {}) {

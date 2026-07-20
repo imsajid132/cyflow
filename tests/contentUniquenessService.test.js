@@ -13,6 +13,7 @@ import {
   trigrams,
   jaccard,
   firstSentence,
+  editorialBody,
 } from '../src/services/contentUniquenessService.js';
 import { DUPLICATION_THRESHOLDS } from '../src/config/constants.js';
 
@@ -189,8 +190,12 @@ test('a soft warning names its biggest cause first, not its smallest', () => {
     headline: 'What a slipped tile really costs',
     cta: 'Book a free quote', // identical to POST
     hashtags: ['#tiles'], // different
+    // The angle is a genuine repeat: same content type, goal AND service as POST.
+    // The CTA now weighs little (it is brand boilerplate), so what pushes this to
+    // "review" is the repeated angle — which is exactly what the ordering below
+    // asserts must be named first, ahead of the shared CTA.
     contentType: 'educational', // same as POST
-    goal: 'education', // different from POST
+    goal: 'awareness', // same as POST
     serviceEmphasis: 'Roof repair', // same as POST
   };
   const result = svc.evaluate(sameAngleSharedCta, { batch: [POST] });
@@ -278,4 +283,91 @@ test('a fingerprint can be re-used directly without re-deriving it', () => {
   const fromRaw = svc.evaluate(POST, { batch: [POST] });
   const fromFingerprint = svc.evaluate(fp, { batch: [fp] });
   assert.equal(fromRaw.score, fromFingerprint.score);
+});
+
+test('a shared brand contact footer does not make different-service posts similar', () => {
+  /*
+   * The staging defect: seven different-service posts that all end with the same
+   * "Call (917)... visit site.com" contact footer were flagged as similar,
+   * because the footer, the fixed CTA and the reused hashtags were compared as
+   * if they were the content. The editorial fingerprint strips the footer and
+   * the boilerplate weighs little, so genuinely different posts read as unique.
+   */
+  const foot = '\n\nCall (917) 415-1383 or visit nyc-waterproofing.com';
+  const post = (svc, headline, body, ct, tpl) => ({
+    caption: `${body}${foot}`,
+    // A genuinely different headline per post, as the real per-service Make
+    // output produces. A templated "${svc}: what to know" suffix would make two
+    // services in one family ("Basement Waterproofing" / "Foundation
+    // Waterproofing") share most headline tokens, which the headline axis is
+    // supposed to catch. The footer, not the headline, is the boilerplate here.
+    headline,
+    cta: 'Book a free quote', // the same fixed brand CTA on every post
+    hashtags: ['#waterproofing', '#nyc', '#basement'], // the same brand hashtags
+    contentType: ct, goal: 'awareness', serviceEmphasis: svc, format: ct, templateKey: tpl,
+  });
+  const posts = [
+    post('Basement Waterproofing', 'Where basement water actually comes from', 'Water enters through foundation cracks. Sealing the outside stops it at the source before it reaches the slab.', 'service_benefit', 'poster-service'),
+    post('French Drain Installation', 'How a french drain keeps the footing dry', 'A French drain carries groundwater away from the footing so it never pools against the wall in the first place.', 'process', 'poster-project'),
+    post('Sump Pump Installation', 'Your last line of defence against a flood', 'A sump pump is the last line of defence: it moves water out of the pit before it can rise into the finished space.', 'authority', 'poster-stat'),
+    post('Foundation Waterproofing', 'The cracked wall that leaks for years', 'A cracked foundation wall lets moisture wick through the masonry for years before the damp finally shows inside.', 'common_mistake', 'poster-warning'),
+    post('Basement Leak Inspection', 'Finding the entry point, not just the stain', 'An inspection finds the entry point, not just the symptom, so the repair addresses where the water actually comes in.', 'quick_tip', 'poster-cheatsheet'),
+  ];
+  const fps = posts.map((p) => fingerprint(p));
+  for (let i = 0; i < fps.length; i += 1) {
+    for (let j = i + 1; j < fps.length; j += 1) {
+      const r = compareFingerprints(fps[i], fps[j]);
+      assert.ok(r.score < 0.45, `posts ${i} and ${j} scored ${r.score} despite different services and topics`);
+    }
+  }
+});
+
+test('the editorial fingerprint still catches a real repeat that keeps the footer', () => {
+  // Two posts with the SAME editorial body (only the footer would differ) must
+  // still be caught: stripping boilerplate must not blind the detector to a real
+  // duplicate.
+  const body = 'Water enters through foundation cracks and sealing the outside stops it at the source before it reaches the slab.';
+  const a = fingerprint({ caption: `${body}\n\nCall (917) 415-1383`, headline: 'Sealing works', serviceEmphasis: 'Basement Waterproofing' });
+  const b = fingerprint({ caption: `${body}\n\nEmail us at hello@site.com`, headline: 'Sealing works', serviceEmphasis: 'Basement Waterproofing' });
+  const r = compareFingerprints(a, b);
+  assert.ok(r.score >= 0.6, `an identical editorial body must still be caught, scored ${r.score}`);
+});
+
+test('a dominant contact footer alone cannot flag two different-service posts', () => {
+  /*
+   * The isolation case, and the revert anchor for the boilerplate exclusion.
+   *
+   * Two genuinely different-service posts (basement sealing vs a sump pump)
+   * carry the Make contractor footer: phone, email and website on separate
+   * lines. That footer is the LONGEST thing on each post, so if it is compared
+   * as content it dominates both the caption and the closing-paragraph axes and
+   * drags two unrelated posts to "review". Stripping it (editorialBody) leaves
+   * only the real, different editorial bodies, which score as unique.
+   *
+   * Measured: with the footer stripped the pair scores ~0.31 (unique); with it
+   * included ~0.53 (review). So reverting either half of the fix — editorialBody
+   * no longer stripping, or compareFingerprints no longer reading the editorial
+   * trigrams — turns this assertion red. That is the intended teeth.
+   */
+  const footer = '\n\nCall our crew on (917) 415-1383 any day of the week.'
+    + '\nEmail the office at hello@nyc-waterproofing.com.'
+    + '\nVisit nyc-waterproofing.com to book a free inspection today.';
+  const a = {
+    caption: `Sealing a cracked foundation from the outside keeps groundwater from ever reaching the slab.${footer}`,
+    headline: 'Where basement water comes from', cta: 'Book a free quote',
+    hashtags: ['#waterproofing', '#nyc'], contentType: 'service_benefit', goal: 'awareness',
+    serviceEmphasis: 'Basement Waterproofing',
+  };
+  const b = {
+    caption: `A sump pump in the pit clears rising water before it can spread across a finished floor.${footer}`,
+    headline: 'How a sump pump protects a finished basement', cta: 'Book a free quote',
+    hashtags: ['#waterproofing', '#nyc'], contentType: 'process', goal: 'awareness',
+    serviceEmphasis: 'Sump Pump Installation',
+  };
+  // The footer really is stripped, line by line, leaving only the body.
+  assert.equal(editorialBody(a.caption).includes('415-1383'), false, 'the phone line is stripped');
+  assert.equal(editorialBody(a.caption).includes('@'), false, 'the email line is stripped');
+  assert.equal(editorialBody(a.caption).includes('nyc-waterproofing.com'), false, 'the website line is stripped');
+  const result = svc.evaluate(a, { batch: [b] });
+  assert.equal(result.verdict, 'unique', `a shared footer alone must not flag different-service posts, scored ${result.score}`);
 });
