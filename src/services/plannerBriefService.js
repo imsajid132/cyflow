@@ -476,7 +476,9 @@ function ctaFromRhythm(rhythmCtaMode, runCtaMode, index) {
  * @param {{ slots, preferences, profile, platforms, rhythm? }} input
  * @returns {Array<object>} briefs aligned 1:1 with slots
  */
-export function buildBriefSet({ slots = [], preferences = {}, profile = null, platforms = [], rhythm = null } = {}) {
+export function buildBriefSet({
+  slots = [], preferences = {}, profile = null, platforms = [], rhythm = null, positionOffset = 0,
+} = {}) {
   const count = Math.min(slots.length, PLANNER_LIMITS.MAX_ITEMS_PER_RUN);
   // The mix biases format choice WITHIN each weekday's pillar (see
   // preferredByMix). It no longer decides the plan's shape; the rhythm does.
@@ -519,6 +521,9 @@ export function buildBriefSet({ slots = [], preferences = {}, profile = null, pl
     dayTypeAt: (isoWeekday) => dayTypeFor({ week }, isoWeekday),
     services,
     reviews,
+    // The automation builds one slot at a time and passes the slot's position
+    // in the week so the rotation continues rather than restarting at zero.
+    positionOffset,
   });
   const location = [profile?.city, profile?.region].filter(Boolean).join(', ') || null;
 

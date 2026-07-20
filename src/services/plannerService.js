@@ -158,6 +158,7 @@ import {
   measurePostCopy,
   targetBandFor,
   repairGuidance,
+  isCompleteWithinTolerance,
 } from './contentStyleGuard.js';
 import { normalizePlatformCopy, applyPlatformEdit } from './platformCopy.js';
 
@@ -1071,6 +1072,25 @@ export function createPlannerService({
      * go in the same note, because from the reviewer's side they are the same
      * question: "is this good enough?"
      */
+    /*
+     * A word shortfall that survived the repair attempts, on an otherwise
+     * complete post, is accepted rather than failed.
+     *
+     * The repair loop still tried to reach the floor; this only catches the
+     * case where the model landed a few words short of a complete, well-formed
+     * post. Staging failed a 124-word Facebook post terminally at the 130
+     * minimum, which is the "same post needs another rewrite" the operator saw.
+     * A word shortfall is a formatting concern, not a similarity one, so it is
+     * dropped from the rejections when the post is complete within tolerance;
+     * every other rejection (banned phrase, unfixable claim, real over-length)
+     * still stands.
+     */
+    const styleRejectionsKept = styleRejections.filter((reason) => {
+      const isShortfall = /has \d+ words?; the minimum is/.test(reason);
+      return !(isShortfall && isCompleteWithinTolerance(content.caption, primaryPlatform));
+    });
+    styleRejections = styleRejectionsKept;
+
     const duplicateFlagged = evaluation && evaluation.verdict !== 'unique';
     const styleFlagged = styleRejections.length > 0;
     const platformFlagged = platformNotes.length > 0;
@@ -3229,17 +3249,39 @@ export function createPlannerService({
       scheduledForInstant: new Date(`${String(slot.scheduledForUtc).replace(' ', 'T')}Z`),
     };
 
-    const briefs = buildBriefSet({ slots: [scheduleSlot], preferences, profile, platforms, rhythm });
-    if (!briefs.length) throw new ValidationError('No brief could be built for this slot');
+    /*
+     * The slot's POSITION in the automation's run, so the diversity rotation
+     * continues instead of restarting at zero.
+     *
+     * This is the collapse staging saw. Each slot was generated in its own call
+     * as a single-item batch, and the batch planner assigns by index, so every
+     * slot got index 0: the first service, the first opening, the first CTA. The
+     * result was seven near-identical posts, and the uniqueness detector then
+     * correctly rejected all but the first as duplicates, which is why six of
+     * seven "failed generation". Passing the count of already-generated items as
+     * the offset makes the Nth slot the Nth post in the rotation.
+     */
     const existing = await runsRepo.listItemsForRun(run.id, userId);
-    const brief = { ...briefs[0], position: existing.length };
+    const positionOffset = existing.length;
+    const briefs = buildBriefSet({ slots: [scheduleSlot], preferences, profile, platforms, rhythm, positionOffset });
+    if (!briefs.length) throw new ValidationError('No brief could be built for this slot');
+    const brief = { ...briefs[0], position: positionOffset };
 
     // The same platform contract the planner enforces: an item can only target
     // platforms the automation selected. This is the no-Facebook-injection guard.
     assertPlatformContract(platforms, [brief]);
 
-    // Recent history (which already includes this run's committed items) drives
-    // dedup, so each independently-generated slot stays distinct.
+    /*
+     * The batch history is the run's OWN already-generated items, so this slot
+     * knows what its siblings used and can avoid repeating a headline, an
+     * opening, a service, a CTA, a hashtag family or a closing. Without this the
+     * cross-slot dedup and the retry-diversity context were empty on every
+     * automation slot, because `batch` was passed as [].
+     */
+    const batch = existing.map((it) => it.fingerprint).filter(Boolean);
+
+    // Recent history (real approved/published/queued items, not failed or
+    // rejected ones — see listRecentFingerprintsForUser) drives similarity.
     const recent = await runsRepo.listRecentFingerprintsForUser(userId, {
       limit: PLANNER_LIMITS.DUPLICATE_LOOKBACK_ITEMS,
       sinceUtc: addSecondsUtc(-PLANNER_LIMITS.DUPLICATE_LOOKBACK_DAYS * 24 * 3600, now()),
@@ -3248,7 +3290,7 @@ export function createPlannerService({
     const wantImages = await imageIntegrationVerified(userId);
 
     const outcome = await generateOneItem({
-      userId, run, brief, profile, batch: [], recent, autoQueue: false, wantImages,
+      userId, run, brief, profile, batch, recent, autoQueue: false, wantImages,
     });
     if (!outcome) return { item: null };
     return { item: await decorateItem(userId, outcome.item) };

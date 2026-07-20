@@ -146,8 +146,16 @@ export function problemFor(services, index) {
  * @param {Array<string>} input.services the workspace's persisted services
  * @returns {Array<object>} one assignment per slot, aligned by index
  */
-export function planBatch({ slots = [], dayTypeAt, services = [], reviews = [] } = {}) {
+export function planBatch({ slots = [], dayTypeAt, services = [], reviews = [], positionOffset = 0 } = {}) {
   const serviceList = (services || []).filter((s) => typeof s === 'string' && s.trim());
+  /*
+   * The rotation index. Zero for a whole-plan build (every slot in one call),
+   * but non-zero for the automation, which generates ONE slot per call and must
+   * continue the rotation where the last slot left off. Without it every
+   * independently generated slot was assigned index 0 — the first service, the
+   * first opening, the first CTA — which is exactly the collapse staging saw.
+   */
+  const base = Number.isFinite(positionOffset) ? positionOffset : 0;
   /*
    * Reviews are handed out one per testimonial slot, in order, so a batch with
    * several testimonial days does not repeat one review. When they run out, a
@@ -194,14 +202,18 @@ export function planBatch({ slots = [], dayTypeAt, services = [], reviews = [] }
      * lowest common multiple of the bank sizes, which is far beyond any batch
      * a user will schedule.
      */
-    const opening = at(OPENING_STYLES, i);
-    const closing = at(CLOSING_STYLES, i + 1);
-    const writingFormat = at(WRITING_FORMATS, i + 2);
-    const hashtagFamily = at(HASHTAG_FAMILIES, i + 3);
-    const headlineStyle = at(HEADLINE_STYLES, i + 1);
+    // The rotation index continues from the offset, so the automation's Nth
+    // slot is assigned as if it were the Nth post in one plan. The day type
+    // still follows the slot's own weekday above, not the offset.
+    const r = base + i;
+    const opening = at(OPENING_STYLES, r);
+    const closing = at(CLOSING_STYLES, r + 1);
+    const writingFormat = at(WRITING_FORMATS, r + 2);
+    const hashtagFamily = at(HASHTAG_FAMILIES, r + 3);
+    const headlineStyle = at(HEADLINE_STYLES, r + 1);
 
     return {
-      position: i,
+      position: r,
       isoWeekday,
       dayTypeKey: dayType?.key || null,
       dayTypeLabel: dayType?.label || null,
@@ -212,8 +224,8 @@ export function planBatch({ slots = [], dayTypeAt, services = [], reviews = [] }
       imageConcept: dayType?.imageConcept || null,
       layoutHint: dayType?.layoutHint || null,
       ctaType: dayType?.ctaType || 'soft',
-      service: serviceList.length ? at(serviceList, i).trim() : null,
-      audienceProblem: problemFor(serviceList, i),
+      service: serviceList.length ? at(serviceList, r).trim() : null,
+      audienceProblem: problemFor(serviceList, r),
       openingStyle: opening.key,
       openingGuidance: dayType?.openingGuidance || opening.guidance,
       closingStyle: closing.key,

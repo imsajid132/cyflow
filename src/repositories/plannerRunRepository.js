@@ -381,12 +381,32 @@ export async function listRecentFingerprintsForUser(
   connection,
 ) {
   const params = [userId];
+  /*
+   * The history-scope policy: only REAL content the user kept counts as history.
+   *
+   * Similarity was comparing every new post against every past item regardless
+   * of what happened to it, so a batch of failed or rejected staging posts
+   * poisoned every future generation — the more the model failed, the more it
+   * was told its next attempt was too similar to the failures. A post that could
+   * not be generated, or that the user rejected, is not content the business
+   * published and must not shape what comes next.
+   *
+   *   INCLUDED: items that reached a usable state (needs_review, approved,
+   *             queued, published) and generated cleanly.
+   *   EXCLUDED: generation_failed items, and rejected items.
+   *
+   * Deleted plans already have their items removed by cascade, so nothing extra
+   * is needed for them. The current batch is passed separately as `batch`, so it
+   * still de-duplicates within the run.
+   */
   let sql =
     `SELECT id, planner_run_id, content_type, content_pillar, goal, template_key,
             content_fingerprint_json, created_at
        FROM planner_run_items
       WHERE user_id = ?
-        AND content_fingerprint_json IS NOT NULL`;
+        AND content_fingerprint_json IS NOT NULL
+        AND (quality_status IS NULL OR quality_status <> 'generation_failed')
+        AND (approval_status IS NULL OR approval_status <> 'rejected')`;
   if (sinceUtc) {
     sql += ' AND created_at >= ?';
     params.push(sinceUtc);

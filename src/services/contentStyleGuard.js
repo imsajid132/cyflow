@@ -402,6 +402,41 @@ export function measurePostCopy(caption, platform) {
  * and a caller that does not say which platform it is writing for does not get
  * a length verdict invented for it.
  */
+/*
+ * A structurally complete post that lands a few words under the minimum is
+ * repairable, not broken.
+ *
+ * Staging failed a 124-word Facebook post terminally because the minimum is 130.
+ * The repair loop still TRIES to reach the floor (postCopyIssues flags the
+ * shortfall, targetBandFor raises the ask), so this tolerance is NOT applied
+ * here — flagging is what makes the repair happen. It is applied at the final
+ * decision (isCompleteWithinTolerance), so a complete post that the model could
+ * not push those last few words over is accepted instead of thrown away.
+ */
+export const WORD_MIN_TOLERANCE = 12;
+
+/**
+ * After the repair attempts are spent, is this post complete and only a few
+ * words short — accept it — or genuinely wrong — fail it?
+ *
+ * "Complete" means the structure is right: paragraphs in range, no wall-of-text
+ * paragraph, no hashtags in the prose, and within the word tolerance of the
+ * minimum (and never over the maximum). This is the "accept a small tolerance
+ * when content is complete" path, kept separate from a similarity rewrite.
+ */
+export function isCompleteWithinTolerance(caption, platform) {
+  const m = measurePostCopy(caption, platform);
+  if (!m || m.words === 0) return false;
+  const { rules } = m;
+  const structurallyComplete = m.paragraphs >= rules.MIN_PARAGRAPHS
+    && m.paragraphs <= rules.MAX_PARAGRAPHS
+    && m.longestParagraph <= PARAGRAPH_MAX_WORDS
+    && m.hashtagsInCopy === 0
+    && m.words <= rules.MAX_WORDS;
+  const shortfall = rules.MIN_WORDS - m.words;
+  return structurallyComplete && shortfall >= 0 && shortfall <= WORD_MIN_TOLERANCE;
+}
+
 export function postCopyIssues(caption, platform) {
   const m = measurePostCopy(caption, platform);
   if (!m) return [];

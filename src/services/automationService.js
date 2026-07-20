@@ -540,13 +540,29 @@ export function createAutomationService({
     await record(EVENT_TYPES.AUTOMATION_REFILL_STARTED, { userId, automationId: a.id, message: 'Refill started' });
     const run = await ensureBackingRun(a, userId);
 
+    /*
+     * The window is one day longer than the horizon so the horizon is measured
+     * in FUTURE days, not calendar days from today.
+     *
+     * buildSchedule starts at today and drops any slot whose time has already
+     * passed. On a same-day run that silently loses today, so a seven-day
+     * Monday-to-Sunday automation created six future slots, not seven, which is
+     * the "only two/six items" shortfall. Adding a day compensates for the
+     * partial first day; the final slice keeps exactly the horizon's worth of
+     * FUTURE active days so a run before the day's time does not over-provision.
+     */
     const schedule = buildSchedule({
-      startDate: a.startDate || null, planLength: a.generationHorizonDays,
+      startDate: a.startDate || null, planLength: a.generationHorizonDays + 1,
       cadence: 'selected_weekdays', weekdays: a.selectedWeekdays, times: a.postingTimes,
       postsPerDay: a.postsPerDay, timezone: a.timezone, now: now(),
     });
     let slots = schedule.slots;
     if (a.endDate) slots = slots.filter((s) => s.localDate <= a.endDate);
+    // Exactly the horizon's worth of future active days (postsPerDay each),
+    // so the extra window day never becomes an extra prepared slot.
+    const horizonActiveDays = new Set(slots.map((s) => s.localDate));
+    const keepDates = new Set([...horizonActiveDays].sort().slice(0, a.generationHorizonDays));
+    slots = slots.filter((s) => keepDates.has(s.localDate));
     slots = slots.slice(0, AUTOMATION_LIMITS.MAX_SLOTS_PER_REFILL);
 
     let enqueued = 0;
