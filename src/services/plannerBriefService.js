@@ -567,16 +567,26 @@ export function buildBriefSet({
      * now steers within the weekday's pillar rather than against it: the rhythm
      * decides the post's PURPOSE, the mix leans on how it is written.
      */
+    const assignment = diversity[i] || {};
+    /*
+     * EXACT MAKE PARITY: the Make day-type's own format is authoritative for the
+     * caption shape, so the caption is written for the same intent the poster is
+     * drawn for (a stat day is authority copy on a stat card). A locked weekday
+     * still wins; the generic pillar format is ONLY a fallback when the Make
+     * strategy assigned no format — it validates/fills, it never overrides the
+     * recipe. This is the consolidation of the two weekday taxonomies onto the
+     * Make one.
+     */
     const pillarFormats = formatsForPillar(pillar);
     const preferredFormat = config?.locked && config?.format ? config.format : null;
     const format = preferredFormat
+      || assignment.format
       || preferredByMix(pillarFormats, mix, seenFormat)
       || pillarFormats[i % pillarFormats.length];
 
     const occurrence = seenFormat.get(format) || 0;
     seenFormat.set(format, occurrence + 1);
 
-    const assignment = diversity[i] || {};
     const service = assignment.service ?? pick(services, i, null);
     const goal = pick(activeGoals, i, 'awareness');
     const angleList = ANGLES[format] || ANGLES.educational_insight;

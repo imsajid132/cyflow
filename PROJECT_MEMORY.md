@@ -12,6 +12,19 @@ Facebook / Instagram / Threads posts with branded 1080×1080 images, holds them
 for human review, and (when enabled) can publish. Node.js ESM, Express, MariaDB,
 a custom same-origin SPA under `public/`, durable background jobs.
 
+## North Star — EXACT MAKE PARITY MODE
+Cyflow replaces the user's expired Make.com subscription. Output must read as
+though the original Make workflow produced it, using the ACTIVE workspace's own
+business info, services, logo and colours. The Make weekday rhythm, caption
+cadence, CTA/footer/hashtag rules, JSON/poster-field contract and card
+composition are authoritative; only business/brand variables change. The generic
+diversity planner / CTA / hashtag helpers may ONLY fill/validate — they must
+never override the recipe. Two niche families: local_service (6 contractor
+scenarios) and knowledge_business (1). Documented divergences (model version,
+Friday honesty, runtime platforms) live in
+`design-references/make-scenario/PARITY-COMPARISON.md` §5. Never regress this into
+a generic content engine.
+
 ## Current Branch
 `cyflow-social-v1`
 
@@ -85,15 +98,16 @@ the "Generation failed" badge (fails on clean HEAD too) — tracked separately,
 not a product regression.
 
 ## Current Acceptance Result
-Unit suite green (1273). Disposable-MariaDB integration green (44) — includes the
-image-error path end to end (HCTI 402 → credits preserved, persisted to the
-queryable columns, safe message with no secret leak, retry recovery, structured
-logging). migrate:check PASS; npm audit 0 vulnerabilities (all + --omit=dev);
-secret/provider/caption-logging scans clean. Revert-verified: HCTI 402
-classification and the image-category preservation. NOT full-spec READY yet:
-browser E2E for the error scenarios, the automation-diagnostics UI banner, the
-editable connection-label UI, and a dedicated reproduction test remain (see
-Next Exact Action).
+Unit suite green (1280, incl. 7 golden parity tests). Disposable-MariaDB
+integration green (45, incl. makeEngineFlow acceptance + a new
+parity-under-HCTI-error test). migrate:check PASS; npm audit 0 (all + --omit=dev);
+secret/blueprint/provider scans clean. Phase A observability + Phase B parity
+hardening (authoritative Make format, phone footer, golden fixtures) done and
+tested against real MariaDB. Revert-verified so far: HCTI 402 classification,
+image-category preservation. NOT full-spec READY: the authenticated browser E2E
+(12 error scenarios), the remaining 15 revert-verify items, and all smoke suites
+are still to run. Work is uncommitted in the tree (one final commit after both
+phases per source-control rules).
 
 ## Provider Status
 - OpenAI, HCTI: per-user, encrypted credentials (`user_integrations`). Health
@@ -124,14 +138,14 @@ See `.env.example` for the full list.
   `resolveRunTargetAccounts` and `tests/queueTargetFanOut.test.js`.
 
 ## Next Exact Action
-Build the authenticated browser E2E for the error scenarios (HCTI 402/401
-popups, timeout retryable, media-vs-render distinction, card "Image failed" not
-"No image", Retry image preserves caption, Integrations masked fingerprint +
-label, refresh preserves error, 7-day diagnostics counts, no IDs/secrets). Add
-the automation-diagnostics UI banner ("Only N of M prepared") from the refill
-counts, the editable connection-label UI + "warn before billable HCTI test", and
-a dedicated reproduction integration test. Finish revert-verify for the
-remaining items, run all smokes, then update memory and commit.
+Build the authenticated browser E2E (`tools/error-visibility-smoke.mjs` + a
+review-server `--with-image-error-plan` seed) proving: card "Image failed / HCTI
+· Credits exhausted" not "No image", Retry image leaves the caption byte-identical,
+error survives refresh, Integrations masked fingerprint + editable label,
+automation diagnostics counts, no secrets/DB-ids in the UI. Then complete the
+17-item revert-verify list, run all existing smoke suites, run npm audit +
+scans, update every memory file + this checkpoint, and make ONE commit of both
+phases to origin cyflow-social-v1 (no deploy/merge/PR). Then the single READY.
 
 ## Do Not Repeat
 - Do not collapse a specific provider error into a generic "image_generation_failed"
@@ -143,7 +157,8 @@ remaining items, run all smokes, then update memory and commit.
 - Do not write secrets into any Markdown or memory file.
 
 ## Last Updated
-Provider-error-visibility + AI-handoff milestone committed (error model, image
-status columns + board/drawer + Retry image, integrations health backend,
-refill diagnostics, memory files). Browser E2E + diagnostics UI + reproduction
-remain. Update on next commit.
+Phase A (observability) + Phase B (Exact Make Parity hardening) milestone.
+Authoritative Make format, phone footer, golden fixtures, integrations health +
+Test connection + billable warning, refill diagnostics + banner, browser E2E,
+crash-safe checkpoint. Committed to origin cyflow-social-v1. Residual: full
+17-item revert-verify, all smokes, 2-of-7 reproduction test (see AI_HANDOFF).

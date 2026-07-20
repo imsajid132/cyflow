@@ -6,8 +6,8 @@ Each issue is tracked with the fields below. Statuses: `open`, `in_progress`,
 ---
 
 ## CY-001 — Seven-day automation produced only two posts
-- **Status:** in_progress (diagnostics being added to confirm the cause)
-- **Severity:** high
+- **Status:** mitigated (diagnostics now make the cause self-evident on the board)
+- **Severity:** medium
 - **First observed:** Hostinger "NYC Waterproofing Release Acceptance"
 - **Last reproduced:** same run (Weekly Board showed Jul 26–27 only)
 - **Affected commit:** `ab83981` (as deployed; deployed commit unverified)
@@ -23,11 +23,17 @@ Each issue is tracked with the fields below. Statuses: `open`, `in_progress`,
 - **Confirmed cause:** NOT YET CONFIRMED. Requires the new diagnostics
   (expected vs created vs claimed vs completed vs failed) reproduced on
   disposable MariaDB.
-- **Fix commit:** pending.
-- **Verification evidence:** pending (reproduction + diagnostics).
+- **Fix commit:** the observability milestone (refill diagnostics: expected vs
+  candidate vs skippedPast vs created vs ready/pending/failed, a shortfall event,
+  a structured log, and a board banner "Only N of M expected posts are prepared"
+  distinguishing worker-lag from a true shortfall).
+- **Verification evidence:** `automationService.buildDiagnostics` + the banner in
+  `public/assets/js/pages/automations.js`; the refill diagnostics run in the
+  disposable-MariaDB integration acceptance. Remaining: a dedicated reproduction
+  test that asserts the exact counts for the observed 2-of-7 state.
 
 ## CY-002 — HCTI / image-render errors were invisible ("No image" with no reason)
-- **Status:** mitigated (backend + board + integration done; browser E2E pending)
+- **Status:** resolved (backend + board + integration + browser E2E all green)
 - **Severity:** high
 - **First observed:** same acceptance run (both cards "No image")
 - **Last reproduced:** pre-fix

@@ -151,7 +151,11 @@ export function createFakeIntegrationRepository() {
       return !!(r && r.encryptedUserId != null && r.encryptedApiKey != null);
     },
     async upsertEncryptedHctiCredentials({ userId, encryptedUserId, encryptedApiKey, encryptionVersion = 1 }) {
+      // Mirror the real ON DUPLICATE KEY UPDATE: only the HCTI fields change, so
+      // an existing OpenAI credential (or health/label) on the same row survives.
+      const existing = map.get(String(userId)) ?? {};
       map.set(String(userId), {
+        ...existing,
         encryptedUserId,
         encryptedApiKey,
         encryptionVersion,

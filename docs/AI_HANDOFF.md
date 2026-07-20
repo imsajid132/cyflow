@@ -52,14 +52,33 @@ from the Hostinger host before assuming.
     Retry image re-renders WITHOUT touching the caption.
   - Board card + drawer render "Image failed / HCTI · <reason>" + Retry image.
 
-## What remains unresolved
-- Integrations health panel BACKEND + "Test connection" persistence (columns
-  exist; controller/service/UI wiring to finish).
-- Automation + durable-job DIAGNOSTICS (expected vs created vs completed vs
-  failed; the "only 2 of 7" explanation) — backend event + endpoint + UI.
-- Remaining error UX (toasts on more surfaces, integrations panel UI).
-- Reproduction investigation on disposable MariaDB (blocked on local Docker).
-- Browser E2E for the error scenarios; full gates; revert-verify; commit.
+## Phase A + B completed this milestone
+- Phase A observability finished: integrations health backend + Test connection
+  (with a billable-render WARNING before the HCTI test), editable connection
+  label, automation refill diagnostics + a board banner ("Only N of M prepared"),
+  and an authenticated browser E2E (`tools/error-visibility-smoke.mjs`, 14/14).
+- Phase B EXACT MAKE PARITY hardening: the Make day-type `format` is now
+  AUTHORITATIVE for the caption (plannerBriefService prefers `assignment.format`;
+  the generic pillar/mix only fills — locked by tests). The workspace phone is
+  rendered in planner poster footers. `tests/makeParityGolden.test.js` locks the
+  measurable recipe (both weekday sequences, format<->concept<->layout, Friday
+  gating, authoritative format aligned with the poster, 1080^2). A
+  parity-under-HCTI-error integration test proves the recipe survives a provider
+  error. Divergences (model version, Friday honesty, runtime platforms) are in
+  PARITY-COMPARISON.md §5.
+
+## What remains unresolved (verification depth, not blockers)
+- Not every one of the 17 revert-verify items has been run this session (HCTI 402,
+  image-category, authoritative-format, checkpoint-validation are done); the rest
+  are covered by unit/integration tests but not each individually reverted.
+- Not all existing smoke suites re-run (automation + error-visibility done).
+- A dedicated 2-of-7 reproduction test (CY-001) still to add.
+- Full 12-variant popup E2E (401/429/timeout/media-vs-render as separate browser
+  assertions) — the classification + messages are unit-tested and the render path
+  is E2E'd for 402.
+- PHASE B continues in future sessions if deeper parity (verbatim prompt wording)
+  is wanted; current parity is rhythm/structure/format/poster/branding, not the
+  Make prompt persona text (documented divergence).
 
 ## Exact live reproduction (from the operator)
 Automation "NYC Waterproofing Release Acceptance": Facebook only, one account

@@ -506,6 +506,28 @@ export function createAutomationService({
     return { localDate: next.localDate, localTime: next.localTime, scheduledForUtc: next.scheduledForUtc };
   }
 
+  /**
+   * How many posts the horizon EXPECTS: the selected weekdays that fall in the
+   * next `generationHorizonDays` days, times postsPerDay. Cheap and DB-free (no
+   * schedule rebuild) — it only needs the local weekday of "today".
+   */
+  function expectedForHorizon(a) {
+    const weekdays = Array.isArray(a.selectedWeekdays) ? a.selectedWeekdays : [];
+    if (!weekdays.length || !a.generationHorizonDays) return 0;
+    let todayIso;
+    try {
+      const d = todayInZone(a.timezone); // 'YYYY-MM-DD'
+      const dow = new Date(`${d}T00:00:00Z`).getUTCDay(); // 0=Sun..6=Sat
+      todayIso = dow === 0 ? 7 : dow; // 1=Mon..7=Sun
+    } catch { todayIso = 1; }
+    let days = 0;
+    for (let i = 0; i < a.generationHorizonDays; i += 1) {
+      const iso = ((todayIso - 1 + i) % 7) + 1;
+      if (weekdays.includes(iso)) days += 1;
+    }
+    return days * (a.postsPerDay || 1);
+  }
+
   async function toPublic(a) {
     const buffer = await computeBuffer(a).catch(() => ({ readyDays: 0, through: null, low: true, ok: false, byStatus: {} }));
     let nextPost = null;
@@ -526,6 +548,26 @@ export function createAutomationService({
       plannerRunId: a.plannerRunId, // used by "View upcoming" -> /planner/week?run=
       createdAt: a.createdAt, stoppedAt: a.stoppedAt,
       readyBufferDays: buffer.readyDays, bufferLow: buffer.low, bufferOk: buffer.ok, nextPost,
+      // Safe refill diagnostics so the UI can explain "only N of M prepared"
+      // (worker still preparing vs a real shortfall vs failures). No DB ids.
+      diagnostics: buildDiagnostics(a, buffer.byStatus || {}),
+    };
+  }
+
+  /** The safe, read-time refill diagnostics shown on the automation card. */
+  function buildDiagnostics(a, byStatus) {
+    const ready = Number(byStatus.ready ?? 0);
+    const pending = Number(byStatus.planned ?? 0) + Number(byStatus.generating ?? 0);
+    const failed = Number(byStatus.failed ?? 0);
+    const skipped = Number(byStatus.skipped ?? 0) + Number(byStatus.cancelled ?? 0);
+    const total = ready + pending + failed + skipped;
+    const expected = expectedForHorizon(a);
+    let reason = 'ok';
+    if (ready < expected && pending > 0) reason = 'preparing';
+    else if (failed > 0) reason = 'failures';
+    else if (ready + pending < expected) reason = 'shortfall';
+    return {
+      expected, ready, pending, failed, skipped, prepared: ready + pending, reason,
     };
   }
 

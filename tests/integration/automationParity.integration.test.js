@@ -365,6 +365,35 @@ test('a render that never succeeds persists the SPECIFIC safe reason, not a sile
   }
 });
 
+test('EXACT PARITY holds under an HCTI error: recipe preserved, failure surfaced, caption intact', SKIP, async () => {
+  // A provider error must NOT corrupt the recipe or silently switch to generic
+  // content: the seven-day Make rhythm still runs, every caption is still
+  // written, and every image carries the SPECIFIC, persisted failure reason.
+  const credits402 = {
+    isReadyForUser: async () => true,
+    async generateSocialImage() {
+      throw new ProviderError({
+        provider: PROVIDER_NAMES.HCTI, operation: 'render_social_image',
+        category: CAT.CREDITS_EXHAUSTED, httpStatus: 402,
+      });
+    },
+  };
+  const { items } = await runAutomation({ openai: echoOpenAI({ fbWords: 150 }), imageService: credits402 });
+  assert.equal(items.length, 7, 'seven items despite the image error');
+  assert.equal(items.filter((i) => i.qualityStatus === 'generation_failed').length, 0, 'captions still generate');
+  // The Make recipe survives: day types persisted, services vary, captions real.
+  const dayTypes = items.map((i) => i.fingerprint?.assignment?.dayType).filter(Boolean);
+  assert.ok(dayTypes.length >= 1, 'day types persisted — the recipe was preserved, not swapped for generic');
+  assert.ok(distinct(items.map((i) => i.fingerprint?.serviceEmphasis ?? i.fingerprint?.assignment?.serviceEmphasis)) >= 3, 'services vary');
+  for (const it of items) {
+    assert.ok(it.caption && it.caption.length > 0, 'caption intact');
+    // The image failure is the SPECIFIC, persisted category — surfaced, not a silent blank.
+    assert.equal(it.imageStatus, 'failed');
+    assert.equal(it.imageErrorCategory, CAT.CREDITS_EXHAUSTED);
+    assert.equal(it.imageRetryable, false);
+  }
+});
+
 test('the board returns items in chronological order regardless of generation order', SKIP, async () => {
   /*
    * The Friday-before-Thursday bug: position is assigned in GENERATION order,

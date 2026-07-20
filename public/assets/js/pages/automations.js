@@ -220,6 +220,21 @@ export async function render(root, ctx) {
       meta,
     ];
     if (a.status === 'attention_needed' && a.attentionReason) children.push(notice(a.attentionReason, 'err'));
+    // Actionable diagnostics banner: explain "only N of M prepared" without
+    // internal ids — worker still preparing, a real shortfall, or failures.
+    const diag = a.diagnostics;
+    if (diag && diag.reason && diag.reason !== 'ok' && diag.expected > 0) {
+      const line = `Only ${diag.prepared} of ${diag.expected} expected posts are prepared.`;
+      let detail;
+      let tone = 'warn';
+      if (diag.reason === 'preparing') detail = `${diag.ready} ready, ${diag.pending} still preparing. The worker is catching up; check back shortly.`;
+      else if (diag.reason === 'failures') { detail = `${diag.ready} ready, ${diag.failed} failed. Open a prepared post for the specific reason and Retry.`; tone = 'err'; }
+      else detail = `${diag.ready} ready, ${diag.pending} pending. Fewer slots than the horizon expected — check the weekday and horizon settings.`;
+      children.push(el('div', { className: 'stack', attrs: { style: 'gap:.15rem' } }, [
+        notice(line, tone),
+        el('div', { className: 'card-sub', text: detail }),
+      ]));
+    }
     children.push(actions);
     return card(children);
   }

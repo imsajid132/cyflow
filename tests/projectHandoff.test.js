@@ -21,6 +21,7 @@ const REQUIRED = [
   'docs/DECISIONS.md',
   'docs/OPERATIONS_RUNBOOK.md',
   'docs/ACCEPTANCE_CHECKLIST.md',
+  'docs/SESSION_CHECKPOINT.md',
 ];
 
 test('every required handoff memory file exists', () => {

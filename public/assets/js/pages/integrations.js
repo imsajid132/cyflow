@@ -106,6 +106,33 @@ function openAiStatusRow(status) {
   return el('div', { className: 'row', attrs: { style: 'gap:.5rem;flex-wrap:wrap' } }, bits);
 }
 
+/**
+ * An operator-editable connection LABEL (a name like "Main HCTI"), so a team can
+ * tell which account is connected without revealing the credential. Saves to
+ * PUT /api/integrations/<kind>/label; the label is not a secret.
+ */
+function labelEditor(kind, current) {
+  const input = el('input', {
+    className: 'input',
+    attrs: { type: 'text', maxlength: '120', placeholder: 'Connection label (e.g. Main HCTI)', value: current || '', 'data-label-input': kind, style: 'max-width:20rem' },
+  });
+  const saveBtn = el('button', { className: 'btn btn-ghost btn-sm', text: 'Save label', attrs: { type: 'button' } });
+  saveBtn.addEventListener('click', async () => {
+    if (saveBtn.disabled) return;
+    setLoading(saveBtn, true, 'Saving…');
+    try {
+      const res = await api.apiRequest(`/api/integrations/${kind}/label`, { method: 'PUT', body: { label: input.value.trim() } });
+      if (!res.ok) { toast(api.errorMessage(res, 'The label could not be saved.'), 'err'); return; }
+      toast('Connection label saved.', 'ok');
+    } finally {
+      setLoading(saveBtn, false);
+    }
+  });
+  return el('div', { className: 'row', attrs: { style: 'gap:.5rem;align-items:center;margin-top:.4rem' } }, [
+    el('span', { className: 'card-sub', text: 'Label:' }), input, saveBtn,
+  ]);
+}
+
 export async function render(root, ctx) {
   const [statusRes, openAiRes] = await Promise.all([
     api.apiRequest('/api/integrations/hcti'),
@@ -169,6 +196,17 @@ export async function render(root, ctx) {
 
   testBtn.addEventListener('click', async () => {
     resultHost.textContent = '';
+    /*
+     * HCTI has no free health endpoint: a Test connection performs a tiny real
+     * render and may consume ONE render credit. Warn and require explicit
+     * confirmation before spending — never silently.
+     */
+    const proceed = await confirmModal({
+      title: 'Test HCTI connection?',
+      message: 'HCTI has no free health check, so this runs a tiny real render and may consume one render credit on your HCTI account.',
+      confirmText: 'Run test (may use 1 credit)',
+    });
+    if (!proceed) return;
     setLoading(testBtn, true, 'Testing…');
     try {
       const res = await api.apiRequest('/api/integrations/hcti/test', { method: 'POST' });
@@ -342,6 +380,7 @@ export async function render(root, ctx) {
     el('div', { className: 'row', attrs: { style: 'gap:.5rem' } }, [
       aiSaveBtn, aiTestBtn, el('span', { className: 'spacer' }), aiRemoveBtn,
     ]),
+    openAi.configured ? labelEditor('openai', openAi.connectionLabel) : null,
     aiResultHost,
     /*
      * The billing sentence, verbatim and deliberately prominent.
@@ -375,6 +414,7 @@ export async function render(root, ctx) {
       el('div', { className: 'row', attrs: { style: 'gap:.5rem' } }, [
         saveBtn, testBtn, el('span', { className: 'spacer' }), removeBtn,
       ]),
+      status.configured ? labelEditor('hcti', status.connectionLabel) : null,
       resultHost,
       el('p', { className: 'hint', text: 'Find both values in your HCTI dashboard. Cyflow only uses them to render your images.' }),
     ]),

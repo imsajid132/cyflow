@@ -381,12 +381,13 @@ test('describeRhythm gives the wizard a full, labelled week', () => {
 
 // --- the content mix is a real control, not a decoration --------------------
 
-test('the content mix steers the writing format WITHIN the weekday pillar', () => {
+test('the Make recipe format is authoritative; the content mix cannot override it', () => {
   /*
-   * Phase 4.8's rhythm took over format selection and left `contentMix` wired to
-   * nothing, while the run snapshot still recorded it as configuration: a
-   * control that looked live and did nothing. The mix now biases which of the
-   * pillar's eligible formats is used.
+   * EXACT MAKE PARITY: the Make day-type's own format decides the caption shape,
+   * so the caption is written for the same intent the poster is drawn for. The
+   * generic content mix may NOT override the recipe — it only fills when the
+   * strategy assigned no format. So two opposite mixes produce the SAME formats:
+   * the recipe wins.
    */
   const dates = ['2026-07-13', '2026-07-14', '2026-07-15', '2026-07-16', '2026-07-17', '2026-07-18', '2026-07-19'];
   const slots = dates.map((d, i) => slot(d, i + 1));
@@ -398,13 +399,13 @@ test('the content mix steers the writing format WITHIN the weekday pillar', () =
   const checklisty = plan({ checklist: 10, faq_answer: 8 });
   const promotional = plan({ soft_promo: 10, comparison: 8 });
 
-  assert.notDeepEqual(
+  assert.deepEqual(
     checklisty.map((b) => b.format),
     promotional.map((b) => b.format),
-    'two opposite mixes must not produce identical formats',
+    'the Make recipe format is authoritative regardless of the generic content mix',
   );
-  // A favoured format really is reached where its pillar admits it.
-  assert.ok(checklisty.some((b) => b.format === 'faq_answer'), 'the mix should surface faq_answer');
+  // Every slot has a real recipe format (the knowledge day-type formats).
+  assert.ok(checklisty.every((b) => typeof b.format === 'string' && b.format.length > 0));
 });
 
 test('the mix can never override the weekday pillar', () => {

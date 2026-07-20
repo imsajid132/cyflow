@@ -1732,7 +1732,10 @@ export function createPlannerService({
       bodyFont: profile?.bodyFont ?? null,
       cta: brief.callToAction,
       website: displayWebsite(profile?.websiteUrl),
-      phone: null,
+      // EXACT MAKE PARITY: Make posters render the business phone in the footer.
+      // This planner path previously dropped it (phone:null) and fell back to the
+      // website only; thread the workspace's own phone so the footer matches Make.
+      phone: profile?.phone ?? null,
       businessCategory: profile?.businessCategory ?? null,
       serviceTag: brief.serviceEmphasis,
       bullets: content.bullets ?? null,

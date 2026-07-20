@@ -27,6 +27,7 @@ const REQUIRED_FILES = [
   'docs/DECISIONS.md',
   'docs/OPERATIONS_RUNBOOK.md',
   'docs/ACCEPTANCE_CHECKLIST.md',
+  'docs/SESSION_CHECKPOINT.md',
 ];
 
 // A representative subset of headings that must be present (not the full list,
@@ -44,7 +45,15 @@ const REQUIRED_HEADINGS = {
     'Expected final acceptance criteria',
   ],
   'docs/ACCEPTANCE_CHECKLIST.md': ['Safety', 'Gates'],
+  'docs/SESSION_CHECKPOINT.md': [
+    'Current Objective', 'Current Phase', 'Current Branch', 'Current HEAD',
+    'Last Completed Step', 'Exact Next Step', 'Safety Flags', 'Last Updated',
+  ],
 };
+
+// Checkpoint sections that must be NON-EMPTY (a stale/blank checkpoint is a
+// crash-safety failure, not a formality).
+const NONEMPTY_CHECKPOINT_SECTIONS = ['Current Objective', 'Current Phase', 'Exact Next Step'];
 
 function read(rel) {
   const p = path.join(ROOT, rel);
@@ -86,10 +95,31 @@ export function validateHandoff() {
     if (!next || next.length < 8) problems.push('PROJECT_MEMORY.md: "Next Exact Action" is empty');
   }
 
-  // Live-publishing safety must be documented somewhere in the memory files.
+  // The crash-safe checkpoint must have live, non-empty core fields.
+  const checkpoint = read('docs/SESSION_CHECKPOINT.md');
+  if (checkpoint) {
+    for (const h of NONEMPTY_CHECKPOINT_SECTIONS) {
+      const body = sectionBody(checkpoint, h);
+      if (!body || body.length < 8) problems.push(`docs/SESSION_CHECKPOINT.md: "${h}" is empty`);
+    }
+  }
+
   const combined = REQUIRED_FILES.map(read).filter(Boolean).join('\n');
+
+  // Live-publishing safety must be documented somewhere in the memory files.
   if (!/ENABLE_LIVE_PROVIDER_PUBLISHING/.test(combined) || !/false/i.test(combined)) {
     problems.push('live-publishing safety (ENABLE_LIVE_PROVIDER_PUBLISHING=false) is undocumented');
+  }
+
+  // A final READY must not be claimed while a release-blocking (high-severity,
+  // open/in_progress) issue remains.
+  if (/READY FOR ONE HOSTINGER REDEPLOY/i.test(combined)) {
+    const issuesMd = read('docs/KNOWN_ISSUES.md') || '';
+    const blocking = [...issuesMd.matchAll(/##\s+(CY-\d+[^\n]*)[\s\S]*?\*\*Status:\*\*\s*([^\n]+)[\s\S]*?\*\*Severity:\*\*\s*([^\n]+)/g)]
+      .filter((m) => /open|in_progress/i.test(m[2]) && /high/i.test(m[3]));
+    for (const m of blocking) {
+      problems.push(`READY claimed but "${m[1].trim()}" is still ${m[2].trim()} (high severity)`);
+    }
   }
 
   // Every known issue must carry a Status.

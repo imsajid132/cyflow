@@ -402,6 +402,42 @@ export async function seedFailedPlan(overrides, userId, plannerService, { scenar
     return { runId: plan.run.id, failedItemId: target.id, scenario };
   }
 
+  if (scenario === 'image_error') {
+    /*
+     * An otherwise-fine post whose IMAGE render failed with a specific, safe
+     * category. The caption is INTACT. The board must show "Image failed / HCTI
+     * · Credits exhausted" and a Retry image, never a bare "No image", and the
+     * failure must survive a refresh. Drives tools/error-visibility-smoke.mjs.
+     */
+    await overrides.plannerRunRepository.updateItem(target.id, userId, {
+      approvalStatus: 'needs_review',
+      qualityStatus: 'passed',
+      // Clear any rendered asset so the FAILED state is what the board reads
+      // (a present media asset always reads as ready).
+      mediaAssetId: null,
+      imageStatus: 'failed',
+      imageProvider: 'hcti',
+      imageErrorCategory: 'credits_exhausted',
+      imageErrorCode: 'credits_exhausted',
+      imageErrorMessage: 'HCTI credits may be exhausted. Check your HCTI account balance or top up credits.',
+      imageHttpStatus: 402,
+      imageRetryable: false,
+      imageAttemptCount: 2,
+    });
+    // Configure HCTI + a matching health state so the Integrations panel renders
+    // its label editor and the last-error category (safe, credential-free).
+    const ir = overrides.integrationRepository;
+    if (typeof ir.upsertEncryptedHctiCredentials === 'function') {
+      await ir.upsertEncryptedHctiCredentials({ userId, encryptedUserId: 'v1:HCTI_USER', encryptedApiKey: 'v1:HCTI_KEY' }).catch(() => {});
+      if (ir.markHctiVerified) await ir.markHctiVerified(userId, '2026-07-18 09:00:00').catch(() => {});
+      if (ir.setHctiLabel) await ir.setHctiLabel(userId, 'Main HCTI').catch(() => {});
+      if (ir.recordHctiHealth) {
+        await ir.recordHctiHealth(userId, { success: false, category: 'credits_exhausted', at: '2026-07-20 09:00:00' }).catch(() => {});
+      }
+    }
+    return { runId: plan.run.id, failedItemId: target.id, scenario };
+  }
+
   const copy = checklist ? CHECKLIST_ITEM_COPY : FAILED_ITEM_COPY;
   await overrides.plannerRunRepository.updateItem(target.id, userId, {
     ...(duplicate ? {} : {
@@ -465,6 +501,9 @@ if (isMain) {
   // --with-checklist-plan  the live Checklist case (tools/checklist-smoke.mjs)
   const withChecklist = process.argv.includes('--with-checklist-plan');
   const withEditor = process.argv.includes('--with-editor-plan');
+  // --with-image-error-plan  an approved post whose IMAGE failed (credits) —
+  // the board must show the reason + Retry, never "No image" (error-visibility-smoke)
+  const withImageError = process.argv.includes('--with-image-error-plan');
   /*
    * --without-openai-key  seed a customer who has NOT configured OpenAI.
    *
@@ -478,10 +517,10 @@ if (isMain) {
   const user = await seedReviewUser(overrides, { withOpenAiKey: !withoutOpenAiKey });
 
   let seeded = '';
-  if (withPlan || withDuplicate || withChecklist || withEditor) {
+  if (withPlan || withDuplicate || withChecklist || withEditor || withImageError) {
     const { buildPlannerService } = await import('./review-planner.mjs');
     const info = await seedFailedPlan(overrides, user.id, buildPlannerService(overrides), {
-      scenario: withDuplicate ? 'duplicate' : withChecklist ? 'checklist' : withEditor ? 'editor' : 'repair',
+      scenario: withDuplicate ? 'duplicate' : withChecklist ? 'checklist' : withEditor ? 'editor' : withImageError ? 'image_error' : 'repair',
     });
     seeded = ` run=${info.runId} failedItem=${info.failedItemId} scenario=${info.scenario}`;
   }

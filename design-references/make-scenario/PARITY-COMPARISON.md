@@ -109,3 +109,27 @@ account ids, or private data. A test scans the engine for all of them.
 Proven by the contact sheet: the same service composition renders navy-and-red
 for NYC Waterproofing, green for GreenLeaf Landscaping (no logo → wordmark), and
 violet for a knowledge business — same layout, different brand.
+
+---
+
+## 5. Deliberate, documented divergences from the Make source
+
+These are the places the native engine intentionally differs. None changes the
+rhythm, composition or per-workspace branding; each is recorded honestly so
+parity is not overclaimed.
+
+| Aspect | Make.com source | Cyflow native | Why |
+|---|---|---|---|
+| Model | `gpt-4o-mini` | `OPENAI_TEXT_MODEL` (GPT-5 class; never hardcoded) | gpt-4o-mini is superseded; the closest supported model is selected, not silently substituted. |
+| Sampling | `temperature: 0.85`, `max_tokens` | Responses API + strict JSON-Schema Structured Outputs, `reasoning.effort:'minimal'`, `max_output_tokens`; no `temperature` | The Responses API does not take `temperature` for these models; Structured Outputs guarantees the JSON contract the Make `json_object` only requested. |
+| Request shape | one call returns all platforms + `image_data` | one call per post per platform; poster fields via `POSTER_SCHEMA_GROUPS` | Per-platform voice differentiation and the strict schema. The `image_data` field contract is preserved. |
+| Friday (contractors) | 5 of 6 scenarios ran a FABRICATED `customer_testimonial` | testimonial ONLY when a real stored review exists, else `maintenance_tip` | The no-fake-review honesty rule. This is a deliberate, safer deviation from the Make majority. |
+| Runtime platforms | Facebook (+ LinkedIn; Peralytics also IG/Pinterest) | Facebook, Instagram, Threads | LinkedIn and Pinterest are not Cyflow runtime targets. |
+| Datastore dedup | Peralytics had an advisory `memory` blob | `contentUniquenessService` (fingerprint) + `contentStyleGuard` | A stronger, per-run duplicate/quality guard replaces the advisory blob. |
+
+Caption authority (as of this milestone): the Make day-type's `format` is the
+authoritative caption shape (`plannerBriefService` prefers `assignment.format`);
+the generic pillar/content-mix only fills when the recipe assigns none. Locked
+via `tests/makeParityGolden.test.js` and `tests/weeklyRhythm.test.js`. The
+workspace phone is rendered in planner poster footers (parity with Make; the
+planner path previously dropped it).

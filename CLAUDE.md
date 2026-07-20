@@ -60,6 +60,32 @@ At the END of every significant task:
 - record any caveats honestly;
 - never write secrets into memory files.
 
+## Crash-safe session checkpoint (mandatory, never skip)
+
+Memory maintenance is part of the implementation, not optional documentation.
+
+Also read `docs/SESSION_CHECKPOINT.md` at the start of every session when it
+exists. Create and CONTINUOUSLY maintain it as the crash-safe working checkpoint,
+with these headings: Current Objective, Current Phase, Current Branch, Current
+HEAD, Working Tree State, Last Completed Step, Files Changed, Tests Run and
+Results, Current Failure or Blocker, Exact Next Step, Commands or Tests to Run
+Next, Safety Flags, Last Updated.
+
+Update `docs/SESSION_CHECKPOINT.md`: after every significant milestone, after
+confirming a root cause, after a migration, after a major test suite, after a
+revert-verify cycle, at any phase transition, before any commit, before context
+compaction, and before returning BLOCKED or READY or stopping for any reason.
+
+Before every final response, update at minimum PROJECT_MEMORY.md,
+docs/AI_HANDOFF.md, docs/KNOWN_ISSUES.md, docs/ACCEPTANCE_CHECKLIST.md and
+docs/SESSION_CHECKPOINT.md, and keep them in the working tree for the next
+permitted commit. `npm run project:handoff` must pass (it validates the files,
+headings, phase, objective, next step, live-publishing safety and issue
+statuses). Never mark work complete only in chat — repository memory must carry
+the same current state. Never store secrets in any memory file. The
+North Star (Exact Make Parity Mode) is recorded in PROJECT_MEMORY.md /
+docs/DECISIONS.md and must not be regressed into a generic content engine.
+
 ## Provider & job error visibility (permanent rules)
 
 - No OpenAI, HCTI, Facebook, Instagram, Threads, scheduler, worker, image-render,
