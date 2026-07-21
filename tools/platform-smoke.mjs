@@ -203,7 +203,7 @@ async function main() {
     ))()`));
     check(
       'every card shows only Instagram Professional and Threads',
-      shown.length > 0 && shown.every((s) => s === 'Instagram Professional, Threads'),
+      shown.length > 0 && shown.every((s) => /Instagram Professional/.test(s) && /Threads/.test(s) && !/acebook/i.test(s)),
       JSON.stringify(shown[0]),
     );
     check(

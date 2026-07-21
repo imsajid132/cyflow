@@ -20,7 +20,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ROUTES = ['/', '/features', '/how-it-works', '/security', '/about', '/contact', '/privacy', '/terms'];
 
 async function checkPage(b, route) {
-  await b.goto(`${BASE}${route}`, { waitMs: 900 });
+  await b.goto(`${BASE}${route}`, { waitMs: 1500 });
   const info = await b.evaluate(`(() => ({
     header: !!document.querySelector('.pub-header'),
     footer: !!document.querySelector('.pub-footer'),

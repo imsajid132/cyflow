@@ -84,30 +84,30 @@ runtime targets.)
   `socialImageService.test.js`, `migration018.test.js`) — full unit suite green.
 
 ## Current Live Problems
-- "2 of 7": a seven-day automation showed only 2 posts on the board. ROOT CAUSE
-  NOT YET CONFIRMED — leading hypothesis is the bounded 60s worker drain in
-  single-process mode (enqueued 7, only 2 completed at check time), vs a refill
-  shortfall. Diagnostics are being added to distinguish these. See
-  `docs/KNOWN_ISSUES.md` CY-001.
-- Provider/job failures previously invisible in Runtime Logs — being addressed
-  by structured logging + the health panel.
+- "2 of 7": RESOLVED + CONFIRMED. `tests/integration/reproduction2of7.integration
+  .test.js` proves it was WORKER LAG under the bounded single-process drain (the
+  refill creates 7 slots + 7 jobs; a bounded drain completes 2, leaving 5
+  pending; the banner reads "preparing", not "shortfall"). Not a generation cap.
+  See `docs/KNOWN_ISSUES.md` CY-001.
+- Provider/job failures are now surfaced end to end: normalized ProviderError,
+  safe structured logs, image_* columns, board banner, and the 10-scenario
+  authenticated browser E2E all green.
 
 ## Known Regressions
-None known open. The retry browser smoke has a pre-existing stale selector for
-the "Generation failed" badge (fails on clean HEAD too) — tracked separately,
-not a product regression.
+None open. The retry/repair/platform/public browser smokes had STALE selectors/
+waits against an intentional statusChip + "Platform · Account" refactor; fixed
+this session (CY-006 resolved). All 17 smokes green.
 
 ## Current Acceptance Result
-Unit suite green (1280, incl. 7 golden parity tests). Disposable-MariaDB
-integration green (45, incl. makeEngineFlow acceptance + a new
-parity-under-HCTI-error test). migrate:check PASS; npm audit 0 (all + --omit=dev);
-secret/blueprint/provider scans clean. Phase A observability + Phase B parity
-hardening (authoritative Make format, phone footer, golden fixtures) done and
-tested against real MariaDB. Revert-verified so far: HCTI 402 classification,
-image-category preservation. NOT full-spec READY: the authenticated browser E2E
-(12 error scenarios), the remaining 15 revert-verify items, and all smoke suites
-are still to run. Work is uncommitted in the tree (one final commit after both
-phases per source-control rules).
+FULL-SPEC verification complete. Unit 1286/0 (incl. golden parity + new focused
+tests). Disposable-MariaDB integration 46/0 (incl. the 2-of-7 reproduction).
+Browser E2E: 17 smokes (480 checks/0), 10 provider-error scenarios, automation-
+diagnostics banner 11/0, error-visibility 14/0. All 17 revert-verifications
+proved RED-on-revert / GREEN-on-restore against the real production line.
+migrate:check PASS; npm audit 0 (all + --omit=dev); secret/blueprint/provider-
+call/logging/unsupported-provider scans clean. project:handoff OK. The only
+production-code change this session is the automations.js banner correction
+(counts READY, surfaces skipped). One final commit follows 71921ce.
 
 ## Provider Status
 - OpenAI, HCTI: per-user, encrypted credentials (`user_integrations`). Health
@@ -138,14 +138,14 @@ See `.env.example` for the full list.
   `resolveRunTargetAccounts` and `tests/queueTargetFanOut.test.js`.
 
 ## Next Exact Action
-Build the authenticated browser E2E (`tools/error-visibility-smoke.mjs` + a
-review-server `--with-image-error-plan` seed) proving: card "Image failed / HCTI
-· Credits exhausted" not "No image", Retry image leaves the caption byte-identical,
-error survives refresh, Integrations masked fingerprint + editable label,
-automation diagnostics counts, no secrets/DB-ids in the UI. Then complete the
-17-item revert-verify list, run all existing smoke suites, run npm audit +
-scans, update every memory file + this checkpoint, and make ONE commit of both
-phases to origin cyflow-social-v1 (no deploy/merge/PR). Then the single READY.
+All mandatory release gates pass. The single remaining action is ONE Hostinger
+redeploy of branch `cyflow-social-v1` at its new HEAD (the commit that follows
+71921ce), then live acceptance on the host: confirm the deployed commit hash,
+run a Mon-Sun 1/day generate-ahead-7 Asia/Karachi single-Facebook-Page review
+automation under `HOSTINGER_SINGLE_PROCESS_JOBS=true`, and verify the Weekly
+Board reaches 7 prepared posts (the banner reads "preparing" until the bounded
+worker drains all seven), with `ENABLE_LIVE_PROVIDER_PUBLISHING=false`. No
+merge, no PR — deploy this branch only.
 
 ## Do Not Repeat
 - Do not collapse a specific provider error into a generic "image_generation_failed"

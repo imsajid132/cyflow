@@ -45,7 +45,7 @@ const CARD_STATE = (id) => `(() => {
   if (!card) return null;
   return {
     copy: card.querySelector('.planner-caption')?.textContent?.trim() || '',
-    statuses: [...card.querySelectorAll('.badge')].map((b) => b.textContent.trim()),
+    statuses: [...card.querySelectorAll('.status')].map((b) => b.textContent.trim()),
     hasRetry: [...card.querySelectorAll('button')].some((b) => /Retry/.test(b.textContent)),
     retryDisabled: [...card.querySelectorAll('button')].find((b) => /Retry/.test(b.textContent))?.disabled ?? null,
     thumb: card.querySelector('img')?.getAttribute('src') || null,
@@ -244,7 +244,7 @@ async function main() {
     const recovered = await settle(browser, `(() => {
       const card = document.querySelector('[data-item="${itemId}"]');
       if (!card) return null;
-      const badges = [...card.querySelectorAll('.badge')].map((b) => b.textContent.trim());
+      const badges = [...card.querySelectorAll('.status')].map((b) => b.textContent.trim());
       return badges.includes('Generation failed') ? null : JSON.stringify(badges);
     })()`, 20000);
     check('the status recovers from "Generation failed"', Boolean(recovered), recovered || 'still failed');

@@ -224,12 +224,19 @@ export async function render(root, ctx) {
     // internal ids — worker still preparing, a real shortfall, or failures.
     const diag = a.diagnostics;
     if (diag && diag.reason && diag.reason !== 'ok' && diag.expected > 0) {
-      const line = `Only ${diag.prepared} of ${diag.expected} expected posts are prepared.`;
+      // "Prepared" means content EXISTS (ready). A still-generating slot is not
+      // prepared yet, so the headline counts ready, not ready+pending — otherwise
+      // a fully-enqueued-but-undrained buffer reads "7 of 7 prepared" while five
+      // are mid-generation, which is exactly the "2 of 7" confusion.
+      const line = `Only ${diag.ready} of ${diag.expected} expected posts are prepared.`;
       let detail;
       let tone = 'warn';
-      if (diag.reason === 'preparing') detail = `${diag.ready} ready, ${diag.pending} still preparing. The worker is catching up; check back shortly.`;
-      else if (diag.reason === 'failures') { detail = `${diag.ready} ready, ${diag.failed} failed. Open a prepared post for the specific reason and Retry.`; tone = 'err'; }
-      else detail = `${diag.ready} ready, ${diag.pending} pending. Fewer slots than the horizon expected — check the weekday and horizon settings.`;
+      // Past-date and duplicate-date slots are skipped at refill time; surface
+      // the count so a lower "expected" reads as an explained skip, not a loss.
+      const skipNote = diag.skipped > 0 ? ` ${diag.skipped} skipped (past or duplicate dates).` : '';
+      if (diag.reason === 'preparing') detail = `${diag.ready} ready, ${diag.pending} still preparing. The worker is catching up; check back shortly.${skipNote}`;
+      else if (diag.reason === 'failures') { detail = `${diag.ready} ready, ${diag.failed} failed. Open a prepared post for the specific reason and Retry.${skipNote}`; tone = 'err'; }
+      else detail = `${diag.ready} ready, ${diag.pending} pending. Fewer slots than the horizon expected — check the weekday and horizon settings.${skipNote}`;
       children.push(el('div', { className: 'stack', attrs: { style: 'gap:.15rem' } }, [
         notice(line, tone),
         el('div', { className: 'card-sub', text: detail }),

@@ -328,6 +328,29 @@ test('a retry updates the per-platform copy, not just the caption', async () => 
     'the caption and the primary platform copy must be the same text');
 });
 
+test('Retry image changes ONLY the image — caption, headline, hashtags and service are untouched', async () => {
+  /*
+   * Retry image must re-render the picture and nothing else: the approved copy,
+   * per-platform copy, headline, hashtags and assigned service stay byte-for-byte.
+   * This is the isolation the board's "Retry image" and the drawer rely on.
+   */
+  const { ctx, item } = await failedItemAwaitingRetry();
+  const before = await ctx.runs.findItemByIdForUser(item.id, USER);
+
+  const after = await ctx.svc.regenerateItem(USER, item.id, 'image');
+
+  // A new image asset was attached (the render succeeded via the fake).
+  assert.ok(after.mediaAssetId ?? after.media, 'a new image is attached');
+  // Everything textual is IDENTICAL to before.
+  const raw = await ctx.runs.findItemByIdForUser(item.id, USER);
+  assert.equal(raw.caption, before.caption, 'caption unchanged');
+  assert.equal(raw.headline, before.headline, 'headline unchanged');
+  assert.deepEqual(raw.hashtags, before.hashtags, 'hashtags unchanged');
+  assert.equal(JSON.stringify(raw.platformCaptions), JSON.stringify(before.platformCaptions), 'per-platform copy unchanged');
+  assert.equal(raw.templateKey, before.templateKey, 'assigned poster/template unchanged');
+  assert.equal(raw.contentFormat ?? null, before.contentFormat ?? null, 'writing format unchanged');
+});
+
 test('the queue receives the retried copy, never the pre-retry copy', async () => {
   const { ctx, plan, item } = await failedItemAwaitingRetry();
   await ctx.svc.regenerateItem(USER, item.id, 'caption', { force: true });

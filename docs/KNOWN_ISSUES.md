@@ -6,7 +6,7 @@ Each issue is tracked with the fields below. Statuses: `open`, `in_progress`,
 ---
 
 ## CY-001 — Seven-day automation produced only two posts
-- **Status:** mitigated (diagnostics now make the cause self-evident on the board)
+- **Status:** resolved (CONFIRMED worker-lag by a dedicated disposable-MariaDB reproduction; diagnostics + banner make the cause self-evident)
 - **Severity:** medium
 - **First observed:** Hostinger "NYC Waterproofing Release Acceptance"
 - **Last reproduced:** same run (Weekly Board showed Jul 26–27 only)
@@ -20,17 +20,21 @@ Each issue is tracked with the fields below. Statuses: `open`, `in_progress`,
   few complete per tick, so at check time only 2 were `ready` (the rest pending).
   Alternative: a refill horizon/weekday accounting shortfall
   (`automationService.runRefillJob` applies the horizon in CALENDAR days).
-- **Confirmed cause:** NOT YET CONFIRMED. Requires the new diagnostics
-  (expected vs created vs claimed vs completed vs failed) reproduced on
-  disposable MariaDB.
-- **Fix commit:** the observability milestone (refill diagnostics: expected vs
-  candidate vs skippedPast vs created vs ready/pending/failed, a shortfall event,
-  a structured log, and a board banner "Only N of M expected posts are prepared"
-  distinguishing worker-lag from a true shortfall).
-- **Verification evidence:** `automationService.buildDiagnostics` + the banner in
-  `public/assets/js/pages/automations.js`; the refill diagnostics run in the
-  disposable-MariaDB integration acceptance. Remaining: a dedicated reproduction
-  test that asserts the exact counts for the observed 2-of-7 state.
+- **Confirmed cause:** WORKER LAG under the bounded single-process drain — NOT a
+  generation cap. `tests/integration/reproduction2of7.integration.test.js` drives
+  the real pipeline on disposable MariaDB and proves: the refill creates SEVEN
+  slots + SEVEN generate jobs (expected 7, created 7, skippedPast 1); a bounded
+  drain completes only 2, leaving 5 pending; the card diagnostics read
+  {expected 7, ready 2, pending 5, failed 0, reason "preparing"}; a full drain
+  reaches 7 ready / 7 items / 0 failed / 7 images / reason "ok".
+- **Fix commit:** the observability milestone (refill diagnostics + the board
+  banner "Only N of M expected posts are prepared" distinguishing worker-lag from
+  a true shortfall) plus this session's banner correction (the headline counts
+  READY, not ready+pending, and surfaces the skipped past/duplicate count).
+- **Verification evidence:** `reproduction2of7.integration.test.js` (job/slot/
+  item matrix), `automationService.buildDiagnostics`, and the browser banner
+  acceptance `tools/automation-diagnostics-smoke.mjs` (preparing/failures/
+  shortfall+skipped, no internal ids, survives refresh).
 
 ## CY-002 — HCTI / image-render errors were invisible ("No image" with no reason)
 - **Status:** resolved (backend + board + integration + browser E2E all green)
@@ -52,7 +56,12 @@ Each issue is tracked with the fields below. Statuses: `open`, `in_progress`,
   Retry image (caption-safe); safe structured logging.
 - **Verification evidence:** unit tests green
   (`providerErrors`, `hctiService`, `socialImageService`, `migration018`);
-  disposable-MariaDB + browser E2E PENDING (Docker outage).
+  disposable-MariaDB integration green (`automationParity` image cases); and the
+  10-scenario authenticated browser E2E `tools/provider-error-e2e-smoke.mjs`
+  (HCTI 401/402/403/429/timeout/render, media persistence, OpenAI 401/429/
+  invalid-JSON) — each proves the safe category, provider, retryable flag,
+  recommended action, no secret/DB-id/raw-body, no bare "No image", Retry-image
+  caption byte-identical, and Exact-Make parity not flipped to generic.
 
 ## CY-003 — Recent-content similarity warnings on every post
 - **Status:** resolved (prior milestone `ab83981`) — monitor
@@ -85,9 +94,13 @@ Each issue is tracked with the fields below. Statuses: `open`, `in_progress`,
   the deployed commit must be confirmed from the host.
 - **Verification:** pending.
 
-## CY-006 — retry browser smoke stale status-badge selector
-- **Status:** open (pre-existing, unrelated)
+## CY-006 — retry/repair browser smokes used a stale status-badge selector
+- **Status:** resolved
 - **Severity:** low
-- **Cause:** `tools/retry-smoke.mjs` reads a `.badge` for "Generation failed";
-  the board renders that status differently. Fails identically on clean HEAD.
-- **Fix:** align the smoke selector (or the board) — tracked as a separate task.
+- **Cause:** the status label moved from a `.badge` to `statusChip` (class
+  `.status`) in an intentional refactor; `tools/retry-smoke.mjs` and
+  `tools/repair-smoke.mjs` still queried the old `.badge` (which now holds the
+  pillar chips), so "Generation failed" was never found. The product was correct.
+- **Fix:** the two smokes now read `.status`; `tools/platform-smoke.mjs` matches
+  the intentional "Platform · Account" meta; `tools/public-smoke.mjs` waits long
+  enough for the SPA route render. All 17 smokes green (480 checks, 0 fail).

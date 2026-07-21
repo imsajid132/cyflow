@@ -27,6 +27,37 @@ import {
   createFakeOverrides, createFakePlannerOpenAI, createFakeSocialImageService,
   createFakeOpenAiVerifier, createFakePublishAdapters,
 } from '../tests/helpers/fakes.js';
+import { userMessageFor, isRetryableCategory } from '../src/utils/providerErrors.js';
+import { PROVIDER_ERROR_CATEGORY as ERR_CAT, PROVIDER_NAMES } from '../src/config/constants.js';
+
+/**
+ * The provider-error scenario to seed, read from the environment so ONE
+ * --with-image-error-plan flag can drive all ten authenticated E2E cases. The
+ * safe message and the retryable flag are derived from the SAME production model
+ * the real pipeline uses (userMessageFor / isRetryableCategory), so the seeded
+ * card state is exactly what a real failure would persist — never a hand-written
+ * string. Defaults reproduce the original HCTI credits case.
+ */
+function providerErrorScenarioFromEnv() {
+  const kind = process.env.REVIEW_ERR_KIND || 'image'; // 'image' | 'content'
+  const provider = process.env.REVIEW_ERR_PROVIDER
+    || (kind === 'content' ? PROVIDER_NAMES.OPENAI : PROVIDER_NAMES.HCTI);
+  const category = process.env.REVIEW_ERR_CATEGORY || ERR_CAT.CREDITS_EXHAUSTED;
+  // Unset -> 402 (preserves the original HCTI-credits default for
+  // error-visibility-smoke); the literal 'null' or '' -> no HTTP status (timeout,
+  // invalid response, render failure, media persistence); otherwise the number.
+  const rawStatus = process.env.REVIEW_ERR_STATUS;
+  const httpStatus = rawStatus === undefined ? 402
+    : (rawStatus === 'null' || rawStatus === '' ? null : Number(rawStatus));
+  return {
+    kind,
+    provider,
+    category,
+    httpStatus: Number.isFinite(httpStatus) ? httpStatus : null,
+    message: userMessageFor(provider, category),
+    retryable: isRetryableCategory(category),
+  };
+}
 
 export const REVIEW_USER = Object.freeze({
   name: 'Sam Rivers',
@@ -404,11 +435,37 @@ export async function seedFailedPlan(overrides, userId, plannerService, { scenar
 
   if (scenario === 'image_error') {
     /*
-     * An otherwise-fine post whose IMAGE render failed with a specific, safe
-     * category. The caption is INTACT. The board must show "Image failed / HCTI
-     * · Credits exhausted" and a Retry image, never a bare "No image", and the
-     * failure must survive a refresh. Drives tools/error-visibility-smoke.mjs.
+     * A post whose provider operation failed with a specific, safe category —
+     * parametrized by env so ONE flag drives all ten authenticated E2E cases.
+     * The caption is INTACT. For an IMAGE failure the board must show
+     * "Image failed / <PROVIDER> · <label>" + Retry image, never a bare
+     * "No image". For a CONTENT (OpenAI) failure the card shows "Generation
+     * failed" + the safe reason. Both must survive a refresh and leak no secret,
+     * DB id, or raw provider body. Drives tools/error-visibility-smoke.mjs and
+     * tools/provider-error-e2e-smoke.mjs.
      */
+    const errS = providerErrorScenarioFromEnv();
+    const ir = overrides.integrationRepository;
+
+    if (errS.kind === 'content') {
+      // An OpenAI content-generation failure: the ITEM is generation_failed and
+      // carries the safe, provider-specific reason (no key, no raw body).
+      await overrides.plannerRunRepository.updateItem(target.id, userId, {
+        approvalStatus: 'generation_failed',
+        qualityStatus: 'generation_failed',
+        qualityFailures: [errS.message],
+        mediaAssetId: null,
+      });
+      if (ir && typeof ir.upsertEncryptedOpenAiCredentials === 'function') {
+        await ir.upsertEncryptedOpenAiCredentials({ userId, encryptedApiKey: 'v1:OPENAI_KEY' }).catch(() => {});
+        if (ir.recordOpenAiHealth) {
+          await ir.recordOpenAiHealth(userId, { success: false, category: errS.category, at: '2026-07-20 09:00:00' }).catch(() => {});
+        }
+      }
+      return { runId: plan.run.id, failedItemId: target.id, scenario, errorKind: 'content' };
+    }
+
+    // An IMAGE failure (HCTI render categories + media persistence).
     await overrides.plannerRunRepository.updateItem(target.id, userId, {
       approvalStatus: 'needs_review',
       qualityStatus: 'passed',
@@ -416,26 +473,25 @@ export async function seedFailedPlan(overrides, userId, plannerService, { scenar
       // (a present media asset always reads as ready).
       mediaAssetId: null,
       imageStatus: 'failed',
-      imageProvider: 'hcti',
-      imageErrorCategory: 'credits_exhausted',
-      imageErrorCode: 'credits_exhausted',
-      imageErrorMessage: 'HCTI credits may be exhausted. Check your HCTI account balance or top up credits.',
-      imageHttpStatus: 402,
-      imageRetryable: false,
+      imageProvider: errS.provider,
+      imageErrorCategory: errS.category,
+      imageErrorCode: errS.category,
+      imageErrorMessage: errS.message,
+      imageHttpStatus: errS.httpStatus,
+      imageRetryable: errS.retryable,
       imageAttemptCount: 2,
     });
     // Configure HCTI + a matching health state so the Integrations panel renders
     // its label editor and the last-error category (safe, credential-free).
-    const ir = overrides.integrationRepository;
-    if (typeof ir.upsertEncryptedHctiCredentials === 'function') {
+    if (ir && typeof ir.upsertEncryptedHctiCredentials === 'function') {
       await ir.upsertEncryptedHctiCredentials({ userId, encryptedUserId: 'v1:HCTI_USER', encryptedApiKey: 'v1:HCTI_KEY' }).catch(() => {});
       if (ir.markHctiVerified) await ir.markHctiVerified(userId, '2026-07-18 09:00:00').catch(() => {});
       if (ir.setHctiLabel) await ir.setHctiLabel(userId, 'Main HCTI').catch(() => {});
       if (ir.recordHctiHealth) {
-        await ir.recordHctiHealth(userId, { success: false, category: 'credits_exhausted', at: '2026-07-20 09:00:00' }).catch(() => {});
+        await ir.recordHctiHealth(userId, { success: false, category: errS.category, at: '2026-07-20 09:00:00' }).catch(() => {});
       }
     }
-    return { runId: plan.run.id, failedItemId: target.id, scenario };
+    return { runId: plan.run.id, failedItemId: target.id, scenario, errorKind: 'image' };
   }
 
   const copy = checklist ? CHECKLIST_ITEM_COPY : FAILED_ITEM_COPY;
@@ -548,6 +604,44 @@ if (isMain) {
       res.json({ ok: true, refills, publishes, processed: outcomes.length, counts });
     } catch (err) {
       res.status(500).json({ ok: false, error: err?.message || 'tick failed' });
+    }
+  });
+
+  // Seed an automation whose slot mix forces a specific diagnostics reason, so a
+  // browser can assert the "Only N of M prepared" banner for preparing / failures
+  // / shortfall (+ skipped) states. Drives tools/automation-diagnostics-smoke.mjs.
+  wrapper.post('/__review/seed-automation-diagnostics', express.json(), async (req, res) => {
+    try {
+      const {
+        name = 'Diag', ready = 0, planned = 0, failed = 0, skipped = 0,
+      } = req.body || {};
+      const ar = overrides.automationRepository;
+      const a = await ar.createAutomation({
+        userId: user.id, name, status: 'active', mode: 'review', timezone: 'Asia/Karachi',
+        selectedWeekdays: [1, 2, 3, 4, 5, 6, 7], postingTimes: ['09:00'], postsPerDay: 1,
+        selectedPlatforms: ['facebook'], selectedAccountIds: ['1'],
+        generationHorizonDays: 7, minimumReadyDays: 7, lowBufferDays: 3, missedPostPolicy: 'skip',
+      });
+      // A non-null backing run makes computeBuffer read the seeded slot mix.
+      await ar.updateAutomation(a.id, user.id, { plannerRunId: '99000', status: 'active' });
+      let seq = 0;
+      const mk = async (status) => {
+        const localDate = `2026-09-${String(1 + seq).padStart(2, '0')}`;
+        const { slot } = await ar.createSlotIfAbsent({
+          userId: user.id, automationId: a.id, localDate, localTime: '09:00', sequence: seq,
+          scheduledForUtc: `${localDate} 04:00:00`, idempotencyKey: `diag:${a.id}:${seq}`,
+        });
+        seq += 1;
+        if (status === 'ready') await ar.markSlotReady(slot.id, user.id, '1');
+        else if (status !== 'planned') await ar.markSlotStatus(slot.id, user.id, status);
+      };
+      for (let i = 0; i < ready; i += 1) await mk('ready'); // eslint-disable-line no-await-in-loop
+      for (let i = 0; i < planned; i += 1) await mk('planned'); // eslint-disable-line no-await-in-loop
+      for (let i = 0; i < failed; i += 1) await mk('failed'); // eslint-disable-line no-await-in-loop
+      for (let i = 0; i < skipped; i += 1) await mk('skipped'); // eslint-disable-line no-await-in-loop
+      res.json({ ok: true, automationId: a.id });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err?.message || 'seed failed' });
     }
   });
 

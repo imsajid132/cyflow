@@ -53,8 +53,8 @@ const CARD_STATE = (itemId) => `(() => {
   if (!card) return null;
   return {
     copy: card.querySelector('.planner-caption')?.textContent?.trim() || '',
-    status: card.querySelector('.badge')?.textContent?.trim() || '',
-    statuses: [...card.querySelectorAll('.badge')].map((b) => b.textContent.trim()),
+    status: card.querySelector('.status')?.textContent?.trim() || '',
+    statuses: [...card.querySelectorAll('.status')].map((b) => b.textContent.trim()),
     hasApprove: [...card.querySelectorAll('button')].some((b) => b.textContent.trim() === 'Approve'),
     hasRetry: [...card.querySelectorAll('button')].some((b) => /Retry/.test(b.textContent)),
   };

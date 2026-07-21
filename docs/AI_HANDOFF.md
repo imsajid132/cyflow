@@ -24,8 +24,11 @@ publishes. Nothing publishes to a real provider yet.
   account targeting preserved.
 
 ## Current repository state
-Branch `cyflow-social-v1`. Working tree may be dirty mid-task. Migration head is
-`018_provider_error_visibility.sql`. Full unit suite green at last run (1269).
+Branch `cyflow-social-v1`, HEAD `71921ce` + ONE final verification commit (this
+session). Migration head `018_provider_error_visibility.sql`. Unit 1286/0,
+disposable-MariaDB integration 46/0, all browser E2E green. The only production-
+code change this session is the automations.js diagnostics banner (counts READY,
+surfaces skipped); everything else is tests, the review harness, and docs.
 
 ## Last known deployed commit
 UNKNOWN / unverified from this workspace. `deploy/RELEASE-CANDIDATE.md` is stale
@@ -67,18 +70,29 @@ from the Hostinger host before assuming.
   error. Divergences (model version, Friday honesty, runtime platforms) are in
   PARITY-COMPARISON.md §5.
 
-## What remains unresolved (verification depth, not blockers)
-- Not every one of the 17 revert-verify items has been run this session (HCTI 402,
-  image-category, authoritative-format, checkpoint-validation are done); the rest
-  are covered by unit/integration tests but not each individually reverted.
-- Not all existing smoke suites re-run (automation + error-visibility done).
-- A dedicated 2-of-7 reproduction test (CY-001) still to add.
-- Full 12-variant popup E2E (401/429/timeout/media-vs-render as separate browser
-  assertions) — the classification + messages are unit-tested and the render path
-  is E2E'd for 402.
-- PHASE B continues in future sessions if deeper parity (verbatim prompt wording)
-  is wanted; current parity is rhythm/structure/format/poster/branding, not the
-  Make prompt persona text (documented divergence).
+## What has been completed (final verification session)
+- All 17 revert-verifications run: each production line reverted, its focused
+  test proven RED, restored, proven GREEN (12 unit, 3 real-MariaDB, 2
+  validator-teeth). Logged in docs/SESSION_CHECKPOINT.md.
+- Every browser smoke re-run individually: 17/17 green (480 checks). Five had
+  stale selectors/waits (statusChip refactor, "Platform · Account" meta, SPA
+  render wait, --placeholder-media flag) — fixed in the tests/harness, not the
+  product; each failure was reproduced on clean 71921ce first (CY-006).
+- Dedicated 2-of-7 reproduction (CY-001) added and green: outcome A proven
+  (7 slots + 7 jobs created; bounded drain completes 2; banner "preparing").
+- All 10 provider-error browser E2E scenarios green (HCTI 401/402/403/429/
+  timeout/render, media persistence, OpenAI 401/429/invalid-JSON).
+- Automation-diagnostics banner acceptance green (preparing/failures/shortfall+
+  skipped, no internal ids, survives refresh).
+- Exact Make Parity acceptance re-run (golden + real): 152 assertions, 0 fail.
+- Release gates: unit 1286/0, integration 46/0, migrate:check PASS, npm audit 0
+  (all + --omit=dev), all scans clean, project:handoff OK.
+
+## What remains unresolved (not blockers)
+- CY-005 (process): the DEPLOYED commit is still unverified from the Hostinger
+  host; the single next action is the redeploy + live acceptance below.
+- Parity is rhythm/structure/format/poster/branding, NOT verbatim Make prompt
+  persona text (a deliberate, documented divergence — PARITY-COMPARISON.md §5).
 
 ## Exact live reproduction (from the operator)
 Automation "NYC Waterproofing Release Acceptance": Facebook only, one account
@@ -122,10 +136,12 @@ calls; no real OpenAI/HCTI calls in automated tests (mock the boundary); no
 secrets in logs/docs; exact account targeting; do not deploy/merge/PR.
 
 ## Next recommended task
-Restore Docker, run the integration + browser E2E for provider errors, finish
-the integrations health panel + Test connection and the automation diagnostics,
-run all gates + revert-verify, update these files, then commit to
-`origin cyflow-social-v1`.
+Redeploy branch `cyflow-social-v1` (new HEAD) to Hostinger ONCE, then do live
+acceptance on the host: confirm the deployed commit hash, run the Mon-Sun 1/day
+generate-ahead-7 Asia/Karachi single-Facebook-Page review automation under
+`HOSTINGER_SINGLE_PROCESS_JOBS=true`, and watch the Weekly Board fill to 7
+prepared posts (banner reads "preparing" until the bounded worker drains all
+seven). Keep `ENABLE_LIVE_PROVIDER_PUBLISHING=false`. No merge, no PR.
 
 ## Expected final acceptance criteria
 See `docs/ACCEPTANCE_CHECKLIST.md`. In short: 7 posts from a 7-day automation, 0
