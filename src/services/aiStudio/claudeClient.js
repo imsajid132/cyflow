@@ -24,8 +24,12 @@ function readConfig() {
     apiKey: process.env.AI_API_KEY || '',
     baseUrl: (process.env.AI_BASE_URL || DEFAULT_BASE).replace(/\/+$/, ''),
     model: process.env.AI_MODEL || DEFAULT_MODEL,
+    // "anthropic" (Claude /v1/messages) or "openai" (GPT /v1/chat/completions).
+    provider: (process.env.AI_PROVIDER || 'anthropic').toLowerCase() === 'openai' ? 'openai' : 'anthropic',
   };
 }
+
+const AR_UA = 'claude-cli/1.0.0 (external, cli)';
 
 /**
  * Single-turn multimodal prompt (system + one user message that may carry images).
@@ -36,14 +40,16 @@ function readConfig() {
  */
 export async function askClaude({ system, userText, images = [], maxTokens = 4000 }) {
   const cfg = readConfig();
-  if (!cfg.apiKey) throw new Error('Claude is not configured (missing AI_API_KEY).');
+  if (!cfg.apiKey) throw new Error('AI is not configured (missing AI_API_KEY).');
+  if (cfg.provider === 'openai') return askOpenAI(cfg, { system, userText, images, maxTokens });
+  return askAnthropic(cfg, { system, userText, images, maxTokens });
+}
 
+/** Anthropic Messages format (/v1/messages) — Claude models. */
+async function askAnthropic(cfg, { system, userText, images, maxTokens }) {
   const content = [];
   for (const img of images) {
-    content.push({
-      type: 'image',
-      source: { type: 'base64', media_type: img.mediaType, data: img.dataBase64 },
-    });
+    content.push({ type: 'image', source: { type: 'base64', media_type: img.mediaType, data: img.dataBase64 } });
   }
   content.push({ type: 'text', text: userText });
 
@@ -55,32 +61,59 @@ export async function askClaude({ system, userText, images = [], maxTokens = 400
         'content-type': 'application/json',
         authorization: `Bearer ${cfg.apiKey}`,
         'anthropic-version': '2023-06-01',
-        // AgentRouter expects a recognized client UA.
-        'user-agent': 'claude-cli/1.0.0 (external, cli)',
+        'user-agent': AR_UA,
       },
-      body: JSON.stringify({
-        model: cfg.model,
-        max_tokens: maxTokens,
-        system,
-        messages: [{ role: 'user', content }],
-      }),
+      body: JSON.stringify({ model: cfg.model, max_tokens: maxTokens, system, messages: [{ role: 'user', content }] }),
     });
   } catch {
-    // Never surface the request (it carries the Authorization header).
-    throw new Error('Claude request failed (network).');
+    throw new Error('AI request failed (network).');
   }
-
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
-    // Keep a short, safe snippet — no key, no full body.
-    throw new Error(`Claude request failed (${res.status}): ${detail.slice(0, 200)}`);
+    throw new Error(`AI request failed (${res.status}): ${detail.slice(0, 200)}`);
   }
-
   const data = await res.json().catch(() => null);
   const text = Array.isArray(data?.content)
     ? data.content.filter((b) => b?.type === 'text').map((b) => b.text || '').join('')
     : '';
-  if (!text) throw new Error('Claude returned an empty response.');
+  if (!text) throw new Error('AI returned an empty response.');
+  return text;
+}
+
+/** OpenAI Chat Completions format (/v1/chat/completions) — GPT models (e.g. cheap gpt-4o-mini). */
+async function askOpenAI(cfg, { system, userText, images, maxTokens }) {
+  const userContent = [{ type: 'text', text: userText }];
+  for (const img of images) {
+    userContent.push({ type: 'image_url', image_url: { url: `data:${img.mediaType};base64,${img.dataBase64}` } });
+  }
+  let res;
+  try {
+    res = await fetch(`${cfg.baseUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${cfg.apiKey}`,
+        'user-agent': AR_UA,
+      },
+      body: JSON.stringify({
+        model: cfg.model,
+        max_tokens: maxTokens,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: userContent },
+        ],
+      }),
+    });
+  } catch {
+    throw new Error('AI request failed (network).');
+  }
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`AI request failed (${res.status}): ${detail.slice(0, 200)}`);
+  }
+  const data = await res.json().catch(() => null);
+  const text = data?.choices?.[0]?.message?.content ?? '';
+  if (!text) throw new Error('AI returned an empty response.');
   return text;
 }
 
