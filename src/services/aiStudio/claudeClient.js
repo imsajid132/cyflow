@@ -32,6 +32,30 @@ function readConfig() {
 const AR_UA = 'claude-cli/1.0.0 (external, cli)';
 
 /**
+ * fetch with automatic retry on transient failures. AgentRouter (and any proxy)
+ * intermittently returns 5xx / 429 / 504 or drops the connection; a daily post
+ * must survive a flaky moment, so we retry with a short backoff. Non-5xx
+ * responses (200, 4xx) return immediately so the caller handles them normally.
+ */
+async function fetchWithRetry(url, options, attempts = 4) {
+  let lastRes = null;
+  let lastErr = null;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      const res = await fetch(url, options); // eslint-disable-line no-await-in-loop
+      if (res.status < 500 && res.status !== 429) return res;
+      lastRes = res;
+    } catch (err) {
+      lastErr = err;
+    }
+    // eslint-disable-next-line no-await-in-loop
+    if (i < attempts - 1) await new Promise((r) => setTimeout(r, 2000 * (i + 1)));
+  }
+  if (lastRes) return lastRes;
+  throw lastErr || new Error('AI request failed after retries');
+}
+
+/**
  * Single-turn multimodal prompt (system + one user message that may carry images).
  * Returns the model's text. Throws a safe Error on failure (never includes the key).
  *
@@ -55,7 +79,7 @@ async function askAnthropic(cfg, { system, userText, images, maxTokens }) {
 
   let res;
   try {
-    res = await fetch(`${cfg.baseUrl}/v1/messages`, {
+    res = await fetchWithRetry(`${cfg.baseUrl}/v1/messages`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -88,7 +112,7 @@ async function askOpenAI(cfg, { system, userText, images, maxTokens }) {
   }
   let res;
   try {
-    res = await fetch(`${cfg.baseUrl}/v1/chat/completions`, {
+    res = await fetchWithRetry(`${cfg.baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
