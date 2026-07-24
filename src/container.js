@@ -166,6 +166,12 @@ export function buildContainer(overrides = {}) {
   const plannerRuns = overrides.plannerRunRepository ?? plannerRunRepositoryModule;
   const plannerRevisions = overrides.plannerRevisionRepository ?? plannerRevisionRepositoryModule;
   const uniquenessService = overrides.contentUniquenessService ?? realUniquenessService;
+  // C3 media library: upload/list/reuse/references, over a local storage adapter.
+  // Created BEFORE the planner because the AI poster studio engine stores its
+  // rendered PNG through this raw-bytes upload path (declaring it after the
+  // planner would be a temporal dead zone for that dependency).
+  const mediaLibraryService = overrides.mediaLibraryService
+    ?? createMediaLibraryService({ mediaRepository: mediaRepo, logging });
   const plannerService =
     overrides.plannerService ??
     createPlannerService({
@@ -187,15 +193,13 @@ export function buildContainer(overrides = {}) {
       openaiContentService: overrides.openaiContentService,
       socialImageService: overrides.socialImageService,
       mediaAssetService,
+      mediaLibraryService,
       uniqueness: uniquenessService,
       logging,
       withTransaction,
     });
 
   const postController = createPostController({ postService });
-  // C3 media library: upload/list/reuse/references, over a local storage adapter.
-  const mediaLibraryService = overrides.mediaLibraryService
-    ?? createMediaLibraryService({ mediaRepository: mediaRepo, logging });
   const mediaController = createMediaController({ mediaAssetService, mediaLibraryService });
   const mediaLibraryController = createMediaLibraryController({ mediaLibraryService });
   const parseSingleImage = overrides.parseSingleImage ?? createMediaUploadMiddleware();

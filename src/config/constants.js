@@ -1578,6 +1578,10 @@ export const TRANSIENT_PUBLISH_CATEGORIES = Object.freeze([
 export const PROVIDER_NAMES = Object.freeze({
   OPENAI: 'openai',
   HCTI: 'hcti',
+  // The AI poster studio: Claude (via an Anthropic-compatible endpoint) designs
+  // the poster HTML, and a free renderer rasterizes it. An additive, flag-gated
+  // alternative to the OpenAI+HCTI ("Make parity") engine — never replaces it.
+  AI_STUDIO: 'ai_studio',
   FACEBOOK: 'facebook',
   INSTAGRAM: 'instagram',
   THREADS: 'threads',

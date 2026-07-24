@@ -80,6 +80,7 @@ function providerLabel(provider) {
   switch (provider) {
     case PROVIDER_NAMES.OPENAI: return 'OpenAI';
     case PROVIDER_NAMES.HCTI: return 'The image provider (HCTI)';
+    case PROVIDER_NAMES.AI_STUDIO: return 'The AI poster studio';
     case PROVIDER_NAMES.FACEBOOK: return 'Facebook';
     case PROVIDER_NAMES.INSTAGRAM: return 'Instagram';
     case PROVIDER_NAMES.THREADS: return 'Threads';

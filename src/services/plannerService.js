@@ -178,6 +178,10 @@ import * as defaultApiUsage from '../repositories/apiUsageRepository.js';
 import { openaiContentService as defaultOpenAI } from './openaiContentService.js';
 import { socialImageService as defaultImage } from './socialImageService.js';
 import { mediaAssetService as defaultMedia } from './mediaAssetService.js';
+import { createMediaLibraryService } from './mediaLibraryService.js';
+// The AI poster studio (additive, flag-gated). A namespace import so a test can
+// inject a stub; the real module reads AI_STUDIO_MODE and talks to Claude.
+import * as defaultAiStudio from './aiStudio/aiStudioEngine.js';
 import { contentUniquenessService as defaultUniqueness } from './contentUniquenessService.js';
 import { loggingService as defaultLogging } from './loggingService.js';
 import { buildSchedule, summarizeSchedule, nextWeeklyRunAt } from './plannerScheduleService.js';
@@ -244,6 +248,18 @@ export function createPlannerService({
   openaiContentService = defaultOpenAI,
   socialImageService = defaultImage,
   mediaAssetService = defaultMedia,
+  /*
+   * The raw-bytes media path (validate -> store -> row), used by the AI studio
+   * engine to persist a Claude-designed poster PNG. The OpenAI+HCTI engine uses
+   * `mediaAssetService.createReadyImageAsset` (a rendered URL) and is untouched;
+   * this is the upload path the manual Create Post flow already relies on.
+   */
+  mediaLibraryService = createMediaLibraryService(),
+  /*
+   * The AI poster studio engine (additive). Injected for tests; in production it
+   * is the real module, active only when AI_STUDIO_MODE=on and a key is set.
+   */
+  aiStudio = defaultAiStudio,
   uniqueness = defaultUniqueness,
   logging = defaultLogging,
   withTransaction = defaultWithTransaction,
@@ -3447,6 +3463,204 @@ export function createPlannerService({
   }
 
   /**
+   * The brand palette for the AI designer, from the workspace's SAVED colours.
+   *
+   * CLAUDE.md is strict here: saved brand colours are preserved exactly and no
+   * colour the business never saved may be introduced. So we pass the saved
+   * hexes straight through, and when a slot is empty we fall back to NEUTRAL
+   * typographic defaults (near-black / grey / white) — never an invented brand
+   * hue. The design prompt is separately instructed to use only these colours.
+   */
+  function brandColorsFrom(profile) {
+    return {
+      primary: profile?.primaryColor || '#111827',
+      secondary: profile?.secondaryColor || '#6b7280',
+      accent: profile?.accentColor || profile?.primaryColor || '#111827',
+    };
+  }
+
+  /** A readable "today's angle" from the brief, so each day's poster differs. */
+  function angleFromBrief(brief) {
+    return [
+      brief.dayPurpose || brief.dayTypeLabel || null,
+      brief.serviceEmphasis ? `Focus: ${brief.serviceEmphasis}` : null,
+      brief.audienceProblem ? `Audience need: ${brief.audienceProblem}` : null,
+      brief.angle || null,
+      brief.formatLabel ? `Format: ${brief.formatLabel}` : null,
+    ].filter(Boolean).join('. ');
+  }
+
+  /**
+   * Build ONE automation item with the AI poster studio (additive engine).
+   *
+   * Claude writes the poster copy AND the platform captions (one call) and
+   * designs the poster (a second call); a free renderer rasterizes it. The PNG
+   * is stored through the raw-bytes media path the manual uploader already uses.
+   *
+   * Failure discipline matches the rest of the planner: a copy failure returns
+   * null (the worker retries the slot) and is logged safely; an image failure is
+   * recorded as a normalized, retryable image state ON the item — never a crash
+   * and never a silent "No image". Nothing here queues or publishes.
+   *
+   * @returns {Promise<object|null>} the created item, or null on a transient miss
+   */
+  async function generateAiStudioItem({ userId, run, brief, profile }) {
+    const brand = {
+      businessName: profile?.businessName ?? null,
+      industry: profile?.businessCategory ?? null,
+      tone: brief.tone ?? null,
+    };
+    const styleId = aiStudio.styleIdForPosition(brief.position);
+    const port = 9700 + (Math.abs(brief.position || 0) % 100);
+
+    let post;
+    try {
+      post = await aiStudio.generateAiPost({
+        brand,
+        colors: brandColorsFrom(profile),
+        font: profile?.headingFont ?? null,
+        angle: angleFromBrief(brief),
+        styleId,
+        port,
+      });
+    } catch (err) {
+      // No copy, no post. Record the provider failure safely and let the worker
+      // retry this slot — the same "transient miss" contract generateOneItem has.
+      logProviderFailure(
+        normalizeProviderError(err, {
+          provider: PROVIDER_NAMES.AI_STUDIO, operation: 'generate_ai_copy', occurredAt: toMysqlUtc(now()),
+        }),
+        { jobType: 'planner_generate', plannerRunId: run.id, automationId: run.contentAutomationId ?? null },
+      );
+      return null;
+    }
+
+    // Persist the poster PNG (if we got one) as a ready media asset, or record a
+    // specific, retryable image failure — mirroring renderItemImageWithStatus.
+    let mediaAssetId = null;
+    let image = baseImageFields();
+    if (post.png) {
+      try {
+        const asset = await mediaLibraryService.uploadImage(userId, {
+          buffer: post.png,
+          originalName: `ai-poster-${run.id}-${brief.position}.png`,
+          declaredMime: 'image/png',
+        });
+        mediaAssetId = asset.id;
+        image = {
+          ...baseImageFields(),
+          imageStatus: IMAGE_RENDER_STATUS.READY,
+          imageProvider: PROVIDER_NAMES.AI_STUDIO,
+          imageAttemptCount: 1,
+          imageLastAttemptAt: toMysqlUtc(now()),
+        };
+      } catch (err) {
+        const pe = normalizeProviderError(err, {
+          provider: PROVIDER_NAMES.MEDIA, operation: 'store_ai_poster', occurredAt: toMysqlUtc(now()),
+        });
+        logProviderFailure(pe, { jobType: 'planner_image_render', plannerRunId: run.id });
+        image = {
+          ...baseImageFields(),
+          imageStatus: IMAGE_RENDER_STATUS.FAILED,
+          imageProvider: PROVIDER_NAMES.AI_STUDIO,
+          imageErrorCategory: pe.category,
+          imageErrorCode: pe.errorCode,
+          imageErrorMessage: pe.userMessage,
+          imageHttpStatus: pe.httpStatus,
+          imageRetryable: pe.retryable,
+          imageAttemptCount: 1,
+          imageLastAttemptAt: toMysqlUtc(now()),
+        };
+      }
+    } else if (post.imageError) {
+      const pe = normalizeProviderError(post.imageError, {
+        provider: PROVIDER_NAMES.AI_STUDIO, operation: 'design_render_poster', occurredAt: toMysqlUtc(now()),
+      });
+      logProviderFailure(pe, { jobType: 'planner_image_render', plannerRunId: run.id });
+      image = {
+        ...baseImageFields(),
+        imageStatus: IMAGE_RENDER_STATUS.FAILED,
+        imageProvider: PROVIDER_NAMES.AI_STUDIO,
+        imageErrorCategory: pe.category,
+        imageErrorCode: pe.errorCode,
+        imageErrorMessage: pe.userMessage,
+        imageHttpStatus: pe.httpStatus,
+        imageRetryable: pe.retryable,
+        imageAttemptCount: 1,
+        imageLastAttemptAt: toMysqlUtc(now()),
+      };
+    }
+
+    // Per-platform copy for exactly the platforms this slot targets. Single
+    // platform leaves the column NULL and falls back to `caption`, matching the
+    // Make engine's shape.
+    const caps = post.copy.captions || {};
+    const primaryPlatform = brief.platforms[0];
+    const captionFor = (p) => caps[p] || caps.facebook || caps.instagram || caps.threads || '';
+    const primaryCaption = captionFor(primaryPlatform);
+    const platformCaptions = brief.platforms.length > 1
+      ? Object.fromEntries(brief.platforms.map((p) => [p, { caption: captionFor(p), hashtags: post.copy.hashtags }]))
+      : null;
+
+    const item = await runsRepo.createItem({
+      plannerRunId: run.id,
+      userId,
+      position: brief.position,
+      scheduledFor: brief.slot.scheduledForUtc,
+      originalTimezone: run.timezone,
+      contentType: brief.contentType,
+      contentPillar: brief.pillar ?? null,
+      contentFormat: brief.format ?? null,
+      audienceProblem: brief.audienceProblem ?? null,
+      topicAngle: brief.angle ?? null,
+      ctaStrategy: brief.ctaStrategy ?? null,
+      visualFamily: brief.visualFamily ?? null,
+      qualityStatus: PLANNER_QUALITY_STATUS.PASSED,
+      qualityFailures: null,
+      goal: brief.goal,
+      platformTargets: brief.platforms,
+      templateKey: brief.templateKey,
+      aspectRatio: 'square',
+      backgroundStyle: 'light',
+      headline: post.copy.headline || null,
+      subheadline: post.copy.subtext || null,
+      summary: null,
+      caption: primaryCaption,
+      hashtags: post.copy.hashtags,
+      platformCaptions,
+      altText: post.copy.headline
+        ? `${profile?.businessName || 'Brand'}: ${post.copy.headline}`.slice(0, 300)
+        : null,
+      brief: brief.brief,
+      mediaAssetId,
+      // The queryable, safe image render state (migration 018).
+      ...image,
+      // AI posters are always held for a human before they can be queued — the
+      // automation's approval flow decides queuing, exactly as for the Make path
+      // (which is called here with autoQueue:false).
+      approvalStatus: PLANNER_ITEM_STATUS.NEEDS_REVIEW,
+      duplicationScore: 0,
+      duplicationNotes: null,
+      regenerationCount: 0,
+      fingerprint: {
+        engine: 'ai_studio',
+        styleId,
+        headlineNormalized: String(post.copy.headline || '').toLowerCase().trim(),
+        imageStatus: image.imageStatus === IMAGE_RENDER_STATUS.READY ? null : 'image_generation_failed',
+        assignment: {
+          serviceEmphasis: brief.serviceEmphasis ?? null,
+          audienceProblem: brief.audienceProblem ?? null,
+          imageConcept: brief.imageConcept ?? null,
+        },
+      },
+      editedFields: [],
+    });
+
+    await recordItemRevisions(userId, item, 'generated');
+    return item;
+  }
+
+  /**
    * Generate ONE item for a content-automation slot into an existing backing
    * run, reusing the exact planner generation path (dedup, style guard,
    * per-platform copy, image, revisions). The automation slot-generation worker
@@ -3533,6 +3747,19 @@ export function createPlannerService({
     // The same platform contract the planner enforces: an item can only target
     // platforms the automation selected. This is the no-Facebook-injection guard.
     assertPlatformContract(platforms, [brief]);
+
+    /*
+     * AI POSTER STUDIO (additive, flag-gated). When AI_STUDIO_MODE=on and the AI
+     * client is configured, Claude designs the poster and writes the captions,
+     * reusing every guard above (ownership, business context, platform contract)
+     * and the same brief. The OpenAI + HCTI "Make parity" engine below is left
+     * exactly as it was — this returns before it. Nothing here queues or publishes.
+     */
+    if (aiStudio.isAiStudioEnabled()) {
+      const aiItem = await generateAiStudioItem({ userId, run, brief, profile });
+      if (!aiItem) return { item: null };
+      return { item: await decorateItem(userId, aiItem) };
+    }
 
     /*
      * The batch history is the run's OWN already-generated items, so this slot
