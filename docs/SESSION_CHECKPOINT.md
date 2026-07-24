@@ -12,14 +12,14 @@ to the user. No OpenAI, no HCTI in this engine. The tested OpenAI+HCTI "Make
 parity" engine must remain UNTOUCHED (additive, flag-gated).
 
 ## Current Phase
-Automation wiring COMPLETE and the FREE Hostinger-safe renderer COMPLETE + proven
-end-to-end. The AI engine is wired into the daily automation slot path (additive,
-flag-gated) AND now renders posters browserlessly via @resvg/resvg-js (SVG -> PNG),
-so it runs on ANY Hostinger with no Chrome and no second server. Proven live: real
-Claude -> SVG -> resvg produced an agency-quality 1080x1080 coffee poster (illustrated
-glass, badge, pill CTA, footer) in ~43s. Remaining: (1) bundle premium TTF fonts for
-identical typography on Linux (polish, not a blocker — DejaVu fallback renders now),
-(2) run one real slot through the DB automation path, (3) first careful live publish.
+Wiring + free renderer + DB integration proof all COMPLETE. The AI engine is wired
+into the daily automation slot path (additive, flag-gated), renders posters
+browserlessly via @resvg/resvg-js (SVG -> PNG) so it runs on ANY Hostinger, and is
+now proven through the REAL automation + MariaDB path (refill -> worker -> slot job ->
+mediaLibraryService store -> createItem). That integration test caught + fixed a real
+bug: the slot handler required OpenAI even in AI mode, which would have failed every
+slot on a workspace that (intentionally) has no OpenAI key. Remaining: (1) bundle
+premium TTF fonts (polish, DejaVu fallback renders now), (2) first careful live publish.
 
 ## Current Branch
 ai-poster-studio (feature branch; base e103789 on cyflow-social-v1)
@@ -109,10 +109,12 @@ EXACT premium families (Poppins/Playfair) identically on every host, drop TTFs i
   `backup-cyflow-2026-07-23` (pushed). Do not merge/deploy without the user's say.
 
 ## Last Updated
-Two milestones this session, both proven: (1) AI-automation wiring (additive,
-flag-gated; commit 41f9a41) and (2) the FREE browserless Hostinger renderer
-(@resvg/resvg-js SVG->PNG) with an SVG design prompt, wired as the engine default.
-Proven end-to-end: real Claude -> SVG -> resvg = an agency-quality 1080x1080 poster.
-Unit suite 1292/0 (6 new aiStudio tests); project:handoff OK; npm audit 0 on the new
-dep. Next: bundle premium fonts (polish), one real slot through the DB automation
-path, then the first careful live publish. Renderer commit is next.
+Three milestones this session, all proven: (1) AI-automation wiring (additive,
+flag-gated; commit 41f9a41); (2) the FREE browserless Hostinger renderer
+(@resvg/resvg-js SVG->PNG; commit a015e54), proven with real Claude -> an
+agency-quality poster; (3) DB integration proof through the real automation path,
+which caught + fixed a real bug (slot handler required OpenAI even in AI mode ->
+now skipped when AI mode is on; automationService.js). Unit suite 1292/0,
+integration 47/0 (both on MariaDB), project:handoff OK, npm audit 0. Remaining:
+bundle premium fonts (polish) + first careful live publish. Committing the fix +
+integration test next.

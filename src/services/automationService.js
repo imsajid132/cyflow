@@ -36,6 +36,7 @@ import * as defaultRuns from '../repositories/plannerRunRepository.js';
 import * as defaultSocialAccounts from '../repositories/socialAccountRepository.js';
 import { plannerService as defaultPlanner } from './plannerService.js';
 import { openaiContentService as defaultOpenAI } from './openaiContentService.js';
+import * as defaultAiStudio from './aiStudio/aiStudioEngine.js';
 import { socialImageService as defaultImages } from './socialImageService.js';
 import { loggingService as defaultLogging } from './loggingService.js';
 import { logProviderEvent } from '../utils/providerLog.js';
@@ -55,6 +56,9 @@ export function createAutomationService({
   socialAccounts = defaultSocialAccounts,
   planner = defaultPlanner,
   openai = defaultOpenAI,
+  // The AI poster studio (additive). When it is the active engine, slot
+  // generation uses Claude + a free renderer and does NOT require OpenAI.
+  aiStudio = defaultAiStudio,
   images = defaultImages,
   logging = defaultLogging,
   config = { worker: { maxAttempts: 5, refillIntervalHours: 6 } },
@@ -703,11 +707,17 @@ export function createAutomationService({
 
     // Precondition: the user's OpenAI integration must be usable. Missing/invalid
     // is a PERMANENT condition — stop, set attention, no repeated provider calls.
-    const openaiOk = await openai.isAvailable(userId).catch(() => false);
-    if (!openaiOk) {
-      await automations.markSlotStatus(slot.id, userId, SLOT_STATUS.FAILED, { category: 'permanent', message: 'OpenAI credentials are not available' });
-      await setAttention(a, userId, 'Add and verify your OpenAI API key in Integrations to keep this automation running.');
-      throw new PermanentJobError('OpenAI credentials not available');
+    //
+    // SKIPPED in AI poster studio mode: that engine designs with Claude and renders
+    // for free, and never calls OpenAI, so requiring an OpenAI key would wrongly
+    // fail every slot for a workspace that intentionally has none.
+    if (!aiStudio.isAiStudioEnabled()) {
+      const openaiOk = await openai.isAvailable(userId).catch(() => false);
+      if (!openaiOk) {
+        await automations.markSlotStatus(slot.id, userId, SLOT_STATUS.FAILED, { category: 'permanent', message: 'OpenAI credentials are not available' });
+        await setAttention(a, userId, 'Add and verify your OpenAI API key in Integrations to keep this automation running.');
+        throw new PermanentJobError('OpenAI credentials not available');
+      }
     }
 
     await automations.markSlotStatus(slot.id, userId, SLOT_STATUS.GENERATING, {});
