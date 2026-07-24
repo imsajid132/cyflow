@@ -25,6 +25,7 @@
     "project:handoff": "node tools/project-handoff.mjs"
   },
   "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "bcrypt": "^6.0.0",
     "compression": "^1.7.4",
     "dotenv": "^16.4.5",

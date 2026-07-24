@@ -19,8 +19,26 @@
  * platform-specific Threads post, NO em/en dashes, and never an invented fact.
  */
 import { askClaude, parseJsonFromModel, extractHtml, isClaudeConfigured } from './claudeClient.js';
-import { DESIGN_STYLES, DESIGN_SYSTEM_PROMPT, buildDesignUserPrompt } from './designPrompts.js';
-import { renderHtmlToPng } from './posterRenderer.js';
+import {
+  DESIGN_STYLES,
+  DESIGN_SYSTEM_PROMPT,
+  buildDesignUserPrompt,
+  SVG_DESIGN_SYSTEM_PROMPT,
+  buildSvgDesignUserPrompt,
+} from './designPrompts.js';
+import { renderHtmlToPng, renderSvgToPng } from './posterRenderer.js';
+
+/** Pull a bare <svg>...</svg> out of a model response (tolerates fences/prose). */
+export function extractSvg(text) {
+  let s = (text || '').trim();
+  const fence = s.match(/```(?:svg|xml|html)?\s*([\s\S]*?)```/i);
+  if (fence) s = fence[1].trim();
+  const start = s.search(/<svg[\s>]/i);
+  if (start === -1) return null;
+  const end = s.lastIndexOf('</svg>');
+  if (end === -1) return null;
+  return s.slice(start, end + 6).trim();
+}
 
 /** On only when explicitly enabled AND the key is present. Default: OFF. */
 export function isAiStudioEnabled() {
@@ -110,26 +128,36 @@ export async function generateAiPost(input) {
   const copy = await generateAiCopy({ brand, angle });
 
   const style = DESIGN_STYLES.find((s) => s.id === styleId) || DESIGN_STYLES[0];
-  let html = null;
+  const content = { headline: copy.headline, subtext: copy.subtext, cta: copy.cta };
+  // Default to the browserless SVG path — free forever and Hostinger-safe. The
+  // HTML + headless-Chrome path is opt-in for a VPS / local dev (higher fidelity).
+  const mode = String(process.env.POSTER_RENDER_MODE || 'svg').toLowerCase();
+
+  let markup = null;
   let png = null;
   let imageError = null;
   try {
-    const raw = await askClaude({
-      system: DESIGN_SYSTEM_PROMPT,
-      userText: buildDesignUserPrompt(
-        { brand, colors, font, content: { headline: copy.headline, subtext: copy.subtext, cta: copy.cta } },
-        style.direction,
-      ),
-      maxTokens: 4000,
-    });
-    html = extractHtml(raw);
-    if (!html || !/<html|<!doctype/i.test(html)) {
-      html = null;
-      throw new Error('The AI did not return a valid poster document.');
+    if (mode === 'local' || mode === 'remote') {
+      const raw = await askClaude({
+        system: DESIGN_SYSTEM_PROMPT,
+        userText: buildDesignUserPrompt({ brand, colors, font, content }, style.direction),
+        maxTokens: 4000,
+      });
+      markup = extractHtml(raw);
+      if (!markup || !/<html|<!doctype/i.test(markup)) throw new Error('The AI did not return a valid poster document.');
+      png = await renderHtmlToPng(markup, { port });
+    } else {
+      const raw = await askClaude({
+        system: SVG_DESIGN_SYSTEM_PROMPT,
+        userText: buildSvgDesignUserPrompt({ brand, colors, font, content }, style.direction),
+        maxTokens: 4000,
+      });
+      markup = extractSvg(raw);
+      if (!markup) throw new Error('The AI did not return a valid SVG poster.');
+      png = await renderSvgToPng(markup);
     }
-    png = await renderHtmlToPng(html, { port });
   } catch (err) {
     imageError = err;
   }
-  return { copy, html, png, imageError };
+  return { copy, markup, png, imageError };
 }

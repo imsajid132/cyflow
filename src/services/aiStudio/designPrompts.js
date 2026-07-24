@@ -72,6 +72,80 @@ REAL IMAGES (important):
 - If a logo token is provided, render the actual logo small in a corner/header; otherwise use the brand name as a text wordmark.
 - Use ONLY the exact tokens provided. Never invent image URLs or tokens. If no images are provided, rely on color + SVG.`;
 
+/**
+ * The SVG variant of the design brain — a browserless, Hostinger-safe poster.
+ *
+ * Same premium aesthetic as the HTML prompt, but the output is a single
+ * self-contained <svg> that @resvg/resvg-js can rasterize with NO browser. That
+ * is the one renderer guaranteed to be free forever on any host, so the daily
+ * automation uses this path.
+ *
+ * The rules are shaped by what resvg supports: pure SVG only (no HTML,
+ * no <foreignObject>, no CSS layout, no scripts), text positioned by hand with
+ * <text>/<tspan> (SVG does not auto-wrap), and fonts named so a bundled or system
+ * font resolves them.
+ */
+export const SVG_DESIGN_SYSTEM_PROMPT = `You are an award-winning brand and social-media designer who hand-codes pixel-perfect posters as pure SVG. Your work looks like it came from a top creative agency.
+
+Produce a SINGLE, COMPLETE, self-contained SVG document that renders one 1080x1080 social media post, to be rasterized by resvg (NOT a browser).
+
+HARD REQUIREMENTS (resvg-safe — follow exactly):
+- Output ONLY the SVG. Start with <svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080"> and end with </svg>. No markdown, no code fences, no commentary, no <!DOCTYPE>, no HTML.
+- PURE SVG ONLY. No <foreignObject>, no HTML tags, no CSS stylesheet, no <script>, no external URLs, no web-font <link>. Everything is SVG elements and presentation attributes.
+- Fill the whole canvas: the first element is a <rect width="1080" height="1080"> background (a solid brand colour or an SVG <linearGradient>/<radialGradient> of the brand colours).
+- Use ONLY the provided brand colours (plus tints/shades via opacity, and white / near-black for text). Do not invent unrelated colours.
+- TEXT: use <text> (with <tspan> for stacked lines). SVG does NOT wrap text, so YOU break every line yourself and position each line with x and y (or tspan x + dy). Keep a consistent left margin (about x=90) for left-aligned text, or use text-anchor="middle" for centred text — pick ONE alignment and commit. Nothing may overflow the 1080x1080 canvas or be clipped; keep all content within ~80-110px margins.
+- Every text element MUST have strong WCAG-AA contrast against whatever is directly behind it. If text sits over a busy area, put a solid or gradient shape behind it first.
+- FONTS: set font-family to the requested brand font with safe fallbacks, e.g. font-family="Poppins, 'DejaVu Sans', sans-serif" for sans or font-family="'Playfair Display', 'DejaVu Serif', serif" for an elegant serif. Establish a clear type hierarchy with font-size and font-weight. A big headline (about 88-120px), a small letter-spaced eyebrow, readable sub-text (about 30-38px), and a CTA.
+
+DESIGN TOOLKIT (compose like a premium template):
+- A dominant headline, ideally with ONE accent-coloured word (put that word in its own <tspan fill="ACCENT">).
+- A small uppercase, letter-spaced eyebrow/tag above the headline (use letter-spacing).
+- SVG decoration layered BEHIND the text: gradients, angled color blocks (<polygon>), circles, rings (<circle>), diamonds, waves (<path>), dot grids. Tasteful, not cluttered.
+- If there is an offer, a badge (a <circle> or <polygon>) with the offer text.
+- A clear CTA: a filled rounded pill — a <rect rx="43"> with the CTA <text> centred on it.
+- A slim footer line for website / phone / handle when it fits.
+- A clean text wordmark (the brand name) in a corner.
+
+CATEGORY CUES (adapt to the business; don't copy literally):
+- Food/drink: warm, appetizing, high contrast, big bold display type, a price/discount badge.
+- Real estate: trustworthy blues/neutrals, a tidy contact bar.
+- Travel: teal/turquoise and bright, diamond/rounded frames, a discount badge.
+- Fashion/retail: clean neutral or brand-accent, elegant type, a small hexagon sale badge.
+- Tech/SaaS/agency: modern dark or blue, crisp geometric accents.
+
+Make it read as a finished, professional marketing post — a premium template, not a wireframe. Output the complete 1080x1080 SVG now.`;
+
+/**
+ * Build the per-style SVG user prompt. Same input shape as buildDesignUserPrompt,
+ * minus real images (the SVG automation path is colour + SVG only for now).
+ * @param {{ brand:{businessName:string,industry?:string,tone?:string}, colors:{primary:string,secondary:string,accent:string}, font?:string, content:{headline:string,subtext?:string,cta?:string} }} input
+ * @param {string} direction
+ */
+export function buildSvgDesignUserPrompt(input, direction) {
+  const { brand, colors, font, content } = input;
+  return `BRAND: ${brand.businessName || '(unknown)'}
+INDUSTRY: ${brand.industry || '(unknown)'}
+BRAND TONE: ${brand.tone || 'professional, modern'}
+
+BRAND COLORS (use ONLY these, plus white / near-black for text):
+- primary: ${colors.primary}
+- secondary: ${colors.secondary}
+- accent: ${colors.accent}
+
+PREFERRED FONT (name it in font-family with a safe fallback): ${font || 'a modern sans-serif'}
+
+POST COPY (set this exact text; break long lines yourself into multiple tspans/lines):
+- HEADLINE: ${content.headline || brand.businessName}
+- SUB-TEXT: ${content.subtext || ''}
+- CTA: ${content.cta || ''}
+
+DESIGN DIRECTION FOR THIS VERSION:
+${direction}
+
+Now output the complete self-contained 1080x1080 SVG poster.`;
+}
+
 function orientation(w, h) {
   if (!w || !h) return 'unknown';
   const r = w / h;

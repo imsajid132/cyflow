@@ -12,11 +12,14 @@ to the user. No OpenAI, no HCTI in this engine. The tested OpenAI+HCTI "Make
 parity" engine must remain UNTOUCHED (additive, flag-gated).
 
 ## Current Phase
-Automation wiring COMPLETE this session. The AI engine is now wired into the daily
-automation slot path as an additive, flag-gated branch. Remaining: (1) a FREE
-render service that works on Hostinger managed Node, (2) turn AI_STUDIO_MODE on and
-run a real end-to-end slot, (3) the first careful live publish with the user's real
-accounts.
+Automation wiring COMPLETE and the FREE Hostinger-safe renderer COMPLETE + proven
+end-to-end. The AI engine is wired into the daily automation slot path (additive,
+flag-gated) AND now renders posters browserlessly via @resvg/resvg-js (SVG -> PNG),
+so it runs on ANY Hostinger with no Chrome and no second server. Proven live: real
+Claude -> SVG -> resvg produced an agency-quality 1080x1080 coffee poster (illustrated
+glass, badge, pill CTA, footer) in ~43s. Remaining: (1) bundle premium TTF fonts for
+identical typography on Linux (polish, not a blocker — DejaVu fallback renders now),
+(2) run one real slot through the DB automation path, (3) first careful live publish.
 
 ## Current Branch
 ai-poster-studio (feature branch; base e103789 on cyflow-social-v1)
@@ -71,21 +74,21 @@ mode is explicitly on.
   smokes. The wiring is unit-proven with the engine + media injected as fakes.
 
 ## Current Failure or Blocker
-No code blocker. The real blocker for LIVE-on-Hostinger is the renderer:
-`POSTER_RENDER_MODE=local` needs headless Chrome (fine locally, NOT on Hostinger
-managed Node); `remote` needs a free companion render service that does not exist
-yet. Until then, an AI slot on Hostinger would produce the post COPY + a safe
-image-failed state (retryable), not a poster PNG. Recommended free options to
-decide next: (a) constrain Claude to a self-contained SVG poster and rasterize with
-`@resvg/resvg-js` (pure prebuilt binary, no browser) inside Cyflow; (b) a tiny free
-remote headless-Chrome render service the app POSTs HTML to.
+None. The Hostinger renderer question is SOLVED: `POSTER_RENDER_MODE` unset/`svg`
+(the default) → Claude emits a self-contained SVG poster, `@resvg/resvg-js`
+rasterizes it to PNG with NO browser (works on shared hosting, free forever). The
+HTML+Chrome path (`local`/`remote`) remains opt-in for a VPS. One honest polish
+item: fonts. The renderer loads system fonts + `POSTER_DEFAULT_FONT` (default
+'DejaVu Sans', present on Hostinger Linux), so text always renders; to get the
+EXACT premium families (Poppins/Playfair) identically on every host, drop TTFs into
+`POSTER_FONT_DIR`. Not a blocker — posters render premium now via the fallback.
 
 ## Exact Next Step
-1. Decide the FREE Hostinger renderer (recommend evaluating `@resvg/resvg-js` +
-   an SVG-constrained design prompt so no browser is needed in production).
-2. Set AI_STUDIO_MODE=on locally and run one real `generateAutomationSlotItem`
-   end-to-end (real Claude + local Chrome) to eyeball a rendered poster + captions
-   through the Weekly Board.
+1. (Polish) Bundle 2-3 premium open-source TTF fonts into an assets/fonts dir and
+   point `POSTER_FONT_DIR` at it, so Linux typography matches local exactly.
+2. Set AI_STUDIO_MODE=on and run one real `generateAutomationSlotItem` through the
+   DB automation path (disposable MariaDB) to confirm the item + media asset + Weekly
+   Board render, not just the engine in isolation.
 3. Then the first careful live publish reusing the user's existing Cyflow accounts
    + Meta approval (Cyflow has never published live — go slow, one post).
 
@@ -106,6 +109,10 @@ remote headless-Chrome render service the app POSTs HTML to.
   `backup-cyflow-2026-07-23` (pushed). Do not merge/deploy without the user's say.
 
 ## Last Updated
-AI-automation wiring done + unit-proven (3 new tests; full suite 1289/0; container
-smoke OK). Next: pick the free Hostinger renderer, run one real slot locally, then
-first careful live publish. About to commit the wiring on ai-poster-studio.
+Two milestones this session, both proven: (1) AI-automation wiring (additive,
+flag-gated; commit 41f9a41) and (2) the FREE browserless Hostinger renderer
+(@resvg/resvg-js SVG->PNG) with an SVG design prompt, wired as the engine default.
+Proven end-to-end: real Claude -> SVG -> resvg = an agency-quality 1080x1080 poster.
+Unit suite 1292/0 (6 new aiStudio tests); project:handoff OK; npm audit 0 on the new
+dep. Next: bundle premium fonts (polish), one real slot through the DB automation
+path, then the first careful live publish. Renderer commit is next.

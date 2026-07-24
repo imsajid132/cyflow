@@ -1,21 +1,56 @@
 /**
  * src/services/aiStudio/posterRenderer.js
  *
- * Turn Claude's 1080x1080 HTML poster into a PNG buffer. FREE — no paid service.
- * Two modes, chosen by env so the same code runs on a VPS or on shared hosting:
+ * Turn Claude's 1080x1080 poster into a PNG buffer. FREE — no paid service.
  *
- *   POSTER_RENDER_MODE = "local"   (default)  free headless Chrome on this host
- *   POSTER_RENDER_MODE = "remote"             POST the HTML to a free companion
- *                                             render service (POSTER_RENDER_URL)
+ * TWO INPUT SHAPES, both free:
+ *
+ *  1. renderSvgToPng(svg)   — a self-contained <svg> poster, rasterized with
+ *     @resvg/resvg-js. NO browser, so it runs on ANY host including Hostinger
+ *     managed Node (shared hosting). This is the free-forever, Hostinger-safe
+ *     path and the one the automation uses.
+ *
+ *  2. renderHtmlToPng(html)  — a full HTML/CSS poster, rasterized with headless
+ *     Chrome (local) or a free companion service (remote). Higher fidelity, but
+ *     needs a browser somewhere, so it is for a VPS / local dev, not shared
+ *     hosting. Chosen by env:
+ *       POSTER_RENDER_MODE = "local"  (default)  free headless Chrome here
+ *       POSTER_RENDER_MODE = "remote"            POST HTML to POSTER_RENDER_URL
  *
  * Local mode reuses the repo's dependency-free CDP driver (tools/cdp.mjs) which
  * launches the system Chrome — no npm dependency, no cost.
  */
-import { writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const SIZE = 1080;
+
+/**
+ * Rasterize a self-contained SVG poster to a 1080x1080 PNG with @resvg/resvg-js.
+ * Browserless and free — the Hostinger-safe render path.
+ *
+ * Fonts: system fonts are loaded, plus any TTF/OTF in POSTER_FONT_DIR (bundle a
+ * couple of premium open-source fonts there for a look that is identical on
+ * every host). `defaultFontFamily` (POSTER_DEFAULT_FONT) is the fallback so text
+ * never silently vanishes when a requested family is absent.
+ *
+ * @param {string} svg  a complete <svg ...>...</svg> document, 1080x1080
+ * @returns {Promise<Buffer>} PNG bytes
+ */
+export async function renderSvgToPng(svg) {
+  if (!svg || !/<svg[\s>]/i.test(svg)) throw new Error('renderSvgToPng needs an <svg> document.');
+  // Imported lazily so a host that only ever renders HTML pays nothing for it.
+  const { Resvg } = await import('@resvg/resvg-js');
+  const fontDir = process.env.POSTER_FONT_DIR || null;
+  const font = {
+    loadSystemFonts: true,
+    defaultFontFamily: process.env.POSTER_DEFAULT_FONT || 'DejaVu Sans',
+  };
+  if (fontDir && existsSync(fontDir)) font.fontDirs = [fontDir];
+  const resvg = new Resvg(svg, { fitTo: { mode: 'width', value: SIZE }, font });
+  return Buffer.from(resvg.render().asPng());
+}
 
 async function renderLocal(html, port) {
   const { launch } = await import('../../../tools/cdp.mjs');
