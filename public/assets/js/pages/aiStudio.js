@@ -357,9 +357,132 @@ export async function render(root, ctx) {
     el('p', { className: 'ais-hint', text: 'Claude decides what each post should say and how it should look. You review the week before anything is scheduled.' }),
     nextBtn,
   ]);
-  nextBtn.addEventListener('click', () => {
+  /*
+   * The week.
+   *
+   * Planning is one call and comes back in the response, so seven ideas appear
+   * at once — the difference between "something is happening" and a spinner. The
+   * posters are durable jobs, so this screen polls rather than waits, and the
+   * page can be closed without stopping the week.
+   */
+  const weekView = el('section', { className: 'ais-week', attrs: { hidden: true } });
+  page.appendChild(weekView);
+
+  let polling = null;
+
+  function drawWeek(week) {
+    weekView.textContent = '';
+    weekView.hidden = false;
+
+    const done = week.ready >= week.total;
+    weekView.appendChild(el('div', { className: 'ais-weekhead' }, [
+      el('div', {}, [
+        el('h2', { className: 'ais-brandname', text: done ? 'Your week is ready to review' : 'Building your week' }),
+        el('p', { className: 'ais-hint', text: done
+          ? 'Check each post below. Nothing is scheduled or published until you say so.'
+          : 'Claude has planned the week. The posters are being designed now — you can close this page and come back.' }),
+      ]),
+      el('div', { className: 'ais-weekcount' }, [
+        el('span', { className: 'ais-weeknum', text: `${week.ready} / ${week.total}` }),
+        el('span', { className: 'ais-hint', text: 'posts built' }),
+      ]),
+    ]));
+
+    weekView.appendChild(el('div', { className: 'ais-bar' }, [
+      el('span', { className: 'ais-bar-fill', attrs: { style: `width:${Math.round((week.ready / week.total) * 100)}%` } }),
+    ]));
+
+    const byDay = new Map(week.posts.map((p) => [p.day, p]));
+    weekView.appendChild(el('div', { className: 'ais-days' }, week.plan.map((entry) => {
+      const post = byDay.get(entry.day);
+      const head = el('div', { className: 'ais-dayhead' }, [
+        el('span', { className: 'ais-daynum', text: `Day ${entry.day}` }),
+        entry.job ? el('span', { className: 'ais-chip', text: entry.job }) : null,
+        entry.service ? el('span', { className: 'ais-chip', text: entry.service }) : null,
+      ].filter(Boolean));
+
+      if (!post) {
+        // Waiting: the idea is already known, so it is shown rather than hidden
+        // behind a spinner. The user can read the week while it builds.
+        return el('article', { className: 'ais-day is-waiting' }, [
+          head,
+          el('p', { className: 'ais-dayangle', text: entry.angle }),
+          el('div', { className: 'ais-daywait' }, [
+            el('span', { className: 'ais-spinner ais-spinner-sm' }),
+            el('span', { className: 'ais-hint', text: 'Designing the poster and writing the copy…' }),
+          ]),
+        ]);
+      }
+
+      const poster = post.posterUrl
+        ? el('img', { className: 'ais-dayposter', attrs: { src: post.posterUrl, alt: post.headline || `Day ${post.day} poster`, loading: 'lazy', decoding: 'async' } })
+        : el('div', { className: 'ais-dayposter ais-dayposter-none' }, [
+          el('span', { className: 'ais-hint', text: post.imageError || 'The poster could not be made for this post.' }),
+        ]);
+
+      const caption = (label, text) => (text ? el('div', { className: 'ais-cap' }, [
+        el('div', { className: 'ais-cap-head' }, [el('span', { className: 'ais-cap-label', text: label })]),
+        el('p', { className: 'ais-cap-text', text }),
+      ]) : null);
+
+      return el('article', { className: 'ais-day' }, [
+        head,
+        el('p', { className: 'ais-dayangle', text: post.angle || entry.angle }),
+        el('div', { className: 'ais-daybody' }, [
+          poster,
+          el('div', { className: 'ais-daycaps' }, [
+            caption('Facebook', post.captions.facebook),
+            caption('Instagram', post.captions.instagram),
+            caption('Threads', post.captions.threads),
+            post.hashtags?.length
+              ? el('div', { className: 'ais-tags' }, post.hashtags.map((h) => el('span', { className: 'ais-chip', text: h })))
+              : null,
+          ].filter(Boolean)),
+        ]),
+      ]);
+    })));
+
+    if (done && polling) { clearInterval(polling); polling = null; }
+  }
+
+  async function pollWeek(runId) {
+    const res = await api.apiRequest(`/api/ai-studio/week/${encodeURIComponent(runId)}`);
+    if (!res.ok) return;
+    const week = api.payload(res);
+    if (week) drawWeek(week);
+  }
+
+  let starting = false;
+  nextBtn.addEventListener('click', async () => {
+    if (starting) return;
     if (!brand.businessName.trim()) { toast('Add your business name first.', 'warn'); return; }
-    toast('The weekly generator is the next step being built.', 'info');
+
+    starting = true;
+    nextBtn.disabled = true;
+    nextBtn.textContent = 'Planning your week…';
+
+    const res = await api.apiRequest('/api/ai-studio/week', {
+      method: 'POST',
+      body: {
+        ...brand,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      },
+    });
+
+    starting = false;
+    nextBtn.disabled = false;
+    nextBtn.textContent = 'Next: generate a week of posts';
+
+    if (res.unauthorized) { ctx.navigate('/login'); return; }
+    if (!res.ok) { toast(api.errorMessage(res, 'The week could not be planned.'), 'err'); return; }
+
+    const out = api.payload(res) || {};
+    drawWeek({ runId: out.runId, total: out.plan.length, ready: 0, plan: out.plan, posts: [] });
+    weekView.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    toast('Your week is planned. The posters are being built.', 'ok');
+
+    if (polling) clearInterval(polling);
+    polling = setInterval(() => pollWeek(out.runId), 5000);
   });
 
   // --- analyze -------------------------------------------------------------

@@ -187,7 +187,9 @@ test('progress reports the plan and how much of it is built', async () => {
   assert.equal(week.total, 7);
   assert.equal(week.ready, 2);
   assert.equal(week.plan.length, 7);
-  assert.equal(week.items.length, 2);
+  assert.equal(week.posts.length, 2);
+  assert.equal(week.posts[0].day, 1);
+  assert.equal(week.posts[0].captions.instagram, 'IG copy');
 
   // Another user's week is not readable.
   assert.equal(await svc.getWeek('999', runId), null);

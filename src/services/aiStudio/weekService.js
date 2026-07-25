@@ -23,6 +23,7 @@ import { normalizeProviderError } from '../../utils/providerErrors.js';
 import { logProviderFailure } from '../../utils/providerLog.js';
 import * as defaultRuns from '../../repositories/plannerRunRepository.js';
 import * as defaultJobs from '../../repositories/backgroundJobRepository.js';
+import * as defaultMedia from '../../repositories/mediaAssetRepository.js';
 import { createMediaLibraryService } from '../mediaLibraryService.js';
 import { planWeek, WEEK_LENGTH } from './weekPlanner.js';
 import { generateAiPost } from './aiStudioEngine.js';
@@ -33,6 +34,7 @@ const DAY_SECONDS = 24 * 60 * 60;
 export function createWeekService({
   runs = defaultRuns,
   jobs = defaultJobs,
+  media = defaultMedia,
   mediaLibraryService = createMediaLibraryService(),
   planner = planWeek,
   generatePost = generateAiPost,
@@ -242,19 +244,57 @@ export function createWeekService({
     }
   }
 
-  /** Progress for the studio screen: the plan, and what has been built. */
+  /**
+   * Progress for the studio screen: the plan, and what has been built.
+   *
+   * The poster travels as a URL. An item carries a media id, which means nothing
+   * to a browser — without resolving it here the screen would show a week of
+   * blank cards while every poster sat finished in storage.
+   */
   async function getWeek(userId, runId) {
     const run = await runs.findRunByIdForUser(runId, userId);
     if (!run) return null;
     const items = await runs.listItemsForRun(run.id, userId);
     const plan = run.settings?.plan || [];
+
+    const posts = [];
+    for (const item of items) {
+      let posterUrl = null;
+      if (item.mediaAssetId) {
+        // eslint-disable-next-line no-await-in-loop
+        const asset = await media.findMediaAssetByIdForUser(item.mediaAssetId, userId).catch(() => null);
+        if (asset?.publicToken) posterUrl = `/media/${asset.publicToken}`;
+      }
+      const entry = plan.find((p) => p.day === (item.position ?? 0) + 1) || {};
+      posts.push({
+        id: String(item.id),
+        day: (item.position ?? 0) + 1,
+        job: entry.job || '',
+        angle: item.brief || entry.angle || '',
+        headline: item.headline || '',
+        subheadline: item.subheadline || '',
+        hashtags: item.hashtags || [],
+        captions: {
+          facebook: item.platformCaptions?.facebook?.caption || item.caption || '',
+          instagram: item.platformCaptions?.instagram?.caption || '',
+          threads: item.platformCaptions?.threads?.caption || '',
+        },
+        posterUrl,
+        // Honest about a poster that failed: the card says why, and can retry.
+        imageStatus: item.imageStatus || null,
+        imageError: item.imageErrorMessage || null,
+        scheduledFor: item.scheduledFor || null,
+      });
+    }
+    posts.sort((a, b) => a.day - b.day);
+
     return {
       runId: String(run.id),
       status: run.status,
       total: plan.length || WEEK_LENGTH,
-      ready: items.length,
+      ready: posts.length,
       plan,
-      items,
+      posts,
     };
   }
 
