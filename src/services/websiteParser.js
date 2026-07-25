@@ -118,13 +118,31 @@ export function extractColors(root) {
 // --- fonts ----------------------------------------------------------------
 
 /** Return a safe font label from a font-family declaration. */
+/**
+ * Generic families and system stacks. These are real CSS, but they are not a
+ * BRAND's font — reporting "-apple-system" as the heading face tells the owner
+ * nothing about their own site, and putting it in front of a designer is worse
+ * than saying nothing.
+ */
+const NON_BRAND_FONTS = new Set([
+  'inherit', 'initial', 'unset', 'revert', 'var',
+  'sans-serif', 'serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'ui-sans-serif',
+  'ui-serif', 'ui-monospace', 'ui-rounded', '-apple-system', 'blinkmacsystemfont',
+]);
+
 export function firstFontName(declaration) {
   if (typeof declaration !== 'string') return '';
   const first = declaration.split(',')[0] || '';
   const name = first.replace(/["']/g, '').trim();
   // Only plain font names — never URLs or expressions.
   if (!/^[A-Za-z0-9 _-]{1,80}$/.test(name)) return '';
-  if (/^(inherit|initial|unset|revert|var)$/i.test(name)) return '';
+  /*
+   * A bare number is a font-WEIGHT that leaked in from a neighbouring property
+   * (a site with `--heading-font-weight: 600` reported "600" as its heading
+   * face). A font name always has letters in it.
+   */
+  if (!/[A-Za-z]/.test(name)) return '';
+  if (NON_BRAND_FONTS.has(name.toLowerCase())) return '';
   return clean(name, BUSINESS_LIMITS.FONT_MAX);
 }
 
@@ -139,9 +157,15 @@ export function extractFonts(root) {
     return m ? firstFontName(m[1]) : '';
   };
 
-  // Prefer explicit CSS variables, then heading/body rules.
-  const headingVar = pick(/--[\w-]*(?:heading|title|display)[\w-]*font[\w-]*\s*:\s*([^;}\n]+)/i);
-  const bodyVar = pick(/--[\w-]*(?:body|base|text)[\w-]*font[\w-]*\s*:\s*([^;}\n]+)/i);
+  /*
+   * Prefer explicit CSS variables, then heading/body rules.
+   *
+   * The variable patterns stop at `font` or `font-family` deliberately: they used
+   * to allow any trailing word, so `--heading-font-weight: 600` matched and the
+   * site's heading face was reported as "600".
+   */
+  const headingVar = pick(/--[\w-]*(?:heading|title|display)[\w-]*-?font(?:-family)?\s*:\s*([^;}\n]+)/i);
+  const bodyVar = pick(/--[\w-]*(?:body|base|text)[\w-]*-?font(?:-family)?\s*:\s*([^;}\n]+)/i);
   const headingRule = pick(/(?:^|[},])\s*h1[^{]*\{[^}]*font-family\s*:\s*([^;}\n]+)/im);
   const bodyRule = pick(/(?:^|[},])\s*body[^{]*\{[^}]*font-family\s*:\s*([^;}\n]+)/im);
   const anyRule = pick(/font-family\s*:\s*([^;}\n]+)/i);
@@ -308,6 +332,26 @@ export function extractSocialLinks(root, baseUrl) {
   return [...found.entries()].map(([platform, url]) => ({ platform, url }));
 }
 
+/**
+ * Placeholders a theme or CMS leaves behind where a business name belongs.
+ * "default" is the one that reached production, on a site whose JSON-LD had
+ * never been filled in.
+ */
+const PLACEHOLDER_NAMES = new Set([
+  'default', 'untitled', 'home', 'homepage', 'index', 'website', 'site', 'my site',
+  'my website', 'new site', 'sample', 'example', 'test', 'demo', 'page', 'main',
+  'welcome', 'wordpress', 'shopify', 'wix site', 'squarespace', 'lorem ipsum',
+]);
+
+/** True when a candidate reads like a real business name rather than a stub. */
+export function isRealBusinessName(value) {
+  if (typeof value !== 'string') return false;
+  const s = value.trim();
+  if (s.length < 2) return false;
+  if (!/[A-Za-z]/.test(s)) return false;
+  return !PLACEHOLDER_NAMES.has(s.toLowerCase());
+}
+
 /** Concise service names — never a full-page text dump. */
 export function extractServices(root) {
   const out = [];
@@ -317,6 +361,16 @@ export function extractServices(root) {
     if (!s || s.length < 3) return;
     if (/^(home|about|contact|blog|news|privacy|terms|login|menu|search|cookie)/i.test(s)) return;
     if (s.split(' ').length > 8) return; // sentences are not service names
+    /*
+     * A benefit is not a service. Section headings on a sales page are written
+     * as promises — "Prevent water leaks and interior damage", "Increase
+     * property value", "Help you pass NYC DOB inspections" — and a list of those
+     * given to a designer produces a poster about outcomes with no idea what the
+     * business actually does. A service is a noun phrase, so anything that opens
+     * with a verb of promise, or addresses the reader, is dropped.
+     */
+    if (/^(prevent|increase|improve|reduce|save|protect|avoid|get|help|boost|ensure|keep|make|stop|enjoy|discover|learn|find|why|how|what|when)\b/i.test(s)) return;
+    if (/\b(you|your|we|our)\b/i.test(s) && s.split(' ').length > 3) return;
     const key = s.toLowerCase();
     if (seen.has(key)) return;
     seen.add(key);
@@ -397,7 +451,16 @@ export function parsePage(html, baseUrl) {
     ogTitle,
     ogDescription,
     ogSiteName,
-    businessName: jsonLd.name || ogSiteName || ogTitle || title || '',
+    /*
+     * The first CANDIDATE that is actually a name.
+     *
+     * A real site reported its business name as "default": its JSON-LD carried a
+     * theme placeholder, and because that field was merely present it won over
+     * the og:site_name and the title, which both held the real name. A
+     * placeholder is worse than a missing value — it is confidently wrong, and it
+     * would have gone onto every poster.
+     */
+    businessName: [jsonLd.name, ogSiteName, ogTitle, title].find(isRealBusinessName) || '',
     description: jsonLd.description || metaDescription || ogDescription || aboutText || '',
     aboutText,
     logoUrl: logo.url,

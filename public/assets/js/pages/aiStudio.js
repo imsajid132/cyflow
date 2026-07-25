@@ -163,7 +163,15 @@ export async function render(root, ctx) {
     const fonts = [b.fonts?.heading, b.fonts?.body].filter(Boolean);
     const c = b.contact || {};
     const place = [c.address, c.city, c.region, c.postalCode, c.country].filter(Boolean).join(', ');
-    const socials = Object.entries(b.socialLinks || {}).filter(([, v]) => v);
+    /*
+     * The reader returns social links as a LIST of {platform, url}. Treating it
+     * as an object listed its array indexes — the panel showed "0 1 2 3 4 5"
+     * where the platform names belonged. Both shapes are accepted so a future
+     * change of mind cannot bring the numbers back.
+     */
+    const socials = Array.isArray(b.socialLinks)
+      ? b.socialLinks.map((s) => (typeof s === 'string' ? s : s?.platform)).filter(Boolean)
+      : Object.entries(b.socialLinks || {}).filter(([, v]) => v).map(([k]) => k);
 
     const details = el('div', { className: 'ais-details' }, [
       detail('Heading font', b.fonts?.heading),
@@ -187,7 +195,7 @@ export async function render(root, ctx) {
       colourBlock,
       details.children.length ? details : null,
       chips('Services', b.services || []),
-      chips('Social', socials.map(([k]) => k)),
+      chips('Social', socials),
       fonts.length === 0 ? el('p', { className: 'ais-hint', text: 'No fonts were named on the site. Posters use the studio faces.' }) : null,
     ].filter(Boolean)));
 
