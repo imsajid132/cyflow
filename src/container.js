@@ -42,6 +42,7 @@ import { openaiContentService as realOpenAI } from './services/openaiContentServ
 import { socialImageService as realSocialImage } from './services/socialImageService.js';
 import { contentUniquenessService as realUniquenessService } from './services/contentUniquenessService.js';
 import { createPlannerController } from './controllers/plannerController.js';
+import { createAiStudioController } from './controllers/aiStudioController.js';
 import { websiteAnalysisService as realWebsiteAnalysisService } from './services/websiteAnalysisService.js';
 import { createBusinessProfileController } from './controllers/businessProfileController.js';
 import { createLoggingService } from './services/loggingService.js';
@@ -205,6 +206,7 @@ export function buildContainer(overrides = {}) {
   const parseSingleImage = overrides.parseSingleImage ?? createMediaUploadMiddleware();
   const businessProfileController = createBusinessProfileController({ businessProfileService });
   const plannerController = createPlannerController({ plannerService });
+  const aiStudioController = createAiStudioController();
 
   // D1: content automations + the durable background job runtime. The automation
   // service reuses the planner for slot generation; the durable job service runs
@@ -335,6 +337,7 @@ export function buildContainer(overrides = {}) {
     parseSingleImage,
     businessProfileController,
     plannerController,
+    aiStudioController,
     requireAuth,
     guestOnly,
     attachUser,

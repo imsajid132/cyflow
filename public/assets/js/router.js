@@ -35,6 +35,7 @@ const ROUTES = {
   '/brand': { layout: 'app', auth: true, load: () => import('./pages/brand.js') },
   '/connections': { layout: 'app', auth: true, load: () => import('./pages/connections.js') },
   '/create': { layout: 'app', auth: true, load: () => import('./pages/create.js') },
+  '/ai-studio': { layout: 'app', auth: true, load: () => import('./pages/aiStudio.js') },
   '/queue': { layout: 'app', auth: true, load: () => import('./pages/queue.js') },
   '/calendar': { layout: 'app', auth: true, load: () => import('./pages/calendar.js') },
   '/media': { layout: 'app', auth: true, load: () => import('./pages/media.js') },
@@ -58,7 +59,7 @@ const PUBLIC_META = {
 
 const TITLES = {
   '/login': 'Sign in', '/register': 'Create account', '/dashboard': 'Dashboard',
-  '/brand': 'Brand', '/connections': 'Connections', '/create': 'Create Post',
+  '/brand': 'Brand', '/connections': 'Connections', '/create': 'Create Post', '/ai-studio': 'AI Studio',
   '/queue': 'Queue', '/calendar': 'Calendar', '/media': 'Media library', '/integrations': 'Integrations',
   '/profile': 'Profile', '/settings': 'Settings',
   '/onboarding/business': 'Business setup', '/onboarding/brand': 'Brand review',

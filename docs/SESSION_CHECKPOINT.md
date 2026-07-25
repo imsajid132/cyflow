@@ -12,14 +12,15 @@ to the user. No OpenAI, no HCTI in this engine. The tested OpenAI+HCTI "Make
 parity" engine must remain UNTOUCHED (additive, flag-gated).
 
 ## Current Phase
-Wiring + free renderer + DB integration proof all COMPLETE. The AI engine is wired
-into the daily automation slot path (additive, flag-gated), renders posters
-browserlessly via @resvg/resvg-js (SVG -> PNG) so it runs on ANY Hostinger, and is
-now proven through the REAL automation + MariaDB path (refill -> worker -> slot job ->
-mediaLibraryService store -> createItem). That integration test caught + fixed a real
-bug: the slot handler required OpenAI even in AI mode, which would have failed every
-slot on a workspace that (intentionally) has no OpenAI key. Remaining: (1) bundle
-premium TTF fonts (polish, DejaVu fallback renders now), (2) first careful live publish.
+Wiring + free renderer + DB integration proof + a VISIBLE AI Studio page all COMPLETE.
+The AI engine is wired into the daily automation slot path (additive, flag-gated),
+renders posters browserlessly via @resvg/resvg-js (SVG -> PNG) so it runs on ANY
+Hostinger, is proven through the REAL automation + MariaDB path, and now has a
+dashboard page (/ai-studio) so the user can SEE and test it on demand — the user
+reported "redeploy did nothing", which was correct: the feature had no UI and its
+env switch was never set. Remaining: (1) bundle premium TTF fonts (polish, DejaVu
+fallback renders now), (2) the user sets AI_STUDIO_MODE=on + AI_API_KEY on Hostinger,
+(3) first careful live publish.
 
 ## Current Branch
 ai-poster-studio (feature branch; base e103789 on cyflow-social-v1)
@@ -84,11 +85,12 @@ EXACT premium families (Poppins/Playfair) identically on every host, drop TTFs i
 `POSTER_FONT_DIR`. Not a blocker — posters render premium now via the fallback.
 
 ## Exact Next Step
-1. (Polish) Bundle 2-3 premium open-source TTF fonts into an assets/fonts dir and
+1. USER ACTION (the actual blocker): on Hostinger, set `AI_STUDIO_MODE=on` and
+   `AI_API_KEY` (plus AI_BASE_URL / AI_MODEL) in the env panel, redeploy with
+   `npm install` (the new @resvg/resvg-js dep), restart. Then open /ai-studio in the
+   dashboard and press Generate — that is the visible proof the engine works live.
+2. (Polish) Bundle 2-3 premium open-source TTF fonts into an assets/fonts dir and
    point `POSTER_FONT_DIR` at it, so Linux typography matches local exactly.
-2. Set AI_STUDIO_MODE=on and run one real `generateAutomationSlotItem` through the
-   DB automation path (disposable MariaDB) to confirm the item + media asset + Weekly
-   Board render, not just the engine in isolation.
 3. Then the first careful live publish reusing the user's existing Cyflow accounts
    + Meta approval (Cyflow has never published live — go slow, one post).
 
@@ -109,12 +111,13 @@ EXACT premium families (Poppins/Playfair) identically on every host, drop TTFs i
   `backup-cyflow-2026-07-23` (pushed). Do not merge/deploy without the user's say.
 
 ## Last Updated
-Three milestones this session, all proven: (1) AI-automation wiring (additive,
+Four milestones this session, all proven: (1) AI-automation wiring (additive,
 flag-gated; commit 41f9a41); (2) the FREE browserless Hostinger renderer
 (@resvg/resvg-js SVG->PNG; commit a015e54), proven with real Claude -> an
 agency-quality poster; (3) DB integration proof through the real automation path,
 which caught + fixed a real bug (slot handler required OpenAI even in AI mode ->
-now skipped when AI mode is on; automationService.js). Unit suite 1292/0,
-integration 47/0 (both on MariaDB), project:handoff OK, npm audit 0. Remaining:
-bundle premium fonts (polish) + first careful live publish. Committing the fix +
-integration test next.
+now skipped when AI mode is on; commit 98ac497); (4) the VISIBLE AI Studio page
+(/ai-studio + /api/ai-studio) in the dark studio aesthetic the user asked for,
+reviewed in a real browser at desktop and mobile (clean console, hex-field clipping
+found and fixed). Unit suite 1292/0, integration 47/0 (MariaDB), project:handoff OK.
+Remaining: the user sets the Hostinger env switch, font polish, first live publish.

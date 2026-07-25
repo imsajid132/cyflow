@@ -1159,3 +1159,125 @@ legend { padding: 0; }
   .attn-dot { margin-top: .4rem; }
   .attn-item > .btn { flex: 1 0 100%; }
 }
+
+/* ==========================================================================
+   AI Studio — a dark "design tool" surface, modeled on the studio aesthetic.
+   Scoped entirely under .ai-studio so it never affects the rest of the app.
+   ========================================================================== */
+.ai-studio {
+  --ais-bg: #0b0d10;
+  --ais-panel: #14171c;
+  --ais-panel2: #1b1f26;
+  --ais-border: #2a2f38;
+  --ais-fg: #e6e9ef;
+  --ais-muted: #8b94a3;
+  --ais-accent: #6ea8fe;
+  background: var(--ais-bg);
+  color: var(--ais-fg);
+  border: 1px solid var(--ais-border);
+  border-radius: 16px;
+  padding: clamp(1rem, 2.5vw, 2rem);
+}
+.ai-studio .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.ais-head { margin-bottom: 1.25rem; }
+.ais-brand { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.ais-dot { width: 22px; height: 22px; border-radius: 7px; background: var(--ais-accent); display: inline-block; }
+.ais-brand h1 { font-size: 1.2rem; font-weight: 700; margin: 0; color: var(--ais-fg); }
+.ais-tag { font-size: 11px; color: var(--ais-muted); }
+/*
+ * The app shell styles `.sub` and small print in the marketing/link colour, and
+ * this panel sits on a dark surface where that reads as a link. Every muted
+ * string in the studio states its own colour and weight so nothing inherits an
+ * accent from outside this component.
+ */
+.ai-studio .ais-sub,
+.ai-studio .ais-hint { color: var(--ais-muted); font-weight: 400; }
+.ais-sub { font-size: .9rem; margin: .6rem 0 0; max-width: 60ch; }
+
+.ais-grid { display: grid; grid-template-columns: minmax(0, 380px) 1fr; gap: 1.5rem; align-items: start; }
+@media (max-width: 900px) { .ais-grid { grid-template-columns: 1fr; } }
+
+.ais-panel {
+  background: var(--ais-panel); border: 1px solid var(--ais-border); border-radius: 12px;
+  padding: 1.1rem; display: flex; flex-direction: column; gap: .85rem;
+}
+.ais-row { display: flex; flex-direction: column; gap: .35rem; }
+.ais-label { font-size: .78rem; font-weight: 600; color: var(--ais-muted); letter-spacing: .02em; }
+.ais-hint { font-size: .72rem; color: var(--ais-muted); }
+.ais-input {
+  width: 100%; background: var(--ais-panel2); color: var(--ais-fg);
+  border: 1px solid var(--ais-border); border-radius: 9px; padding: .6rem .7rem;
+  font-size: .9rem; outline: none; transition: border-color .15s;
+}
+.ais-input:focus { border-color: var(--ais-accent); }
+.ais-area { resize: vertical; min-height: 66px; font-family: inherit; }
+select.ais-input { appearance: none; cursor: pointer; }
+
+/*
+ * Three colours across a 380px panel: the hex input must be allowed to shrink
+ * (min-width:0) or the swatch pushes it wide enough to clip "#0ea5e9" to
+ * "#0ea5e". Its font-size is reduced so the full seven characters always fit.
+ */
+.ais-colors { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; }
+.ais-color { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
+.ais-color-in { display: flex; align-items: center; gap: .3rem; min-width: 0; }
+.ais-swatch {
+  -webkit-appearance: none; appearance: none; width: 34px; height: 34px; flex: 0 0 34px;
+  padding: 0; border: 1px solid var(--ais-border); border-radius: 8px; background: none; cursor: pointer;
+}
+.ais-swatch::-webkit-color-swatch-wrapper { padding: 2px; }
+.ais-swatch::-webkit-color-swatch { border: none; border-radius: 6px; }
+.ais-hex { text-transform: lowercase; min-width: 0; flex: 1 1 auto; width: 100%; padding: .5rem .4rem; font-size: .78rem; letter-spacing: -.01em; }
+
+.ais-btn {
+  background: var(--ais-accent); color: #0b0d10; border: none; border-radius: 9px;
+  padding: .7rem 1.1rem; font-size: .92rem; font-weight: 700; cursor: pointer;
+  transition: filter .15s, opacity .15s; text-align: center; text-decoration: none; display: inline-block;
+}
+.ais-btn:hover { filter: brightness(1.08); }
+.ais-btn:disabled { opacity: .55; cursor: not-allowed; }
+
+.ais-output {
+  background: var(--ais-panel); border: 1px solid var(--ais-border); border-radius: 12px;
+  padding: 1.1rem; min-height: 420px;
+}
+.ais-empty {
+  min-height: 380px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; gap: .5rem; border: 1px dashed var(--ais-border); border-radius: 10px; padding: 1.5rem;
+}
+.ais-empty p { margin: 0; color: var(--ais-fg); }
+.ais-empty .ais-hint { max-width: 46ch; }
+.ais-spinner {
+  width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--ais-border);
+  border-top-color: var(--ais-accent); animation: ais-spin .8s linear infinite; margin-bottom: .3rem;
+}
+@keyframes ais-spin { to { transform: rotate(360deg); } }
+
+.ais-poster-wrap { display: flex; flex-direction: column; gap: .7rem; align-items: flex-start; }
+.ais-poster {
+  width: 100%; max-width: 560px; height: auto; aspect-ratio: 1 / 1; border-radius: 12px;
+  border: 1px solid var(--ais-border); display: block;
+}
+.ais-dl { align-self: flex-start; }
+.ais-note {
+  background: rgba(110,168,254,.1); border: 1px solid rgba(110,168,254,.35); color: var(--ais-fg);
+  border-radius: 9px; padding: .6rem .8rem; font-size: .85rem; margin-bottom: .9rem;
+}
+
+.ais-caps { display: flex; flex-direction: column; gap: .7rem; margin-top: 1rem; }
+.ais-cap { background: var(--ais-panel2); border: 1px solid var(--ais-border); border-radius: 10px; padding: .8rem; }
+.ais-cap-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: .45rem; }
+.ais-cap-label { font-size: .75rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ais-muted); }
+.ais-copy {
+  background: transparent; color: var(--ais-accent); border: 1px solid var(--ais-border);
+  border-radius: 7px; padding: .25rem .6rem; font-size: .75rem; font-weight: 600; cursor: pointer;
+}
+.ais-copy:hover { border-color: var(--ais-accent); }
+.ais-cap-text { margin: 0; white-space: pre-wrap; font-size: .88rem; line-height: 1.55; color: var(--ais-fg); }
+.ais-tags { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .9rem; }
+.ais-chip {
+  background: var(--ais-panel2); border: 1px solid var(--ais-border); color: var(--ais-accent);
+  border-radius: 999px; padding: .2rem .6rem; font-size: .78rem;
+}

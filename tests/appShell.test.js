@@ -47,7 +47,10 @@ test('the app declares exactly the planned routes', () => {
     '/features', '/how-it-works', '/security', '/about', '/contact', '/privacy', '/terms',
     '/login', '/register', '/onboarding', '/onboarding/business',
     '/onboarding/brand', '/onboarding/connections', '/dashboard', '/brand',
-    '/connections', '/create', '/queue', '/calendar',
+    '/connections', '/create',
+    // AI Studio: on-demand Claude poster + post copy (the visible AI engine).
+    '/ai-studio',
+    '/queue', '/calendar',
     // C3: media library.
     '/media',
     '/integrations',

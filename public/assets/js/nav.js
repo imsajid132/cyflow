@@ -26,6 +26,7 @@ const GROUPS = [
       // The planner is the primary workflow, so it sits above Create Post.
       { path: '/planner', label: 'Auto Planner', ico: 'planner' },
       { path: '/automations', label: 'Automations', ico: 'automations' },
+      { path: '/ai-studio', label: 'AI Studio', ico: 'aiStudio' },
       { path: '/create', label: 'Create Post', ico: 'create' },
       { path: '/calendar', label: 'Calendar', ico: 'calendar' },
       { path: '/queue', label: 'Queue', ico: 'queue' },

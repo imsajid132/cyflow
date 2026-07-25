@@ -33,6 +33,7 @@ import { createMediaRoutes } from './routes/mediaRoutes.js';
 import { createMediaLibraryRoutes } from './routes/mediaLibraryRoutes.js';
 import { createBusinessProfileRoutes } from './routes/businessProfileRoutes.js';
 import { createPlannerRoutes } from './routes/plannerRoutes.js';
+import { createAiStudioRoutes } from './routes/aiStudioRoutes.js';
 import { createAutomationRoutes } from './routes/automationRoutes.js';
 import { createPublishRoutes } from './routes/publishRoutes.js';
 import { createAccountRoutes } from './routes/accountRoutes.js';
@@ -65,6 +66,7 @@ export const APP_ROUTES = Object.freeze([
   '/brand',
   '/connections',
   '/create',
+  '/ai-studio',
   '/queue',
   '/calendar',
   // C3 media library. Exact match only; /media/:token is the content route.
@@ -300,6 +302,14 @@ export function createApp(overrides = {}) {
     '/api/business-profile',
     createBusinessProfileRoutes({
       businessProfileController: container.businessProfileController,
+      requireAuth: container.requireAuth,
+    }),
+  );
+  // AI Studio: on-demand poster + captions (the visible, testable AI engine).
+  app.use(
+    '/api/ai-studio',
+    createAiStudioRoutes({
+      aiStudioController: container.aiStudioController,
       requireAuth: container.requireAuth,
     }),
   );
