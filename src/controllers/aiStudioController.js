@@ -82,13 +82,34 @@ export function createAiStudioController({ websiteAnalysis = defaultWebsiteAnaly
      * actually returns something. Colours, logo, fonts and contact details are
      * facts it cannot see from text, so they stay exactly as read.
      */
+    const foundImages = list(s.images, 12).map((im) => ({
+      url: String(im?.url || ''), alt: String(im?.alt || ''),
+      width: Number(im?.width) || 0, height: Number(im?.height) || 0,
+    })).filter((im) => im.url);
+
     const refined = await refineBrand({
       websiteUrl: s.websiteUrl || result?.sourceUrl || '',
       businessName: s.businessName || '',
       industry: s.businessCategory || '',
       description: s.businessDescription || '',
       services: list(s.services, 20),
+      images: foundImages,
     });
+
+    /*
+     * Which pictures are actually of this business.
+     *
+     * A rule cannot tell a company's own work from its customers' logos — a real
+     * site offered five "photos" that were all client marks from a trusted-by
+     * strip, and a poster carrying one would advertise somebody else. The model
+     * can tell, from the description and the filename.
+     *
+     * `null` means it did not answer, which is NOT a decision to discard the
+     * photographs: they are all kept, exactly as before.
+     */
+    const images = Array.isArray(refined?.keepImages)
+      ? refined.keepImages.map((i) => foundImages[i]).filter(Boolean)
+      : foundImages;
 
     return sendSuccess(res, {
       sourceUrl: result?.sourceUrl ?? null,
@@ -134,10 +155,7 @@ export function createAiStudioController({ websiteAnalysis = defaultWebsiteAnaly
          * like a template, so they travel with the brand rather than being
          * fetched again later.
          */
-        images: list(s.images, 12).map((im) => ({
-          url: String(im?.url || ''), alt: String(im?.alt || ''),
-          width: Number(im?.width) || 0, height: Number(im?.height) || 0,
-        })).filter((im) => im.url),
+        images,
       },
     });
   });

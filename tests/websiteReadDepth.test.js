@@ -83,3 +83,29 @@ test('a relative image is resolved against the site, never left relative', () =>
   const images = extractImages(parse('<img src="photos/shop.jpg" width="900">'), 'https://example.test/about/');
   assert.equal(images[0].url, 'https://example.test/about/photos/shop.jpg');
 });
+
+/*
+ * The case that kept coming back empty: a site whose every font rule resolves to
+ * a CSS variable that resolves to another variable. Nothing rule-based can
+ * follow that chain — but the site self-hosts the face and says so outright.
+ */
+test('a self-hosted face is read from the site own @font-face rule', () => {
+  const html = `<html><head><style>
+    :root { --font-sans: var(--font-inter), ui-sans-serif, system-ui; --font-display: var(--font-inter), sans-serif; }
+    @font-face{font-family:Inter;font-style:normal;font-weight:100 900;src:url(/fonts/inter.woff2) format("woff2")}
+    body { font-family: var(--font-sans); }
+    h1 { font-family: var(--font-display); }
+  </style></head><body></body></html>`;
+  const fonts = extractFonts(parse(html));
+  assert.equal(fonts.headingFont, 'Inter', 'the shipped face is the answer when every rule ends at a var()');
+  assert.equal(fonts.bodyFont, 'Inter');
+});
+
+test('the other variable naming order is read too', () => {
+  const html = `<html><head><style>
+    :root { --font-display: Playfair Display, serif; --font-sans: Inter, sans-serif; }
+  </style></head><body></body></html>`;
+  const fonts = extractFonts(parse(html));
+  assert.equal(fonts.headingFont, 'Playfair Display');
+  assert.equal(fonts.bodyFont, 'Inter');
+});

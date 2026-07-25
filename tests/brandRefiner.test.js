@@ -121,3 +121,34 @@ test('a customers logo strip is not offered as photographs of this business', ()
     assert.ok(!urls.some((u) => u.includes(other)), `${other} is a customer's logo, not this business`);
   }
 });
+
+/*
+ * A rule cannot tell a company's own work from its customers' logos; the model
+ * can, from the description and the filename. What matters most is the failure
+ * shape: no opinion must never be read as "throw the photographs away".
+ */
+test('the model picks the photographs that are actually of this business', async () => {
+  const images = [
+    { url: 'https://x.test/img/our-facade.jpg', alt: 'Facade we restored' },
+    { url: 'https://x.test/img/acme-logo.png', alt: 'Acme' },
+    { url: 'https://x.test/img/crew.jpg', alt: 'Our crew on site' },
+  ];
+  const out = await withClaude(JSON.stringify({
+    industry: 'Masonry contractor', description: '', services: [], tone: '', keepImages: [0, 2],
+  }), () => refineBrand({ ...SCRAPE, images }));
+  assert.deepEqual(out.keepImages, [0, 2], 'the client logo is left out');
+});
+
+test('an out-of-range index is ignored rather than trusted', async () => {
+  const images = [{ url: 'https://x.test/a.jpg', alt: 'A' }];
+  const out = await withClaude(JSON.stringify({ industry: 'X', services: [], keepImages: [0, 5, -1, 'two'] }),
+    () => refineBrand({ ...SCRAPE, images }));
+  assert.deepEqual(out.keepImages, [0]);
+});
+
+test('no opinion on the images is not a decision to discard them', async () => {
+  const images = [{ url: 'https://x.test/a.jpg', alt: 'A' }, { url: 'https://x.test/b.jpg', alt: 'B' }];
+  const out = await withClaude(JSON.stringify({ industry: 'X', description: '', services: [], tone: '' }),
+    () => refineBrand({ ...SCRAPE, images }));
+  assert.equal(out.keepImages, null, 'null tells the caller to keep every picture');
+});

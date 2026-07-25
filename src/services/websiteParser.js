@@ -182,6 +182,27 @@ export function fontsFromWebfontLinks(root) {
   return names;
 }
 
+/**
+ * Faces the site SHIPS, named in its own @font-face rules.
+ *
+ * This is the most reliable signal there is, and it was being ignored. A modern
+ * site declares `font-family: var(--font-display)`, that variable resolves to
+ * another variable, and every rule-based lookup ends at a `var(...)` it cannot
+ * follow — which is why the font fields came back empty on a site that plainly
+ * ships Inter. `@font-face{font-family:Inter}` says it outright: a site does not
+ * self-host a face it has no intention of using.
+ */
+export function fontsFromFontFace(css) {
+  const names = [];
+  for (const block of String(css).matchAll(/@font-face\s*\{([^}]*)\}/gi)) {
+    const m = /font-family\s*:\s*([^;}]+)/i.exec(block[1]);
+    if (!m) continue;
+    const name = firstFontName(m[1]);
+    if (name && !names.includes(name)) names.push(name);
+  }
+  return names;
+}
+
 /** Detect heading/body fonts. Never downloads font files. */
 export function extractFonts(root) {
   const cssChunks = [];
@@ -200,8 +221,11 @@ export function extractFonts(root) {
    * to allow any trailing word, so `--heading-font-weight: 600` matched and the
    * site's heading face was reported as "600".
    */
-  const headingVar = pick(/--[\w-]*(?:heading|title|display)[\w-]*-?font(?:-family)?\s*:\s*([^;}\n]+)/i);
-  const bodyVar = pick(/--[\w-]*(?:body|base|text)[\w-]*-?font(?:-family)?\s*:\s*([^;}\n]+)/i);
+  const headingVar = pick(/--[\w-]*(?:heading|title|display)[\w-]*-?font(?:-family)?\s*:\s*([^;}\n]+)/i)
+    // The other naming order is just as common: --font-display, --font-heading.
+    || pick(/--font-(?:display|heading|title)\s*:\s*([^;}\n]+)/i);
+  const bodyVar = pick(/--[\w-]*(?:body|base|text)[\w-]*-?font(?:-family)?\s*:\s*([^;}\n]+)/i)
+    || pick(/--font-(?:sans|body|base|text)\s*:\s*([^;}\n]+)/i);
   const headingRule = pick(/(?:^|[},])\s*h1[^{]*\{[^}]*font-family\s*:\s*([^;}\n]+)/im);
   const bodyRule = pick(/(?:^|[},])\s*body[^{]*\{[^}]*font-family\s*:\s*([^;}\n]+)/im);
   const anyRule = pick(/font-family\s*:\s*([^;}\n]+)/i);
@@ -213,9 +237,17 @@ export function extractFonts(root) {
    * external file it is the only thing there is. Two requested faces are read as
    * heading then body, which is the order sites almost always request them in.
    */
+  /*
+   * Then the faces the site actually ships or requests. A rule says where a face
+   * is USED and wins; these say a face EXISTS, which is the only thing left to
+   * go on once every rule has resolved to a `var(...)` nobody can follow.
+   */
+  const shipped = fontsFromFontFace(css);
   const requested = fontsFromWebfontLinks(root);
-  const headingFont = headingVar || headingRule || anyRule || requested[0] || '';
-  const bodyFont = bodyVar || bodyRule || anyRule || requested[1] || requested[0] || '';
+  const available = [...shipped, ...requested.filter((n) => !shipped.includes(n))];
+
+  const headingFont = headingVar || headingRule || anyRule || available[0] || '';
+  const bodyFont = bodyVar || bodyRule || anyRule || available[1] || available[0] || '';
   return { headingFont, bodyFont };
 }
 

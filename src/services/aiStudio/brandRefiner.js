@@ -33,7 +33,8 @@ Return the truth about this business as a single JSON object, no markdown and no
   "industry": "...",
   "description": "...",
   "services": ["...", "..."],
-  "tone": "..."
+  "tone": "...",
+  "keepImages": [0, 2, 3]
 }
 
 Rules:
@@ -41,6 +42,7 @@ Rules:
 - "services": ONLY the things a customer can actually buy or book. Drop taglines, section headings, benefits, promises, navigation labels and anything that is a sentence. If a candidate is a real service, keep its own wording. Return at most 10, most important first. Return an empty list rather than inventing one.
 - "description": one or two plain sentences about what the business does and who for. Use only what the page says. No marketing adjectives that are not on the page.
 - "tone": three or four words describing how this brand sounds, e.g. "direct, technical, confident".
+- "keepImages": the INDEXES of the listed images that are genuinely photographs of THIS business — its work, premises, products, team. Leave out anything that is another company's logo (a "trusted by" or client strip), an icon, a diagram, a screenshot, a stock illustration or decoration. Returning an empty list is correct when none of them belong on this brand's poster: a poster with somebody else's logo on it is worse than a poster with no photograph.
 - Never invent a fact, a statistic, a price or a guarantee. If the page does not support it, leave it out.`;
 
 /** A compact, safe view of the scrape for the prompt. */
@@ -60,6 +62,13 @@ function buildPrompt(read) {
   if (read.headings?.length) {
     lines.push('', 'OTHER HEADINGS ON THE PAGE:');
     for (const h of read.headings) lines.push(`- ${h}`);
+  }
+  if (read.images?.length) {
+    lines.push('', 'IMAGES FOUND (index, description, filename) — which are photographs of THIS business?');
+    read.images.forEach((im, i) => {
+      const file = String(im?.url || '').split('/').pop()?.split('?')[0] || '';
+      lines.push(`${i}. ${im?.alt ? `"${im.alt}"` : '(no description)'} — ${file}`);
+    });
   }
   lines.push('', 'Return the JSON object now.');
   return lines.join('\n');
@@ -87,11 +96,23 @@ export async function refineBrand(read) {
      * added nothing, so it is refused rather than shown as an improvement.
      */
     const generic = /^(professional service|organization|local business|business|company|service|corporation|thing)$/i;
+
+    /*
+     * Which pictures actually belong to this business. `null` means the model
+     * did not answer, which the caller must read as "keep them all" — an absent
+     * opinion is not a decision to throw the photographs away.
+     */
+    const total = Array.isArray(read.images) ? read.images.length : 0;
+    const keepImages = Array.isArray(out.keepImages)
+      ? [...new Set(out.keepImages.map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n < total))]
+      : null;
+
     return {
       industry: generic.test(industry) ? '' : industry,
       description: str(out.description, 600),
       services,
       tone: str(out.tone, 80),
+      keepImages,
     };
   } catch {
     // A slower answer is worth having; a lost one is not. The caller keeps the
