@@ -82,9 +82,10 @@ export function createAiStudioController({ websiteAnalysis = defaultWebsiteAnaly
      * actually returns something. Colours, logo, fonts and contact details are
      * facts it cannot see from text, so they stay exactly as read.
      */
-    const foundImages = list(s.images, 12).map((im) => ({
+    const foundImages = list(s.images, 40).map((im) => ({
       url: String(im?.url || ''), alt: String(im?.alt || ''),
       width: Number(im?.width) || 0, height: Number(im?.height) || 0,
+      kind: String(im?.kind || 'photo'),
     })).filter((im) => im.url);
 
     const refined = await refineBrand({
@@ -97,19 +98,21 @@ export function createAiStudioController({ websiteAnalysis = defaultWebsiteAnaly
     });
 
     /*
-     * Which pictures are actually of this business.
+     * EVERY picture is returned. The model's opinion only decides what starts
+     * TICKED.
      *
-     * A rule cannot tell a company's own work from its customers' logos — a real
-     * site offered five "photos" that were all client marks from a trusted-by
-     * strip, and a poster carrying one would advertise somebody else. The model
-     * can tell, from the description and the filename.
-     *
-     * `null` means it did not answer, which is NOT a decision to discard the
-     * photographs: they are all kept, exactly as before.
+     * Filtering them out was wrong twice over: a site was left showing no
+     * pictures at all, and an owner who wanted one the model had rejected had no
+     * way to reach it. So this is a library — everything the site uses, with the
+     * photographs of this business already selected and everything else there to
+     * be picked up. When the model says nothing, the picture's own kind decides:
+     * photographs on, logos and icons off.
      */
-    const images = Array.isArray(refined?.keepImages)
-      ? refined.keepImages.map((i) => foundImages[i]).filter(Boolean)
-      : foundImages;
+    const picked = Array.isArray(refined?.keepImages) ? new Set(refined.keepImages) : null;
+    const images = foundImages.map((im, i) => ({
+      ...im,
+      chosen: picked ? picked.has(i) : im.kind === 'photo',
+    }));
 
     return sendSuccess(res, {
       sourceUrl: result?.sourceUrl ?? null,

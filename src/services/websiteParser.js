@@ -262,24 +262,42 @@ export function extractFonts(root) {
  * pixels, no icons, and nothing that looks like a logo or a sprite. Dimensions
  * are read from the markup when they are declared — nothing is downloaded here.
  */
-export function extractImages(root, baseUrl, limit = 12) {
+export function extractImages(root, baseUrl, limit = 40) {
   const out = [];
   const seen = new Set();
-  const SKIP = /(logo|icon|favicon|sprite|placeholder|avatar|badge|pixel|spacer|1x1|blank)/i;
+  // Names that give a picture's job away. These no longer EXCLUDE anything —
+  // they label it, so the studio can tick the photographs by default and still
+  // show everything else.
+  const LOOKS_LOGO = /(logo|brand|wordmark)/i;
+  const LOOKS_ICON = /(icon|favicon|sprite|avatar|badge|bullet|arrow|chevron|check)/i;
+  const IS_JUNK = /(pixel|spacer|1x1|blank|tracking)/i;
 
-  const add = (rawSrc, alt, w, h) => {
+  const add = (rawSrc, alt, w, h, hint) => {
     if (out.length >= limit) return;
     const u = resolveUrl(rawSrc, baseUrl);
     if (!u || !/^https?:$/.test(u.protocol)) return;
     const url = u.toString();
-    if (seen.has(url) || SKIP.test(url)) return;
-    if (!/\.(jpe?g|png|webp|avif)(\?|$)/i.test(url)) return;
+    if (seen.has(url)) return;
+    // Only genuine non-pictures are refused: tracking pixels and spacers.
+    if (IS_JUNK.test(url)) return;
     const width = Number(w) || 0;
     const height = Number(h) || 0;
-    // A declared size that is tiny is an icon whatever it is called.
-    if (width && width < 200) return;
+    if (width && height && width <= 2 && height <= 2) return;
+
+    const text = `${url} ${alt || ''}`;
+    /*
+     * A KIND, not a verdict. Every picture the site uses is returned — the owner
+     * is the one who decides what belongs on their poster, and a filter that
+     * silently drops things leaves them with a library missing the very photo
+     * they wanted. The kind only decides what starts ticked.
+     */
+    let kind = 'photo';
+    if (hint) kind = hint;
+    else if (LOOKS_ICON.test(text) || (width && width < 100)) kind = 'icon';
+    else if (LOOKS_LOGO.test(text) || /\.svg(\?|$)/i.test(url)) kind = 'logo';
+
     seen.add(url);
-    out.push({ url: url.slice(0, BUSINESS_LIMITS.URL_MAX), alt: clean(alt || '', 160), width, height });
+    out.push({ url: url.slice(0, BUSINESS_LIMITS.URL_MAX), alt: clean(alt || '', 160), width, height, kind });
   };
 
   /*
@@ -314,15 +332,27 @@ export function extractImages(root, baseUrl, limit = 12) {
   };
 
   for (const img of root.querySelectorAll('img')) {
-    const src = img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || '';
-    if (SKIP.test(img.getAttribute('class') || '')) continue;
-    if (CLIENT_STRIP.test(img.getAttribute('alt') || '')) continue;
-    if (inClientStrip(img)) continue;
-    add(src, img.getAttribute('alt'), img.getAttribute('width'), img.getAttribute('height'));
+    const src = img.getAttribute('src')
+      || img.getAttribute('data-src')
+      || img.getAttribute('data-lazy-src')
+      || img.getAttribute('data-original')
+      // A srcset's first candidate, for sites that ship no plain src at all.
+      || String(img.getAttribute('srcset') || '').split(',')[0].trim().split(/\s+/)[0]
+      || '';
+    // A client strip is LABELLED, not hidden: it is still a picture the site
+    // uses, and the owner may well want their partner's mark on a post.
+    const hint = inClientStrip(img) || CLIENT_STRIP.test(img.getAttribute('alt') || '') ? 'logo' : null;
+    add(src, img.getAttribute('alt'), img.getAttribute('width'), img.getAttribute('height'), hint);
   }
-  // og:image is the picture the site itself chose to represent the page.
+
+  // Pictures the site set as its own preview, and CSS background images, which
+  // on a modern site are often the hero photograph.
   const og = root.querySelector('meta[property="og:image"]');
   if (og) add(og.getAttribute('content'), 'Site preview image', 0, 0);
+  for (const node of root.querySelectorAll('[style*="background-image"]')) {
+    const m = /background-image\s*:\s*url\((['"]?)([^)'"]+)\1\)/i.exec(node.getAttribute('style') || '');
+    if (m) add(m[2], node.getAttribute('aria-label') || '', 0, 0);
+  }
 
   return out;
 }

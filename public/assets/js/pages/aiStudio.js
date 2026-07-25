@@ -258,24 +258,52 @@ export async function render(root, ctx) {
        * being left out. They load lazily — a dozen full-size site photographs
        * would otherwise hold up the panel they sit in.
        */
-      brand.images.length ? el('div', { className: 'ais-bgroup' }, [
-        el('span', { className: 'ais-label', text: `Photos from your site (${brand.images.length})` }),
-        el('div', { className: 'ais-photos' }, brand.images.map((img) => {
+      brand.images.length ? (() => {
+        const count = el('span', { className: 'ais-hint' });
+        const setCount = () => {
+          const on = brand.images.filter((i) => i.chosen).length;
+          count.textContent = `${on} of ${brand.images.length} selected for your posters. Click any picture to include or leave it out.`;
+        };
+        const tiles = brand.images.map((img) => {
           const tile = el('button', {
             className: `ais-photo${img.chosen ? ' is-on' : ''}`,
-            attrs: { type: 'button', title: img.alt || img.url },
+            attrs: { type: 'button', title: `${img.alt || img.url}${img.kind !== 'photo' ? ` (${img.kind})` : ''}` },
           }, [
             el('img', { attrs: { src: img.url, alt: img.alt || '', loading: 'lazy', decoding: 'async' } }),
             el('span', { className: 'ais-photo-tick', text: '✓' }),
-          ]);
+            // A logo or an icon is labelled so it is obvious why it starts off.
+            img.kind !== 'photo' ? el('span', { className: 'ais-photo-kind', text: img.kind }) : null,
+          ].filter(Boolean));
           tile.addEventListener('click', () => {
             img.chosen = !img.chosen;
             tile.classList.toggle('is-on', img.chosen);
+            setCount();
           });
           return tile;
-        })),
-        el('span', { className: 'ais-hint', text: 'Ticked photos can appear on your posters. Click one to leave it out.' }),
-      ]) : null,
+        });
+        setCount();
+
+        const all = el('button', { className: 'ais-linkbtn', attrs: { type: 'button' }, text: 'Select all' });
+        const none = el('button', { className: 'ais-linkbtn', attrs: { type: 'button' }, text: 'Select none' });
+        const setAll = (on) => {
+          brand.images.forEach((img, i) => { img.chosen = on; tiles[i].classList.toggle('is-on', on); });
+          setCount();
+        };
+        all.addEventListener('click', () => setAll(true));
+        none.addEventListener('click', () => setAll(false));
+
+        return el('div', { className: 'ais-bgroup' }, [
+          el('div', { className: 'ais-imghead' }, [
+            el('span', { className: 'ais-label', text: `Image library — everything found on your site (${brand.images.length})` }),
+            el('div', { className: 'ais-imgactions' }, [all, none]),
+          ]),
+          el('div', { className: 'ais-photos' }, tiles),
+          count,
+        ]);
+      })() : el('div', { className: 'ais-bgroup' }, [
+        el('span', { className: 'ais-label', text: 'Image library' }),
+        el('span', { className: 'ais-hint', text: 'No images were found on this site. Posters will be built from your colours and type.' }),
+      ]),
     ].filter(Boolean)));
 
     card.appendChild(nextBar);
@@ -335,9 +363,9 @@ export async function render(root, ctx) {
       accent: b.colors?.accent || '#2563eb',
       colorCandidates: Array.isArray(b.colorCandidates) ? b.colorCandidates : [],
       services: Array.isArray(b.services) ? [...b.services] : [],
-      // Every photo starts ticked: the owner removes what does not belong,
-      // rather than having to find and add what does.
-      images: (Array.isArray(b.images) ? b.images : []).map((im) => ({ ...im, chosen: true })),
+      // The server decides what starts ticked (Claude's judgement, or the
+      // picture's own kind). Everything found is shown either way.
+      images: (Array.isArray(b.images) ? b.images : []).map((im) => ({ ...im, chosen: im.chosen !== false })),
       socials: Array.isArray(b.socialLinks)
         ? b.socialLinks.map((s) => (typeof s === 'string' ? s : s?.url || s?.platform)).filter(Boolean)
         : Object.values(b.socialLinks || {}).filter(Boolean),

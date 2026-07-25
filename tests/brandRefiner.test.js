@@ -102,7 +102,7 @@ test('nonsense back from the model does not become brand data', async () => {
  * the company's CUSTOMERS' logos, from a trusted-by strip. On a poster they
  * would advertise somebody else.
  */
-test('a customers logo strip is not offered as photographs of this business', () => {
+test('a customers logo strip is labelled, not hidden — the library keeps everything', () => {
   const html = `<html><body>
     <img src="/img/our-work-facade.jpg" alt="Facade we restored" width="1400" height="900">
     <section class="trusted-by">
@@ -114,11 +114,19 @@ test('a customers logo strip is not offered as photographs of this business', ()
       <img src="/img/tc-services.png" alt="TC Services" width="400" height="200">
     </div>
   </body></html>`;
-  const urls = extractImages(parse(html), 'https://example.test/').map((i) => i.url);
+  const images = extractImages(parse(html), 'https://example.test/');
+  const byName = (part) => images.find((i) => i.url.includes(part));
 
-  assert.ok(urls.some((u) => u.endsWith('our-work-facade.jpg')), 'the real photo is kept');
+  /*
+   * Dropping these was wrong twice over: a site was left showing no pictures at
+   * all, and an owner who wanted one of them had no way to reach it. Every
+   * picture the site uses is in the library; the KIND is what decides whether it
+   * starts selected.
+   */
+  assert.equal(images.length, 4, 'every picture is in the library');
+  assert.equal(byName('our-work-facade').kind, 'photo');
   for (const other of ['acme-co', 'sparr', 'tc-services']) {
-    assert.ok(!urls.some((u) => u.includes(other)), `${other} is a customer's logo, not this business`);
+    assert.equal(byName(other).kind, 'logo', `${other} is a mark, and is labelled as one`);
   }
 });
 

@@ -1302,6 +1302,19 @@ legend { padding: 0; }
   background: var(--ais-accent); color: #0b0d10; opacity: 0; transition: opacity .15s ease;
 }
 .ais-photo.is-on .ais-photo-tick { opacity: 1; }
+/* A logo or icon says so, which explains why it did not start selected. */
+.ais-photo-kind {
+  position: absolute; left: 0; right: 0; bottom: 0; padding: .12rem 0;
+  font-size: .58rem; letter-spacing: .06em; text-transform: uppercase; font-weight: 700;
+  background: rgba(0, 0, 0, .62); color: var(--ais-muted);
+}
+.ais-imghead { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.ais-imgactions { display: flex; gap: .75rem; }
+.ais-linkbtn {
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: var(--ais-accent); font-size: .78rem; font-weight: 600;
+}
+.ais-linkbtn:hover { text-decoration: underline; }
 
 .ais-nextbar {
   margin-top: 1.35rem; padding-top: 1.1rem; border-top: 1px solid var(--ais-border);

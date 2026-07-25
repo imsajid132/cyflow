@@ -57,26 +57,36 @@ test('the schema type answers the industry the field was leaving blank', () => {
   assert.equal(ld.category, 'General contractor', 'the specific type wins over the generic container');
 });
 
-test('the site photographs are collected, and the junk is not', () => {
+test('every picture the site uses reaches the library, sorted by what it is', () => {
   const html = `<html><head><meta property="og:image" content="/img/preview.jpg"></head><body>
     <img src="/img/hero-facade.jpg" alt="Restored brownstone facade" width="1600" height="900">
     <img src="/img/crew-at-work.png" alt="Crew repointing" width="1200" height="800">
     <img src="/img/logo.svg" alt="Logo" width="200" height="60">
     <img src="/img/icon-check.png" alt="" width="24" height="24">
+    <img data-src="/img/lazy-shopfront.jpg" alt="Our shopfront" width="1200" height="800">
+    <img srcset="/img/team-800.jpg 800w, /img/team-1600.jpg 1600w" alt="The team">
+    <div style="background-image:url('/img/hero-bg.jpg')" aria-label="Workshop"></div>
     <img src="data:image/gif;base64,R0lGOD" alt="tracking">
     <img src="/img/spacer.png" alt="" width="1" height="1">
   </body></html>`;
   const images = extractImages(parse(html), 'https://example.test/');
-  const urls = images.map((i) => i.url);
+  const find = (part) => images.find((i) => i.url.includes(part));
 
-  assert.ok(urls.some((u) => u.endsWith('/img/hero-facade.jpg')), 'the hero photo is kept');
-  assert.ok(urls.some((u) => u.endsWith('/img/crew-at-work.png')), 'the crew photo is kept');
-  assert.ok(urls.some((u) => u.endsWith('/img/preview.jpg')), 'og:image is kept');
-  for (const junk of ['logo', 'icon-check', 'spacer', 'data:']) {
-    assert.ok(!urls.some((u) => u.includes(junk)), `${junk} must not be offered as a photo`);
+  // Photographs, however the site chose to load them.
+  for (const photo of ['hero-facade.jpg', 'crew-at-work.png', 'preview.jpg', 'lazy-shopfront.jpg', 'team-800.jpg', 'hero-bg.jpg']) {
+    assert.ok(find(photo), `${photo} must reach the library`);
   }
+  // Marks and icons are present too — labelled, so they simply start unticked.
+  assert.equal(find('logo.svg').kind, 'logo');
+  assert.equal(find('icon-check').kind, 'icon');
+  assert.equal(find('hero-facade').kind, 'photo');
+
+  // Only genuine non-pictures are refused.
+  assert.ok(!find('data:'), 'a tracking pixel is not a picture');
+  assert.ok(!find('spacer'), 'a spacer is not a picture');
+
   // Alt text travels with the picture — the designer needs to know what it shows.
-  assert.equal(images.find((i) => i.url.endsWith('hero-facade.jpg')).alt, 'Restored brownstone facade');
+  assert.equal(find('hero-facade.jpg').alt, 'Restored brownstone facade');
 });
 
 test('a relative image is resolved against the site, never left relative', () => {
