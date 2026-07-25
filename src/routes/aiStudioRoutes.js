@@ -35,6 +35,21 @@ export function createAiStudioRoutes({ aiStudioController, requireAuth }) {
     aiStudioController.generate,
   );
 
+  /*
+   * Plan a week and start building it. The plan is made in the request (one
+   * model call, and the thing the user wants to see); the seven posters become
+   * durable jobs, so closing the tab does not stop them.
+   */
+  router.post(
+    '/week',
+    requireAuth,
+    imageGenerationLimiter,
+    csrfProtection,
+    aiStudioController.startWeek,
+  );
+  // Progress. A plain read, polled while the week builds, so no CSRF.
+  router.get('/week/:runId', requireAuth, aiStudioController.getWeek);
+
   return router;
 }
 

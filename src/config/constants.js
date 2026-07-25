@@ -1422,6 +1422,12 @@ export const JOB_TYPES = Object.freeze({
   GENERATE_SLOT: 'generate_automation_slot',
   RECONCILE_BUFFER: 'reconcile_automation_buffer',
   STALE_JOB_RECOVERY: 'stale_job_recovery',
+  /*
+   * One post of an AI Studio week. Seven posts is fourteen model calls and seven
+   * renders — far longer than any request should live, and the product says the
+   * work must not depend on the app staying open.
+   */
+  AI_STUDIO_POST: 'generate_ai_studio_post',
 });
 export const JOB_TYPE_VALUES = Object.freeze(Object.values(JOB_TYPES));
 

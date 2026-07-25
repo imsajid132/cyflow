@@ -15,13 +15,14 @@
 
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { sendSuccess } from '../utils/apiResponse.js';
-import { ValidationError } from '../utils/errors.js';
+import { ValidationError, NotFoundError } from '../utils/errors.js';
 import { normalizeProviderError } from '../utils/providerErrors.js';
 import { PROVIDER_NAMES } from '../config/constants.js';
 import { generateAiPost } from '../services/aiStudio/aiStudioEngine.js';
 import { refineBrand } from '../services/aiStudio/brandRefiner.js';
 import { isClaudeConfigured } from '../services/aiStudio/claudeClient.js';
 import { websiteAnalysisService as defaultWebsiteAnalysis } from '../services/websiteAnalysisService.js';
+import { weekService as defaultWeekService } from '../services/aiStudio/weekService.js';
 
 const STYLES = new Set(['showcase', 'editorial', 'dynamic']);
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
@@ -29,7 +30,10 @@ const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const hex = (v, fallback) => (typeof v === 'string' && HEX_RE.test(v.trim()) ? v.trim() : fallback);
 
-export function createAiStudioController({ websiteAnalysis = defaultWebsiteAnalysis } = {}) {
+export function createAiStudioController({
+  websiteAnalysis = defaultWebsiteAnalysis,
+  weekService = defaultWeekService,
+} = {}) {
   /** Whether the AI is configured, so the page can show a clear "add a key" note. */
   const status = asyncHandler(async (req, res) => sendSuccess(res, { configured: isClaudeConfigured() }));
 
@@ -220,7 +224,57 @@ export function createAiStudioController({ websiteAnalysis = defaultWebsiteAnaly
     });
   });
 
-  return { status, analyze, generate };
+  /**
+   * Plan a week and start building it.
+   *
+   * The plan comes back in the response — the user sees seven ideas at once —
+   * while the posters build as durable jobs. Closing the tab does not stop them.
+   */
+  const startWeek = asyncHandler(async (req, res) => {
+    if (!isClaudeConfigured()) {
+      throw new ValidationError('The AI is not configured yet. Add AI_API_KEY in your environment to use the studio.');
+    }
+    const b = req.body || {};
+    const businessName = str(b.businessName, 120);
+    if (!businessName) throw new ValidationError('Enter your business name before generating a week.');
+
+    const brand = {
+      businessName,
+      industry: str(b.industry, 120),
+      description: str(b.description, 600),
+      tone: str(b.tone, 120),
+      services: Array.isArray(b.services) ? b.services.map((s) => str(s, 80)).filter(Boolean).slice(0, 20) : [],
+      headingFont: str(b.headingFont, 80),
+      primary: hex(b.primary, '#111827'),
+      secondary: hex(b.secondary, '#6b7280'),
+      accent: hex(b.accent, '#2563eb'),
+      city: str(b.city, 80), region: str(b.region, 80), country: str(b.country, 80),
+      websiteUrl: str(b.websiteUrl, 300), logoUrl: str(b.logoUrl, 500),
+      images: Array.isArray(b.images)
+        ? b.images.slice(0, 40).map((im) => ({ url: str(im?.url, 500), alt: str(im?.alt, 160), chosen: im?.chosen !== false }))
+          .filter((im) => im.url)
+        : [],
+    };
+
+    try {
+      const out = await weekService.startWeek(req.user.id, brand, { timezone: str(b.timezone, 60) || 'UTC' });
+      return sendSuccess(res, out, 201);
+    } catch (err) {
+      const pe = normalizeProviderError(err, { provider: PROVIDER_NAMES.AI_STUDIO, operation: 'plan_week' });
+      throw new ValidationError(pe.retryable
+        ? 'The AI is busy right now. Please try again in a moment.'
+        : 'The week could not be planned. Please check your brand details and try again.');
+    }
+  });
+
+  /** Progress: the plan, and how many posts are built so far. */
+  const getWeek = asyncHandler(async (req, res) => {
+    const week = await weekService.getWeek(req.user.id, req.params.runId);
+    if (!week) throw new NotFoundError('That week was not found');
+    return sendSuccess(res, week);
+  });
+
+  return { status, analyze, generate, startWeek, getWeek };
 }
 
 export default createAiStudioController;

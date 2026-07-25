@@ -43,6 +43,7 @@ import { socialImageService as realSocialImage } from './services/socialImageSer
 import { contentUniquenessService as realUniquenessService } from './services/contentUniquenessService.js';
 import { createPlannerController } from './controllers/plannerController.js';
 import { createAiStudioController } from './controllers/aiStudioController.js';
+import { createWeekService } from './services/aiStudio/weekService.js';
 import { websiteAnalysisService as realWebsiteAnalysisService } from './services/websiteAnalysisService.js';
 import { createBusinessProfileController } from './controllers/businessProfileController.js';
 import { createLoggingService } from './services/loggingService.js';
@@ -206,7 +207,10 @@ export function buildContainer(overrides = {}) {
   const parseSingleImage = overrides.parseSingleImage ?? createMediaUploadMiddleware();
   const businessProfileController = createBusinessProfileController({ businessProfileService });
   const plannerController = createPlannerController({ plannerService });
-  const aiStudioController = createAiStudioController();
+  // The AI Studio week: planned in the request, built by durable jobs.
+  const aiStudioWeekService = overrides.aiStudioWeekService
+    ?? createWeekService({ runs: plannerRuns, mediaLibraryService });
+  const aiStudioController = createAiStudioController({ weekService: aiStudioWeekService });
 
   // D1: content automations + the durable background job runtime. The automation
   // service reuses the planner for slot generation; the durable job service runs
@@ -275,7 +279,12 @@ export function buildContainer(overrides = {}) {
   const durableJobService = overrides.durableJobService ?? createDurableJobService({
     jobs: backgroundJobRepository,
     // Automation + publishing + account handlers share one durable job runtime.
-    handlers: { ...automationService.handlers, ...publishingService.handlers, ...accountDataService.handlers },
+    handlers: {
+      ...automationService.handlers,
+      ...publishingService.handlers,
+      ...accountDataService.handlers,
+      ...aiStudioWeekService.handlers,
+    },
     logging,
     now,
     options: {
@@ -338,6 +347,7 @@ export function buildContainer(overrides = {}) {
     businessProfileController,
     plannerController,
     aiStudioController,
+    aiStudioWeekService,
     requireAuth,
     guestOnly,
     attachUser,
