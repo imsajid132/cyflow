@@ -96,6 +96,115 @@ export async function render(root, ctx) {
     analyzeNote,
   ]));
 
+  /*
+   * What the reader found, in full.
+   *
+   * The product rule is explicit: if the app found it, the user sees it — the
+   * logo, both fonts, every colour, the services, the contact details, the
+   * social links. A hidden field is a field nobody can correct, and a website
+   * read is often almost-right rather than right. Everything here is editable,
+   * and the extra colours are offered as swatches so a wrong role is one click
+   * to fix rather than a hex to retype.
+   */
+  const brandPanel = el('section', { className: 'ais-brandcard', attrs: { hidden: true } });
+  page.appendChild(brandPanel);
+
+  /** A read-only detail line: label + value, hidden entirely when empty. */
+  function detail(label, value) {
+    if (!value) return null;
+    return el('div', { className: 'ais-detail' }, [
+      el('span', { className: 'ais-label', text: label }),
+      el('span', { className: 'ais-detail-v', text: value }),
+    ]);
+  }
+
+  function renderBrandPanel(data) {
+    const b = data.brand || {};
+    brandPanel.textContent = '';
+    brandPanel.hidden = false;
+
+    // --- identity: the logo beside the name -------------------------------
+    const mark = b.logoUrl
+      ? el('img', { className: 'ais-logo', attrs: { src: b.logoUrl, alt: `${b.businessName || 'Brand'} logo`, loading: 'lazy' } })
+      : el('div', { className: 'ais-logo ais-logo-none', text: (b.businessName || '?').slice(0, 1).toUpperCase() });
+
+    brandPanel.appendChild(el('div', { className: 'ais-brandhead' }, [
+      mark,
+      el('div', {}, [
+        el('h2', { className: 'ais-brandname', text: b.businessName || 'Your brand' }),
+        el('p', { className: 'ais-hint', text: [b.industry, data.sourceUrl].filter(Boolean).join(' · ') }),
+        b.logoUrl && !b.logoValidated
+          ? el('p', { className: 'ais-hint', text: 'The logo was found but could not be verified. Check it looks right.' })
+          : null,
+      ]),
+    ]));
+
+    // --- colours: the three roles, plus everything else the site used ------
+    const swatchRow = (list) => el('div', { className: 'ais-swatches' }, list.map((c) => {
+      const chip = el('button', {
+        className: 'ais-sw', attrs: { type: 'button', title: `Use ${c}`, style: `background:${c}` },
+      });
+      // A found colour is one click from becoming the accent — the role the
+      // reader gets wrong most often, because a site's brightest colour is not
+      // always its accent.
+      chip.addEventListener('click', () => { accent.set(c); toast(`Accent set to ${c}`, 'ok'); });
+      return chip;
+    }));
+
+    const colourBlock = el('div', { className: 'ais-bgroup' }, [
+      el('span', { className: 'ais-label', text: 'Colours found on your site' }),
+      b.colorCandidates?.length
+        ? swatchRow(b.colorCandidates)
+        : el('span', { className: 'ais-hint', text: 'No extra colours were found. The three below are yours to set.' }),
+      b.colorCandidates?.length ? el('span', { className: 'ais-hint', text: 'Click any colour to make it the accent.' }) : null,
+    ]);
+
+    // --- fonts, services, contact, social ---------------------------------
+    const fonts = [b.fonts?.heading, b.fonts?.body].filter(Boolean);
+    const c = b.contact || {};
+    const place = [c.address, c.city, c.region, c.postalCode, c.country].filter(Boolean).join(', ');
+    const socials = Object.entries(b.socialLinks || {}).filter(([, v]) => v);
+
+    const details = el('div', { className: 'ais-details' }, [
+      detail('Heading font', b.fonts?.heading),
+      detail('Body font', b.fonts?.body),
+      detail('Phone', c.phone),
+      detail('Email', c.email),
+      detail('Address', place),
+      detail('Website', c.websiteUrl),
+      detail('Tone', b.tone),
+    ].filter(Boolean));
+
+    const chips = (label, items) => (items.length
+      ? el('div', { className: 'ais-bgroup' }, [
+        el('span', { className: 'ais-label', text: label }),
+        el('div', { className: 'ais-tags' }, items.map((t) => el('span', { className: 'ais-chip', text: t }))),
+      ])
+      : null);
+
+    brandPanel.appendChild(el('div', { className: 'ais-brandbody' }, [
+      b.description ? el('p', { className: 'ais-brandabout', text: b.description }) : null,
+      colourBlock,
+      details.children.length ? details : null,
+      chips('Services', b.services || []),
+      chips('Social', socials.map(([k]) => k)),
+      fonts.length === 0 ? el('p', { className: 'ais-hint', text: 'No fonts were named on the site. Posters use the studio faces.' }) : null,
+    ].filter(Boolean)));
+
+    // --- what the reader could not do -------------------------------------
+    if (data.warnings?.length) {
+      brandPanel.appendChild(el('div', { className: 'ais-warn' }, [
+        el('span', { className: 'ais-label', text: 'Worth knowing' }),
+        el('ul', { className: 'ais-warnlist' }, data.warnings.map((w) => el('li', { text: String(w) }))),
+      ]));
+    }
+
+    brandPanel.appendChild(el('p', {
+      className: 'ais-hint',
+      text: 'Everything above came from your website. Correct anything that is wrong in the panel below, then generate.',
+    }));
+  }
+
   const grid = el('div', { className: 'ais-grid' });
   page.appendChild(grid);
 
@@ -253,18 +362,11 @@ export async function render(root, ctx) {
       secondary.set(brand.colors.secondary);
       accent.set(brand.colors.accent);
     }
-    analyzedFont = brand.font || analyzedFont;
+    analyzedFont = brand.fonts?.heading || analyzedFont;
 
-    const found = [
-      brand.businessName ? 'name' : null,
-      brand.industry ? 'industry' : null,
-      brand.colors ? 'colours' : null,
-      brand.font ? 'font' : null,
-    ].filter(Boolean);
-    analyzeNote.textContent = found.length
-      ? `Picked up your ${found.join(', ')}. Edit anything that is not right, add a topic, then press Generate.`
-      : 'That site did not give much away. Fill the brand in by hand below.';
-    toast('Brand picked up from your website', 'ok');
+    renderBrandPanel(data);
+    analyzeNote.textContent = '';
+    toast('Brand read from your website', 'ok');
   }
 
   analyzeBtn.addEventListener('click', analyze);

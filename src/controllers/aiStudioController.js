@@ -56,24 +56,56 @@ export function createAiStudioController({ websiteAnalysis = defaultWebsiteAnaly
         : new ValidationError('That website could not be read. Check the address, or fill the brand in by hand.');
     }
 
+    /*
+     * EVERYTHING the reader found is returned, not a chosen subset.
+     *
+     * The product is explicit about this: if the app found it, the user sees it
+     * — logo, both fonts, every colour, the services, the contact details, the
+     * social links. A field that is hidden is a field the user cannot correct,
+     * and the reader is often almost-right rather than right.
+     */
     const s = result?.suggestions || {};
+    const list = (v, max) => (Array.isArray(v) ? v.filter(Boolean).slice(0, max) : []);
+
     return sendSuccess(res, {
       sourceUrl: result?.sourceUrl ?? null,
+      pagesAnalyzed: list(result?.pagesAnalyzed, 8),
+      warnings: list(result?.warnings, 6),
       brand: {
         businessName: s.businessName || '',
         industry: s.businessCategory || '',
-        tone: s.defaultTone || '',
-        font: s.headingFont || '',
         description: s.businessDescription || '',
-        services: Array.isArray(s.services) ? s.services.slice(0, 8) : [],
+        tone: s.defaultTone || '',
+        services: list(s.services, 12),
+
+        // Identity marks. `logoValidated` is reported honestly: an unvalidated
+        // logo is shown, but the UI can say it could not be verified.
+        logoUrl: s.logoUrl || '',
+        logoValidated: Boolean(s.logoValidated),
+        faviconUrl: s.faviconUrl || '',
+
+        fonts: { heading: s.headingFont || '', body: s.bodyFont || '' },
+
         colors: {
           primary: hex(s.primaryColor, '#111827'),
           secondary: hex(s.secondaryColor, '#6b7280'),
           accent: hex(s.accentColor, s.primaryColor && HEX_RE.test(s.primaryColor) ? s.primaryColor : '#2563eb'),
         },
-        colorCandidates: Array.isArray(s.colorCandidates) ? s.colorCandidates.filter((c) => HEX_RE.test(c)).slice(0, 8) : [],
+        colorCandidates: list(s.colorCandidates, 12).filter((c) => HEX_RE.test(c)),
+
+        contact: {
+          phone: s.phone || '',
+          email: s.email || '',
+          address: s.address || '',
+          city: s.city || '',
+          region: s.region || '',
+          postalCode: s.postalCode || '',
+          country: s.country || '',
+          websiteUrl: s.websiteUrl || '',
+        },
+        locations: list(s.locations, 6),
+        socialLinks: s.socialLinks && typeof s.socialLinks === 'object' ? s.socialLinks : {},
       },
-      warnings: Array.isArray(result?.warnings) ? result.warnings.slice(0, 5) : [],
     });
   });
 
