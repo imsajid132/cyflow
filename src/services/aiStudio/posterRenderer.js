@@ -22,9 +22,13 @@
  */
 import { writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const SIZE = 1080;
+
+/** The faces shipped with the app — see the note in renderSvgToPng. */
+const BUNDLED_FONT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'assets', 'fonts');
 
 /**
  * Rasterize a self-contained SVG poster to a 1080x1080 PNG with @resvg/resvg-js.
@@ -42,12 +46,28 @@ export async function renderSvgToPng(svg) {
   if (!svg || !/<svg[\s>]/i.test(svg)) throw new Error('renderSvgToPng needs an <svg> document.');
   // Imported lazily so a host that only ever renders HTML pays nothing for it.
   const { Resvg } = await import('@resvg/resvg-js');
-  const fontDir = process.env.POSTER_FONT_DIR || null;
+
+  /*
+   * FONTS ARE SHIPPED, NOT ASSUMED.
+   *
+   * A production render came back with every glyph as a missing-character box:
+   * the host has no system fonts at all, so nothing matched and resvg drew tofu.
+   * The poster was unreadable while the copy beside it was perfect — a failure
+   * that looks like a design bug and is really a missing dependency.
+   *
+   * The app therefore carries its own faces (assets/fonts, OFL-licensed) and
+   * points the renderer at them. `loadSystemFonts` stays on so a machine WITH
+   * fonts can still satisfy a family the design asks for, but nothing depends on
+   * that being true. POSTER_FONT_DIR can add more faces for a host that wants a
+   * different look.
+   */
+  const dirs = [BUNDLED_FONT_DIR, process.env.POSTER_FONT_DIR].filter((d) => d && existsSync(d));
   const font = {
     loadSystemFonts: true,
-    defaultFontFamily: process.env.POSTER_DEFAULT_FONT || 'DejaVu Sans',
+    fontDirs: dirs,
+    // The bundled sans, so text renders even when the requested family is absent.
+    defaultFontFamily: process.env.POSTER_DEFAULT_FONT || 'Inter',
   };
-  if (fontDir && existsSync(fontDir)) font.fontDirs = [fontDir];
   const resvg = new Resvg(svg, { fitTo: { mode: 'width', value: SIZE }, font });
   return Buffer.from(resvg.render().asPng());
 }
