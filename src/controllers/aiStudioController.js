@@ -19,6 +19,7 @@ import { ValidationError } from '../utils/errors.js';
 import { normalizeProviderError } from '../utils/providerErrors.js';
 import { PROVIDER_NAMES } from '../config/constants.js';
 import { generateAiPost } from '../services/aiStudio/aiStudioEngine.js';
+import { refineBrand } from '../services/aiStudio/brandRefiner.js';
 import { isClaudeConfigured } from '../services/aiStudio/claudeClient.js';
 import { websiteAnalysisService as defaultWebsiteAnalysis } from '../services/websiteAnalysisService.js';
 
@@ -67,16 +68,39 @@ export function createAiStudioController({ websiteAnalysis = defaultWebsiteAnaly
     const s = result?.suggestions || {};
     const list = (v, max) => (Array.isArray(v) ? v.filter(Boolean).slice(0, max) : []);
 
+    /*
+     * Ask Claude what the page MEANS, now that the parser has said what it
+     * CONTAINS.
+     *
+     * A real SEO company came back with its industry as "Professional service"
+     * and its services as "Six services. One unified playbook." — the schema
+     * container it happened to declare, and a list of section headings with the
+     * real services mixed in and indistinguishable by rule. Telling them apart is
+     * a judgement, and the product says Claude makes those.
+     *
+     * Only the four editorial fields are replaced, and only when the model
+     * actually returns something. Colours, logo, fonts and contact details are
+     * facts it cannot see from text, so they stay exactly as read.
+     */
+    const refined = await refineBrand({
+      websiteUrl: s.websiteUrl || result?.sourceUrl || '',
+      businessName: s.businessName || '',
+      industry: s.businessCategory || '',
+      description: s.businessDescription || '',
+      services: list(s.services, 20),
+    });
+
     return sendSuccess(res, {
       sourceUrl: result?.sourceUrl ?? null,
       pagesAnalyzed: list(result?.pagesAnalyzed, 8),
       warnings: list(result?.warnings, 6),
       brand: {
         businessName: s.businessName || '',
-        industry: s.businessCategory || '',
-        description: s.businessDescription || '',
-        tone: s.defaultTone || '',
-        services: list(s.services, 12),
+        // Claude's reading wins where it produced one; the scrape is the fallback.
+        industry: refined?.industry || s.businessCategory || '',
+        description: refined?.description || s.businessDescription || '',
+        tone: refined?.tone || s.defaultTone || '',
+        services: refined?.services?.length ? refined.services : list(s.services, 12),
 
         // Identity marks. `logoValidated` is reported honestly: an unvalidated
         // logo is shown, but the UI can say it could not be verified.

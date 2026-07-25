@@ -250,9 +250,42 @@ export function extractImages(root, baseUrl, limit = 12) {
     out.push({ url: url.slice(0, BUSINESS_LIMITS.URL_MAX), alt: clean(alt || '', 160), width, height });
   };
 
+  /*
+   * A client logo is not a photograph of this business.
+   *
+   * A real site offered five "photos" that were all its CUSTOMERS' logos, sitting
+   * in a "trusted by" strip. On a poster they would advertise somebody else. Any
+   * image inside a section that talks about clients, partners or brands is left
+   * out, as is one whose own alt text calls it a logo.
+   */
+  const CLIENT_STRIP = /(client|partner|brand|trusted|as[- ]seen|featured[- ]in|logo|award|certif)/i;
+  const inClientStrip = (img) => {
+    let node = img.parentNode;
+    for (let depth = 0; node && depth < 4; depth += 1) {
+      const tag = String(node.rawTagName || '').toLowerCase();
+      // Never walk out into the page itself: at <body> every heading on the site
+      // is a descendant, so a single "Trusted by" section would disqualify every
+      // photograph on the page.
+      if (tag === 'body' || tag === 'html' || !tag) return false;
+
+      const attrs = `${node.getAttribute?.('class') || ''} ${node.getAttribute?.('id') || ''}`;
+      if (CLIENT_STRIP.test(attrs)) return true;
+
+      // A heading belonging to THIS block — a direct child, not any descendant.
+      for (const child of node.childNodes || []) {
+        const childTag = String(child.rawTagName || '').toLowerCase();
+        if (/^h[1-4]$/.test(childTag) && CLIENT_STRIP.test(child.text || '')) return true;
+      }
+      node = node.parentNode;
+    }
+    return false;
+  };
+
   for (const img of root.querySelectorAll('img')) {
     const src = img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || '';
     if (SKIP.test(img.getAttribute('class') || '')) continue;
+    if (CLIENT_STRIP.test(img.getAttribute('alt') || '')) continue;
+    if (inClientStrip(img)) continue;
     add(src, img.getAttribute('alt'), img.getAttribute('width'), img.getAttribute('height'));
   }
   // og:image is the picture the site itself chose to represent the page.
