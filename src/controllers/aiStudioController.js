@@ -20,6 +20,7 @@ import { normalizeProviderError } from '../utils/providerErrors.js';
 import { PROVIDER_NAMES } from '../config/constants.js';
 import { generateAiPost } from '../services/aiStudio/aiStudioEngine.js';
 import { isClaudeConfigured } from '../services/aiStudio/claudeClient.js';
+import { websiteAnalysisService as defaultWebsiteAnalysis } from '../services/websiteAnalysisService.js';
 
 const STYLES = new Set(['showcase', 'editorial', 'dynamic']);
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
@@ -27,9 +28,54 @@ const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const hex = (v, fallback) => (typeof v === 'string' && HEX_RE.test(v.trim()) ? v.trim() : fallback);
 
-export function createAiStudioController() {
+export function createAiStudioController({ websiteAnalysis = defaultWebsiteAnalysis } = {}) {
   /** Whether the AI is configured, so the page can show a clear "add a key" note. */
   const status = asyncHandler(async (req, res) => sendSuccess(res, { configured: isClaudeConfigured() }));
+
+  /**
+   * Read a website and return the brand it suggests, so the studio can be filled
+   * from a URL instead of typed out.
+   *
+   * It calls the ANALYZER directly rather than businessProfileService, because
+   * that path also moves the account's onboarding status — a side effect that
+   * belongs to first-time setup, not to someone trying a URL in the studio.
+   * Nothing is saved here; the answer only prefills the form.
+   */
+  const analyze = asyncHandler(async (req, res) => {
+    const websiteUrl = str(req.body?.url ?? req.body?.websiteUrl, 300);
+    if (!websiteUrl) throw new ValidationError('Enter a website address to read.');
+
+    let result;
+    try {
+      result = await websiteAnalysis.analyzeWebsite({ userId: req.user.id, websiteUrl });
+    } catch (err) {
+      // The analyzer's own message is written for people ("that site could not be
+      // reached"); anything else becomes a safe generic one.
+      throw err instanceof ValidationError
+        ? err
+        : new ValidationError('That website could not be read. Check the address, or fill the brand in by hand.');
+    }
+
+    const s = result?.suggestions || {};
+    return sendSuccess(res, {
+      sourceUrl: result?.sourceUrl ?? null,
+      brand: {
+        businessName: s.businessName || '',
+        industry: s.businessCategory || '',
+        tone: s.defaultTone || '',
+        font: s.headingFont || '',
+        description: s.businessDescription || '',
+        services: Array.isArray(s.services) ? s.services.slice(0, 8) : [],
+        colors: {
+          primary: hex(s.primaryColor, '#111827'),
+          secondary: hex(s.secondaryColor, '#6b7280'),
+          accent: hex(s.accentColor, s.primaryColor && HEX_RE.test(s.primaryColor) ? s.primaryColor : '#2563eb'),
+        },
+        colorCandidates: Array.isArray(s.colorCandidates) ? s.colorCandidates.filter((c) => HEX_RE.test(c)).slice(0, 8) : [],
+      },
+      warnings: Array.isArray(result?.warnings) ? result.warnings.slice(0, 5) : [],
+    });
+  });
 
   /**
    * Design one poster + write the captions. ~30-60s (two Claude calls + a free
@@ -88,7 +134,7 @@ export function createAiStudioController() {
     });
   });
 
-  return { status, generate };
+  return { status, analyze, generate };
 }
 
 export default createAiStudioController;

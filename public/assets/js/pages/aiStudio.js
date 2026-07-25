@@ -48,11 +48,21 @@ function colorControl(label, value) {
   return {
     node: el('div', { className: 'ais-color' }, [el('span', { className: 'ais-label', text: label }), el('div', { className: 'ais-color-in' }, [swatch, text])]),
     get: () => text.value,
+    /** Used by the analyze bar. Ignores anything that is not a real hex. */
+    set: (v) => {
+      if (!/^#[0-9a-fA-F]{6}$/.test(String(v || ''))) return;
+      text.value = v;
+      swatch.value = v;
+    },
   };
 }
 
 export async function render(root, ctx) {
   const profile = await api.businessProfile().catch(() => null);
+  // The heading font, from the saved brand or from an analyzed website. It is
+  // passed to the designer as a preference, not a guarantee — the renderer only
+  // ships two faces, so the design prompt picks whichever suits.
+  let analyzedFont = profile?.headingFont || '';
 
   const page = el('div', { className: 'ai-studio' });
   root.appendChild(page);
@@ -65,6 +75,25 @@ export async function render(root, ctx) {
       el('span', { className: 'ais-tag mono', text: 'Claude designs a poster + writes your post copy' }),
     ]),
     el('p', { className: 'ais-sub', text: 'Confirm your brand, add a topic, and generate a ready poster with Facebook, Instagram and Threads post copy. Nothing is published here.' }),
+  ]));
+
+  /*
+   * The analyze bar: type a website, and the brand fills itself in.
+   *
+   * It reuses the analyzer the onboarding flow already uses, so it reads the
+   * real site rather than guessing — and it only PREFILLS. Nothing is saved, and
+   * every field stays editable, because a site read is a suggestion and the
+   * business owner is the authority on their own brand.
+   */
+  const urlIn = el('input', {
+    className: 'ais-input ais-url',
+    attrs: { type: 'text', placeholder: 'Enter your website (e.g. yourbusiness.com)', spellcheck: 'false' },
+  });
+  const analyzeBtn = el('button', { className: 'ais-btn ais-analyze', attrs: { type: 'button' }, text: 'Analyze' });
+  const analyzeNote = el('p', { className: 'ais-hint ais-analyze-note', text: '' });
+  page.appendChild(el('div', { className: 'ais-urlbar' }, [
+    el('div', { className: 'ais-urlrow' }, [urlIn, analyzeBtn]),
+    analyzeNote,
   ]));
 
   const grid = el('div', { className: 'ais-grid' });
@@ -169,7 +198,7 @@ export async function render(root, ctx) {
         accentColor: accent.get(),
         angle: angleIn.value.trim(),
         styleId: styleSel.value,
-        font: profile?.headingFont || '',
+        font: analyzedFont,
       },
     });
 
@@ -187,6 +216,60 @@ export async function render(root, ctx) {
   }
 
   genBtn.addEventListener('click', generate);
+
+  // --- analyze: read a website, prefill the brand ---------------------------
+  let analyzing = false;
+  async function analyze() {
+    if (analyzing) return;
+    const url = urlIn.value.trim();
+    if (!url) { toast('Enter your website address first.', 'warn'); urlIn.focus(); return; }
+
+    analyzing = true;
+    analyzeBtn.disabled = true;
+    analyzeBtn.textContent = 'Reading…';
+    analyzeNote.textContent = 'Reading your website and picking up the brand. This takes a few seconds.';
+
+    const res = await api.apiRequest('/api/ai-studio/analyze', { method: 'POST', body: { url } });
+
+    analyzing = false;
+    analyzeBtn.disabled = false;
+    analyzeBtn.textContent = 'Analyze';
+
+    if (res.unauthorized) { ctx.navigate('/login'); return; }
+    if (!res.ok) {
+      analyzeNote.textContent = '';
+      toast(api.errorMessage(res, 'That website could not be read. Fill the brand in by hand.'), 'err');
+      return;
+    }
+
+    const data = api.payload(res) || {};
+    const brand = data.brand || {};
+    // Prefill only what was actually found — never blank a field the user typed.
+    if (brand.businessName) nameIn.value = brand.businessName;
+    if (brand.industry) industryIn.value = brand.industry;
+    if (brand.tone) toneIn.value = brand.tone;
+    if (brand.colors) {
+      primary.set(brand.colors.primary);
+      secondary.set(brand.colors.secondary);
+      accent.set(brand.colors.accent);
+    }
+    analyzedFont = brand.font || analyzedFont;
+
+    const found = [
+      brand.businessName ? 'name' : null,
+      brand.industry ? 'industry' : null,
+      brand.colors ? 'colours' : null,
+      brand.font ? 'font' : null,
+    ].filter(Boolean);
+    analyzeNote.textContent = found.length
+      ? `Picked up your ${found.join(', ')}. Edit anything that is not right, add a topic, then press Generate.`
+      : 'That site did not give much away. Fill the brand in by hand below.';
+    toast('Brand picked up from your website', 'ok');
+  }
+
+  analyzeBtn.addEventListener('click', analyze);
+  urlIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') analyze(); });
+
   showEmpty();
 }
 
