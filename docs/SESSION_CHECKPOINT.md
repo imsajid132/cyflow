@@ -85,19 +85,21 @@ EXACT premium families (Poppins/Playfair) identically on every host, drop TTFs i
 `POSTER_FONT_DIR`. Not a blocker — posters render premium now via the fallback.
 
 ## Exact Next Step
-1. USER ACTION: redeploy (picks up the asset-versioning fix below), then on
-   Hostinger set `AI_STUDIO_MODE=on` and `AI_API_KEY` (plus AI_BASE_URL /
-   AI_MODEL) in the env panel, with `npm install` (the @resvg/resvg-js dep), and
-   restart. Then open /ai-studio in the dashboard and press Generate — that is the
-   visible proof the engine works live.
+LIVE AND CONFIGURED. `/health` on production reports
+`aiStudio:{configured:true, mode:"on", source:"file"}`. Next: the user presses
+Generate on /ai-studio to see a real poster + post copy end to end; then the first
+careful live publish.
 
-   CONTEXT: the user redeployed repeatedly and saw nothing new. Two real causes,
-   both now resolved: (a) the Hostinger deployment was pinned to the branch
-   `backup/cyflow-pre-ai-studio` — switched to `ai-poster-studio`; (b) the host's
-   CDN strips `Cache-Control`/`ETag` from asset responses, so browsers heuristically
-   cached the OLD module graph and kept running the previous release (no AI Studio
-   in the sidebar; /ai-studio redirected away). Fixed by serving the shell's assets
-   from a content-derived versioned path — see below.
+THREE DEPLOYMENT TRAPS, all found and fixed today (each cost real time):
+ (a) Hostinger was deploying the branch `backup/cyflow-pre-ai-studio` — the
+     pre-feature snapshot. Always check hPanel → Deployments → Settings first.
+ (b) The host's CDN strips `Cache-Control`/`ETag`, so browsers heuristically cached
+     the OLD module graph and kept running the previous release — even in
+     incognito. Fixed by the content-versioned asset path (see below).
+ (c) The env panel CANNOT store `AI_API_KEY` / `AI_STUDIO_MODE`: singly, renamed,
+     and via bulk .env import all failed identically (shows 57, saves 55). Fixed by
+     reading a settings file instead — `private/ai.env` beside the media directory,
+     outside the deployed tree so a redeploy cannot wipe it.
 2. (Polish) Bundle 2-3 premium open-source TTF fonts into an assets/fonts dir and
    point `POSTER_FONT_DIR` at it, so Linux typography matches local exactly.
 3. Then the first careful live publish reusing the user's existing Cyflow accounts
