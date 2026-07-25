@@ -258,11 +258,22 @@ export async function render(root, ctx) {
        * being left out. They load lazily — a dozen full-size site photographs
        * would otherwise hold up the panel they sit in.
        */
+      /*
+       * The library opens; it does not sprawl.
+       *
+       * A site with thirty pictures pushed every other field off the screen, and
+       * the panel is meant to be about the business, not a contact sheet. So it
+       * collapses to one row — a thumbnail stack, the count, and what is
+       * selected — and the whole library opens over the page when asked.
+       */
       brand.images.length ? (() => {
+        const summary = el('span', { className: 'ais-libcount' });
+        const closeBtn = el('button', { className: 'ais-linkbtn', attrs: { type: 'button' }, text: 'Done' });
         const count = el('span', { className: 'ais-hint' });
         const setCount = () => {
           const on = brand.images.filter((i) => i.chosen).length;
           count.textContent = `${on} of ${brand.images.length} selected for your posters. Click any picture to include or leave it out.`;
+          if (summary) summary.textContent = `${brand.images.length} images found · ${on} selected`;
         };
         const tiles = brand.images.map((img) => {
           const tile = el('button', {
@@ -292,14 +303,45 @@ export async function render(root, ctx) {
         all.addEventListener('click', () => setAll(true));
         none.addEventListener('click', () => setAll(false));
 
-        return el('div', { className: 'ais-bgroup' }, [
-          el('div', { className: 'ais-imghead' }, [
-            el('span', { className: 'ais-label', text: `Image library — everything found on your site (${brand.images.length})` }),
-            el('div', { className: 'ais-imgactions' }, [all, none]),
+        // --- the sheet the library opens into -----------------------------
+        const sheet = el('div', { className: 'ais-sheet', attrs: { hidden: true, role: 'dialog', 'aria-label': 'Image library' } }, [
+          el('div', { className: 'ais-sheet-scrim' }),
+          el('div', { className: 'ais-sheet-body' }, [
+            el('div', { className: 'ais-imghead' }, [
+              el('span', { className: 'ais-label', text: `Image library — everything found on your site (${brand.images.length})` }),
+              el('div', { className: 'ais-imgactions' }, [all, none, closeBtn]),
+            ]),
+            el('div', { className: 'ais-photos' }, tiles),
+            count,
           ]),
-          el('div', { className: 'ais-photos' }, tiles),
-          count,
         ]);
+        const setOpen = (open) => {
+          sheet.hidden = !open;
+          document.body.style.overflow = open ? 'hidden' : '';
+        };
+        closeBtn.addEventListener('click', () => setOpen(false));
+        sheet.querySelector('.ais-sheet-scrim').addEventListener('click', () => setOpen(false));
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !sheet.hidden) setOpen(false); });
+
+        // --- the collapsed row that opens it ------------------------------
+        const openBtn = el('button', { className: 'ais-libbtn', attrs: { type: 'button' } }, [
+          el('span', { className: 'ais-libicon', attrs: { 'aria-hidden': 'true' } }, [
+            // Three stacked frames: a library, not a single picture.
+            el('span', {}), el('span', {}), el('span', {}),
+          ]),
+          el('span', { className: 'ais-libtext' }, [
+            el('span', { className: 'ais-liblabel', text: 'Image library' }),
+            summary,
+          ]),
+          el('span', { className: 'ais-libpeek' }, brand.images.slice(0, 4).map((img) => el('img', {
+            attrs: { src: img.url, alt: '', loading: 'lazy', decoding: 'async' },
+          }))),
+          el('span', { className: 'ais-libopen', text: 'Open' }),
+        ]);
+        openBtn.addEventListener('click', () => setOpen(true));
+        setCount();
+
+        return el('div', { className: 'ais-bgroup' }, [openBtn, sheet]);
       })() : el('div', { className: 'ais-bgroup' }, [
         el('span', { className: 'ais-label', text: 'Image library' }),
         el('span', { className: 'ais-hint', text: 'No images were found on this site. Posters will be built from your colours and type.' }),
