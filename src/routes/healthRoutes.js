@@ -17,6 +17,7 @@ import { jobStats } from '../repositories/backgroundJobRepository.js';
 import { backgroundStatus } from '../jobs/backgroundStatus.js';
 import { isClaudeConfigured } from '../services/aiStudio/claudeClient.js';
 import { isAiStudioMode } from '../services/aiStudio/aiStudioEngine.js';
+import { aiConfigFileUsed } from '../services/aiStudio/aiConfigFile.js';
 
 // Application version, read once (kept minimal — no other package.json exposure).
 const APP_VERSION = process.env.npm_package_version || '1.0.0';
@@ -64,6 +65,9 @@ router.get(
     const aiStudio = {
       configured: isClaudeConfigured(),
       mode: isAiStudioMode() ? 'on' : 'off',
+      // Where the settings came from, so a misplaced file is diagnosable without
+      // signing in. A location, never a value.
+      source: aiConfigFileUsed() ? 'file' : 'env',
     };
 
     /*

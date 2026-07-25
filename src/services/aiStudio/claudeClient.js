@@ -12,6 +12,8 @@
  * Two jobs: design (text-out, an HTML poster) and vision (image-in, a caption).
  */
 
+import { readAiConfigFile } from './aiConfigFile.js';
+
 const DEFAULT_BASE = 'https://agentrouter.org';
 const DEFAULT_MODEL = 'claude-opus-4-8';
 
@@ -30,6 +32,17 @@ const DEFAULT_MODEL = 'claude-opus-4-8';
 function fromEnv(...names) {
   for (const name of names) {
     const value = process.env[name];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  /*
+   * Nothing in the environment: fall back to the settings file. The production
+   * host's control panel will not store these two values at all (see
+   * aiConfigFile.js), so without this the feature cannot be turned on there.
+   * Environment always wins — this only fills a gap.
+   */
+  const fromFile = readAiConfigFile();
+  for (const name of names) {
+    const value = fromFile[name];
     if (typeof value === 'string' && value.trim()) return value.trim();
   }
   return '';

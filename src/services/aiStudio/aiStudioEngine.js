@@ -19,6 +19,7 @@
  * platform-specific Threads post, NO em/en dashes, and never an invented fact.
  */
 import { askClaude, parseJsonFromModel, extractHtml, isClaudeConfigured } from './claudeClient.js';
+import { readAiConfigFile } from './aiConfigFile.js';
 import {
   DESIGN_STYLES,
   DESIGN_SYSTEM_PROMPT,
@@ -48,7 +49,12 @@ export function extractSvg(text) {
  * claudeClient.js). `AI_STUDIO_MODE` stays the documented primary.
  */
 export function isAiStudioMode() {
-  const raw = process.env.AI_STUDIO_MODE || process.env.CYFLOW_STUDIO_MODE || '';
+  const file = readAiConfigFile();
+  const raw = process.env.AI_STUDIO_MODE
+    || process.env.CYFLOW_STUDIO_MODE
+    || file.AI_STUDIO_MODE
+    || file.CYFLOW_STUDIO_MODE
+    || '';
   return String(raw).trim().toLowerCase() === 'on';
 }
 
