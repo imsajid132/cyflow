@@ -40,9 +40,20 @@ export function extractSvg(text) {
   return s.slice(start, end + 6).trim();
 }
 
-/** On only when explicitly enabled AND the key is present. Default: OFF. */
+/**
+ * On only when explicitly enabled AND the key is present. Default: OFF.
+ *
+ * Two accepted names for the flag, for the same reason the key has two: the
+ * production host's panel refuses to store `AI_STUDIO_MODE` (see the note in
+ * claudeClient.js). `AI_STUDIO_MODE` stays the documented primary.
+ */
+export function isAiStudioMode() {
+  const raw = process.env.AI_STUDIO_MODE || process.env.CYFLOW_STUDIO_MODE || '';
+  return String(raw).trim().toLowerCase() === 'on';
+}
+
 export function isAiStudioEnabled() {
-  return String(process.env.AI_STUDIO_MODE || '').toLowerCase() === 'on' && isClaudeConfigured();
+  return isAiStudioMode() && isClaudeConfigured();
 }
 
 /** Rotate the three aesthetic directions by position so daily posts vary. */

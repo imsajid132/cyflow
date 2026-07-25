@@ -15,17 +15,44 @@
 const DEFAULT_BASE = 'https://agentrouter.org';
 const DEFAULT_MODEL = 'claude-opus-4-8';
 
+/**
+ * Read the first of several environment names that carries a value.
+ *
+ * WHY MORE THAN ONE NAME. The production host's control panel silently refuses
+ * to store `AI_API_KEY` and `AI_STUDIO_MODE` — every other `AI_*` name in the
+ * same list saves fine, these two vanish on save and are dropped even by a bulk
+ * .env import, most likely because the host reserves them for its own AI
+ * product. The app cannot win that argument, so it answers to a second,
+ * host-safe name as well. `AI_*` remains the documented primary name and is what
+ * local development and the tests use; `CYFLOW_STUDIO_*` exists so a machine
+ * whose panel rejects the primary name can still be configured.
+ */
+function fromEnv(...names) {
+  for (const name of names) {
+    const value = process.env[name];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+/** The key, under either accepted name. */
+export function readApiKey() {
+  return fromEnv('AI_API_KEY', 'CYFLOW_STUDIO_KEY');
+}
+
 export function isClaudeConfigured() {
-  return Boolean(process.env.AI_API_KEY);
+  return Boolean(readApiKey());
 }
 
 function readConfig() {
   return {
-    apiKey: process.env.AI_API_KEY || '',
-    baseUrl: (process.env.AI_BASE_URL || DEFAULT_BASE).replace(/\/+$/, ''),
-    model: process.env.AI_MODEL || DEFAULT_MODEL,
+    apiKey: readApiKey(),
+    baseUrl: (fromEnv('AI_BASE_URL', 'CYFLOW_STUDIO_BASE_URL') || DEFAULT_BASE).replace(/\/+$/, ''),
+    model: fromEnv('AI_MODEL', 'CYFLOW_STUDIO_MODEL') || DEFAULT_MODEL,
     // "anthropic" (Claude /v1/messages) or "openai" (GPT /v1/chat/completions).
-    provider: (process.env.AI_PROVIDER || 'anthropic').toLowerCase() === 'openai' ? 'openai' : 'anthropic',
+    provider: (fromEnv('AI_PROVIDER', 'CYFLOW_STUDIO_PROVIDER') || 'anthropic').toLowerCase() === 'openai'
+      ? 'openai'
+      : 'anthropic',
   };
 }
 

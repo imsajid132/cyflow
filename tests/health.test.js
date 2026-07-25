@@ -113,3 +113,35 @@ test('health reports AI studio readiness as booleans, never the key', async () =
     else process.env.AI_STUDIO_MODE = previousMode;
   }
 });
+
+/*
+ * The host-safe fallback names. The production control panel silently refuses to
+ * store AI_API_KEY and AI_STUDIO_MODE — they vanish on save and are dropped even
+ * by a bulk .env import — so the app answers to a second name for each. Without
+ * this the feature cannot be configured on that host at all.
+ */
+test('the studio is configurable under the host-safe CYFLOW_STUDIO_* names', async () => {
+  const saved = {
+    key: process.env.AI_API_KEY, mode: process.env.AI_STUDIO_MODE,
+    altKey: process.env.CYFLOW_STUDIO_KEY, altMode: process.env.CYFLOW_STUDIO_MODE,
+  };
+  try {
+    delete process.env.AI_API_KEY;
+    delete process.env.AI_STUDIO_MODE;
+    process.env.CYFLOW_STUDIO_KEY = 'alternative-name-secret-value';
+    process.env.CYFLOW_STUDIO_MODE = 'on';
+
+    const res = await request(app).get('/health');
+    assert.equal(res.body.data.aiStudio.configured, true, 'the alternative key name configures the studio');
+    assert.equal(res.body.data.aiStudio.mode, 'on', 'the alternative mode name enables it');
+    assert.ok(!JSON.stringify(res.body).includes('alternative-name-secret'), 'still never the value');
+  } finally {
+    for (const [name, value] of [
+      ['AI_API_KEY', saved.key], ['AI_STUDIO_MODE', saved.mode],
+      ['CYFLOW_STUDIO_KEY', saved.altKey], ['CYFLOW_STUDIO_MODE', saved.altMode],
+    ]) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});

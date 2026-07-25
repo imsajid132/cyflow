@@ -15,6 +15,8 @@ import { nowIso } from '../utils/time.js';
 import { APP_NAME } from '../config/constants.js';
 import { jobStats } from '../repositories/backgroundJobRepository.js';
 import { backgroundStatus } from '../jobs/backgroundStatus.js';
+import { isClaudeConfigured } from '../services/aiStudio/claudeClient.js';
+import { isAiStudioMode } from '../services/aiStudio/aiStudioEngine.js';
 
 // Application version, read once (kept minimal — no other package.json exposure).
 const APP_VERSION = process.env.npm_package_version || '1.0.0';
@@ -57,9 +59,11 @@ router.get(
      * `mode` is the flag that decides whether the daily automation uses this
      * engine. Neither reveals a secret.
      */
+    // Resolved through the same helpers the engine uses, so this reports what the
+    // engine will actually see — including the host-safe alternative names.
     const aiStudio = {
-      configured: Boolean(process.env.AI_API_KEY),
-      mode: String(process.env.AI_STUDIO_MODE || '').toLowerCase() === 'on' ? 'on' : 'off',
+      configured: isClaudeConfigured(),
+      mode: isAiStudioMode() ? 'on' : 'off',
     };
 
     /*
