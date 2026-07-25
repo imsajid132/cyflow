@@ -1257,7 +1257,28 @@ legend { padding: 0; }
 @keyframes ais-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .ais-brandcard { animation: none; } }
 
-.ais-brandhead { display: flex; align-items: center; gap: .9rem; margin-bottom: .9rem; }
+.ais-brandhead { display: flex; align-items: flex-start; gap: .9rem; margin-bottom: 1rem; }
+.ais-logowrap { flex: 0 0 64px; }
+.ais-logofield { flex: 1 1 auto; display: flex; flex-direction: column; gap: .3rem; min-width: 0; max-width: 460px; }
+
+/* Two columns where the fields are short, one where the screen is narrow. */
+.ais-fieldgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .75rem .9rem; }
+
+/* An editable chip: the value, and a quiet × that removes it. */
+.ais-chip-edit { display: inline-flex; align-items: center; gap: .35rem; padding-right: .3rem; }
+.ais-chip-x {
+  background: none; border: none; color: var(--ais-muted); cursor: pointer;
+  font-size: 1rem; line-height: 1; padding: 0 .15rem; border-radius: 4px;
+}
+.ais-chip-x:hover { color: var(--ais-fg); background: rgba(255, 255, 255, .08); }
+.ais-add { max-width: 320px; }
+
+.ais-nextbar {
+  margin-top: 1.35rem; padding-top: 1.1rem; border-top: 1px solid var(--ais-border);
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+}
+.ais-nextbar .ais-hint { margin: 0; max-width: 52ch; }
+.ais-next { padding: .75rem 1.4rem; }
 .ais-logo {
   width: 56px; height: 56px; flex: 0 0 56px; object-fit: contain; border-radius: 10px;
   background: #fff; padding: 6px; border: 1px solid var(--ais-border);
