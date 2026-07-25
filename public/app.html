@@ -11,7 +11,11 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/favicon-32.png" />
   <link rel="icon" type="image/png" sizes="192x192" href="/assets/brand/cyflow-mark-192.png" />
   <link rel="apple-touch-icon" href="/assets/brand/apple-touch-icon.png" />
-  <link rel="stylesheet" href="/assets/css/design-system.css" />
+  <!-- `__ASSET_V__` is replaced at request time with this release's asset
+       version (src/utils/assetVersion.js). A changed release means a URL no
+       cache has seen, which is the only reliable way to retire the previous
+       release's CSS and modules in a browser. -->
+  <link rel="stylesheet" href="/v/__ASSET_V__/assets/css/design-system.css" />
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to main content</a>
@@ -59,7 +63,10 @@
   <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
   <div class="modal-host" id="modal-host" hidden></div>
 
-  <script type="module" src="/assets/js/main.js"></script>
+  <!-- Versioning the entry point versions the WHOLE module graph: the imports
+       inside main.js are relative, so they resolve under the same /v/<version>/
+       prefix automatically. -->
+  <script type="module" src="/v/__ASSET_V__/assets/js/main.js"></script>
   <noscript>
     <p style="padding:2rem;font-family:system-ui">Cyflow Social requires JavaScript.</p>
   </noscript>

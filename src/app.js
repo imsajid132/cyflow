@@ -8,6 +8,7 @@
  */
 
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import express from 'express';
@@ -19,6 +20,7 @@ import expressMySQLSession from 'express-mysql-session';
 
 import { config } from './config/env.js';
 import { requestId } from './middleware/requestId.js';
+import { computeAssetVersion } from './utils/assetVersion.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { generalApiLimiter } from './middleware/rateLimits.js';
 import { redactUrl } from './utils/redaction.js';
@@ -41,6 +43,14 @@ import { buildContainer } from './container.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, '..', 'public');
+
+/**
+ * This release's asset version, derived from the content of public/assets and
+ * computed once at boot. It is the cache-busting segment in the shell's asset
+ * URLs — see src/utils/assetVersion.js for why the app cannot rely on cache
+ * headers alone in production.
+ */
+export const ASSET_VERSION = computeAssetVersion(path.join(PUBLIC_DIR, 'assets'));
 
 /**
  * Front-end routes served by the single application shell. Listing them
@@ -228,6 +238,33 @@ export function createApp(overrides = {}) {
    * no body. The cost is one conditional request per asset, and the guarantee is
    * that a deployed release is never mixed with the previous one.
    */
+  /*
+   * The versioned asset mount: /v/<version>/assets/... serves the very same
+   * files as /assets/..., under a URL that changes whenever the assets change.
+   *
+   * This is what makes a deployment actually take effect in a browser. The
+   * production CDN strips the `Cache-Control: no-cache` and `ETag` set below, and
+   * a browser given neither invents its own cache lifetime and stops asking — so
+   * a new release can keep running the old modules. A changed version means a
+   * URL neither the CDN nor the browser has ever seen, so both must fetch it.
+   * See src/utils/assetVersion.js. The unversioned /assets path stays for
+   * anything (a bookmark, an old shell) that still references it.
+   *
+   * Immutable is honest here: this exact URL can only ever return these exact
+   * bytes, because a byte change produces a different version.
+   */
+  app.use(
+    '/v/:assetVersion/assets',
+    express.static(path.join(PUBLIC_DIR, 'assets'), {
+      index: false,
+      etag: true,
+      lastModified: true,
+      setHeaders(res) {
+        res.setHeader('Cache-Control', config.isProd ? 'public, max-age=31536000, immutable' : 'no-cache');
+      },
+    }),
+  );
+
   app.use(
     express.static(PUBLIC_DIR, {
       index: false,
@@ -353,7 +390,18 @@ export function createApp(overrides = {}) {
   // --- Frontend application shell -------------------------------------------
   // Every app route serves the same shell so direct navigation and refresh work
   // (the client router then renders the matching page module).
-  app.get(APP_ROUTES, (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'app.html')));
+  //
+  // The shell is rendered rather than sent verbatim: `__ASSET_V__` becomes this
+  // release's asset version, so the stylesheet and the module entry point are
+  // requested from /v/<version>/assets/... . Versioning the entry point versions
+  // the whole module graph, because the imports inside it are relative. The
+  // shell itself is never cached (a stale shell would pin an old version).
+  const shellHtml = readFileSync(path.join(PUBLIC_DIR, 'app.html'), 'utf8');
+  app.get(APP_ROUTES, (req, res) => {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(shellHtml.replaceAll('__ASSET_V__', ASSET_VERSION));
+  });
 
   // --- 404 handling ---------------------------------------------------------
   // JSON 404 for API routes.

@@ -85,10 +85,19 @@ EXACT premium families (Poppins/Playfair) identically on every host, drop TTFs i
 `POSTER_FONT_DIR`. Not a blocker — posters render premium now via the fallback.
 
 ## Exact Next Step
-1. USER ACTION (the actual blocker): on Hostinger, set `AI_STUDIO_MODE=on` and
-   `AI_API_KEY` (plus AI_BASE_URL / AI_MODEL) in the env panel, redeploy with
-   `npm install` (the new @resvg/resvg-js dep), restart. Then open /ai-studio in the
-   dashboard and press Generate — that is the visible proof the engine works live.
+1. USER ACTION: redeploy (picks up the asset-versioning fix below), then on
+   Hostinger set `AI_STUDIO_MODE=on` and `AI_API_KEY` (plus AI_BASE_URL /
+   AI_MODEL) in the env panel, with `npm install` (the @resvg/resvg-js dep), and
+   restart. Then open /ai-studio in the dashboard and press Generate — that is the
+   visible proof the engine works live.
+
+   CONTEXT: the user redeployed repeatedly and saw nothing new. Two real causes,
+   both now resolved: (a) the Hostinger deployment was pinned to the branch
+   `backup/cyflow-pre-ai-studio` — switched to `ai-poster-studio`; (b) the host's
+   CDN strips `Cache-Control`/`ETag` from asset responses, so browsers heuristically
+   cached the OLD module graph and kept running the previous release (no AI Studio
+   in the sidebar; /ai-studio redirected away). Fixed by serving the shell's assets
+   from a content-derived versioned path — see below.
 2. (Polish) Bundle 2-3 premium open-source TTF fonts into an assets/fonts dir and
    point `POSTER_FONT_DIR` at it, so Linux typography matches local exactly.
 3. Then the first careful live publish reusing the user's existing Cyflow accounts
@@ -109,6 +118,17 @@ EXACT premium families (Poppins/Playfair) identically on every host, drop TTFs i
   memory file (the ai_studio provider logs carry only category/status/time).
 - Backup of pre-feature Cyflow: branch `backup/cyflow-pre-ai-studio` + tag
   `backup-cyflow-2026-07-23` (pushed). Do not merge/deploy without the user's say.
+
+## Asset versioning (deploys now actually take effect in a browser)
+`src/utils/assetVersion.js` derives a 10-char stamp from the CONTENT of
+public/assets at boot; `src/app.js` exports it as `ASSET_VERSION`, mounts
+`/v/:assetVersion/assets` (immutable in prod), and renders app.html by replacing
+`__ASSET_V__`, serving the shell itself `no-store`. Versioning only the entry point
+is enough: ES imports are relative, so the WHOLE module graph inherits the prefix
+(verified in a real browser: 7 modules fetched, 0 unversioned). The unversioned
+/assets path still works for older shells/bookmarks. 7 focused tests in
+tests/assetVersioning.test.js, including that the stamp changes with content and
+that a missing assets dir degrades to "static" instead of crashing the boot.
 
 ## Last Updated
 Four milestones this session, all proven: (1) AI-automation wiring (additive,
