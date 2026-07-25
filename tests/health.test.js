@@ -79,3 +79,37 @@ test('GET / serves the landing page', async () => {
   assert.match(res.headers['content-type'], /text\/html/);
   assert.match(res.text, /Cyflow/i);
 });
+
+/*
+ * AI studio readiness is reported so a deployment where the key never reached
+ * the process can be diagnosed without signing in — that exact state cost a
+ * whole afternoon once. It reports PRESENCE only: the key itself must never
+ * appear in the response, in any form.
+ */
+test('health reports AI studio readiness as booleans, never the key', async () => {
+  const previousKey = process.env.AI_API_KEY;
+  const previousMode = process.env.AI_STUDIO_MODE;
+  try {
+    process.env.AI_API_KEY = 'sk-super-secret-value-that-must-never-leak';
+    process.env.AI_STUDIO_MODE = 'on';
+
+    const res = await request(app).get('/health');
+    assert.equal(res.body.data.aiStudio.configured, true);
+    assert.equal(res.body.data.aiStudio.mode, 'on');
+    // The whole envelope, not just that field: no substring of the key anywhere.
+    const body = JSON.stringify(res.body);
+    assert.ok(!body.includes('sk-super-secret'), 'the key must never appear in the response');
+    assert.ok(!body.includes('secret-value'), 'no fragment of the key either');
+
+    delete process.env.AI_API_KEY;
+    process.env.AI_STUDIO_MODE = 'off';
+    const off = await request(app).get('/health');
+    assert.equal(off.body.data.aiStudio.configured, false);
+    assert.equal(off.body.data.aiStudio.mode, 'off');
+  } finally {
+    if (previousKey === undefined) delete process.env.AI_API_KEY;
+    else process.env.AI_API_KEY = previousKey;
+    if (previousMode === undefined) delete process.env.AI_STUDIO_MODE;
+    else process.env.AI_STUDIO_MODE = previousMode;
+  }
+});

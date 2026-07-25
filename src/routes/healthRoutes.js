@@ -46,6 +46,23 @@ router.get(
     const publishing = { liveEnabled: Boolean(config.publishing?.liveEnabled) };
 
     /*
+     * AI poster studio readiness, as two booleans and nothing else.
+     *
+     * A deployment where the key never reached the process looks identical from
+     * the outside to one where it did: the app is up, the page renders, and the
+     * only symptom is "not configured yet" behind a login. That is precisely the
+     * state this reports, so it can be checked without signing in.
+     *
+     * `configured` is the PRESENCE of a key, never its value, length or prefix;
+     * `mode` is the flag that decides whether the daily automation uses this
+     * engine. Neither reveals a secret.
+     */
+    const aiStudio = {
+      configured: Boolean(process.env.AI_API_KEY),
+      mode: String(process.env.AI_STUDIO_MODE || '').toLowerCase() === 'on' ? 'on' : 'off',
+    };
+
+    /*
      * Whether THIS process is running the jobs, and how its last cycle went.
      * "disabled" is the honest answer on a host with a separate worker: it says
      * this process is not responsible, so a growing pending count above means
@@ -67,6 +84,7 @@ router.get(
         scheduler: { enabled: config.scheduler.enabled },
         worker,
         publishing,
+        aiStudio,
         background,
       },
       requestId: req.id ?? null,
