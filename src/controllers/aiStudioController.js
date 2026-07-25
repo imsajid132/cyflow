@@ -105,6 +105,15 @@ export function createAiStudioController({ websiteAnalysis = defaultWebsiteAnaly
         },
         locations: list(s.locations, 6),
         socialLinks: s.socialLinks && typeof s.socialLinks === 'object' ? s.socialLinks : {},
+        /*
+         * The business's own photographs. These are what stop a poster looking
+         * like a template, so they travel with the brand rather than being
+         * fetched again later.
+         */
+        images: list(s.images, 12).map((im) => ({
+          url: String(im?.url || ''), alt: String(im?.alt || ''),
+          width: Number(im?.width) || 0, height: Number(im?.height) || 0,
+        })).filter((im) => im.url),
       },
     });
   });

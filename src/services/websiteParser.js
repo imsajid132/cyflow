@@ -146,6 +146,42 @@ export function firstFontName(declaration) {
   return clean(name, BUSINESS_LIMITS.FONT_MAX);
 }
 
+/**
+ * Font families named in a Google Fonts request, in the order requested.
+ *
+ * Most sites keep their CSS in an external file this parser never fetches, so
+ * reading only inline <style> left the font fields empty on site after site.
+ * The webfont REQUEST, though, is right there in the markup — a <link> to
+ * fonts.googleapis.com, or an @import of one — and it names the faces exactly.
+ * It is also the most reliable signal available: a site does not load a font it
+ * has no intention of using.
+ */
+export function fontsFromWebfontLinks(root) {
+  const urls = [];
+  for (const link of root.querySelectorAll('link[href]')) {
+    const href = link.getAttribute('href') || '';
+    if (/fonts\.googleapis\.com/i.test(href)) urls.push(href);
+  }
+  for (const style of root.querySelectorAll('style')) {
+    for (const m of String(style.text || '').matchAll(/@import\s+url\(([^)]+)\)/gi)) {
+      const u = m[1].replace(/["']/g, '');
+      if (/fonts\.googleapis\.com/i.test(u)) urls.push(u);
+    }
+  }
+
+  const names = [];
+  for (const url of urls) {
+    // Both shapes: css2?family=Poppins:wght@400 and css?family=Roboto|Open+Sans
+    for (const m of url.matchAll(/family=([^&]+)/gi)) {
+      for (const part of decodeURIComponent(m[1]).split('|')) {
+        const name = firstFontName(part.split(':')[0].replace(/\+/g, ' '));
+        if (name && !names.includes(name)) names.push(name);
+      }
+    }
+  }
+  return names;
+}
+
 /** Detect heading/body fonts. Never downloads font files. */
 export function extractFonts(root) {
   const cssChunks = [];
@@ -170,14 +206,79 @@ export function extractFonts(root) {
   const bodyRule = pick(/(?:^|[},])\s*body[^{]*\{[^}]*font-family\s*:\s*([^;}\n]+)/im);
   const anyRule = pick(/font-family\s*:\s*([^;}\n]+)/i);
 
-  const headingFont = headingVar || headingRule || anyRule || '';
-  const bodyFont = bodyVar || bodyRule || anyRule || '';
+  /*
+   * The webfont request is the fallback, not the first choice: a rule in the
+   * page says where a face is USED, while a link only says it was loaded. But a
+   * loaded face beats an empty field, and on a site whose CSS lives in an
+   * external file it is the only thing there is. Two requested faces are read as
+   * heading then body, which is the order sites almost always request them in.
+   */
+  const requested = fontsFromWebfontLinks(root);
+  const headingFont = headingVar || headingRule || anyRule || requested[0] || '';
+  const bodyFont = bodyVar || bodyRule || anyRule || requested[1] || requested[0] || '';
   return { headingFont, bodyFont };
+}
+
+/**
+ * Photographs the site uses, largest and most prominent first.
+ *
+ * A poster built from colour and type alone always looks like a template. The
+ * business's OWN pictures are what make it look like their post, so the reader
+ * collects them and the studio offers them to the designer.
+ *
+ * Deliberately conservative: only http(s) images, no data URIs, no tracking
+ * pixels, no icons, and nothing that looks like a logo or a sprite. Dimensions
+ * are read from the markup when they are declared — nothing is downloaded here.
+ */
+export function extractImages(root, baseUrl, limit = 12) {
+  const out = [];
+  const seen = new Set();
+  const SKIP = /(logo|icon|favicon|sprite|placeholder|avatar|badge|pixel|spacer|1x1|blank)/i;
+
+  const add = (rawSrc, alt, w, h) => {
+    if (out.length >= limit) return;
+    const u = resolveUrl(rawSrc, baseUrl);
+    if (!u || !/^https?:$/.test(u.protocol)) return;
+    const url = u.toString();
+    if (seen.has(url) || SKIP.test(url)) return;
+    if (!/\.(jpe?g|png|webp|avif)(\?|$)/i.test(url)) return;
+    const width = Number(w) || 0;
+    const height = Number(h) || 0;
+    // A declared size that is tiny is an icon whatever it is called.
+    if (width && width < 200) return;
+    seen.add(url);
+    out.push({ url: url.slice(0, BUSINESS_LIMITS.URL_MAX), alt: clean(alt || '', 160), width, height });
+  };
+
+  for (const img of root.querySelectorAll('img')) {
+    const src = img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || '';
+    if (SKIP.test(img.getAttribute('class') || '')) continue;
+    add(src, img.getAttribute('alt'), img.getAttribute('width'), img.getAttribute('height'));
+  }
+  // og:image is the picture the site itself chose to represent the page.
+  const og = root.querySelector('meta[property="og:image"]');
+  if (og) add(og.getAttribute('content'), 'Site preview image', 0, 0);
+
+  return out;
 }
 
 // --- JSON-LD ---------------------------------------------------------------
 
 const ORG_TYPES = /^(organization|localbusiness|corporation|store|restaurant|professionalservice|.*business.*|.*service.*)$/i;
+
+/** "GeneralContractor" -> "General contractor". A schema type read as English. */
+export function humanizeSchemaType(type) {
+  const words = String(type || '')
+    // An acronym runs into the next word without a lowercase letter to split on:
+    // "HVACBusiness" needs a break between the acronym and "Business".
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .toLowerCase();
+  if (!words) return '';
+  return clean(words.charAt(0).toUpperCase() + words.slice(1), BUSINESS_LIMITS.CATEGORY_MAX || 80);
+}
 
 /** Extract Organization/LocalBusiness data from JSON-LD blocks. */
 export function extractJsonLd(root) {
@@ -203,6 +304,16 @@ export function extractJsonLd(root) {
   for (const node of nodes) {
     const types = [].concat(node['@type'] || []).map((t) => String(t));
     if (!types.some((t) => ORG_TYPES.test(t))) continue;
+    /*
+     * The schema type IS the industry, and it is the only place most sites state
+     * it. "GeneralContractor" becomes "General contractor" — a real answer where
+     * the field was otherwise left blank for the owner to guess at. The generic
+     * containers are skipped, because "Organization" tells nobody anything.
+     */
+    if (!out.category) {
+      const specific = types.find((t) => !/^(organization|localbusiness|corporation|thing)$/i.test(t));
+      if (specific) out.category = humanizeSchemaType(specific);
+    }
     if (!out.name && typeof node.name === 'string') out.name = clean(node.name, BUSINESS_LIMITS.NAME_MAX);
     if (!out.description && typeof node.description === 'string') {
       out.description = clean(node.description, BUSINESS_LIMITS.DESCRIPTION_MAX);
@@ -473,10 +584,15 @@ export function parsePage(html, baseUrl) {
     region: jsonLd.region || '',
     postalCode: jsonLd.postalCode || '',
     country: jsonLd.country || '',
+    // The schema type is the only place most sites state what they do.
+    businessCategory: jsonLd.category || '',
     colors: extractColors(root),
     fonts: extractFonts(root),
     services: extractServices(root),
     socialLinks: extractSocialLinks(root, baseUrl),
+    // The business's own photographs. A poster made from colour and type alone
+    // always looks like a template; their pictures are what make it theirs.
+    images: extractImages(root, baseUrl),
     pageLinks: discoverPageLinks(root, baseUrl),
   };
 }

@@ -24,7 +24,7 @@ function emptyBrand() {
     headingFont: '', bodyFont: '',
     primary: '#111827', secondary: '#6b7280', accent: '#2563eb',
     colorCandidates: [],
-    services: [], socials: [],
+    services: [], socials: [], images: [],
     phone: '', email: '', address: '', city: '', region: '', postalCode: '', country: '', websiteUrl: '',
   };
 }
@@ -81,21 +81,24 @@ function chipList(list, { label, placeholder }) {
   draw();
 
   const add = el('input', { className: 'ais-input ais-add', attrs: { type: 'text', placeholder, maxlength: 80 } });
-  add.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter') return;
-    e.preventDefault();
+  // A visible button beside the box. Enter alone worked, but nothing on screen
+  // said so, and an affordance nobody can see is not an affordance.
+  const addBtn = el('button', { className: 'ais-btn ais-addbtn', attrs: { type: 'button' }, text: 'Add' });
+  const commit = () => {
     const v = add.value.trim();
     if (!v || list.includes(v)) { add.value = ''; return; }
     list.push(v);
     add.value = '';
     draw();
-  });
+    add.focus();
+  };
+  add.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } });
+  addBtn.addEventListener('click', commit);
 
   return el('div', { className: 'ais-bgroup' }, [
     el('span', { className: 'ais-label', text: label }),
     wrap,
-    add,
-    el('span', { className: 'ais-hint', text: 'Type and press Enter to add. Click × to remove.' }),
+    el('div', { className: 'ais-addrow' }, [add, addBtn]),
   ]);
 }
 
@@ -154,11 +157,46 @@ export async function render(root, ctx) {
     logoIn.addEventListener('input', () => { brand.logoUrl = logoIn.value.trim(); showLogo(); });
     showLogo();
 
+    /*
+     * Upload, as well as a URL.
+     *
+     * A reader finds the wrong mark often enough — and plenty of businesses have
+     * a better logo file than anything on their site — that requiring a public
+     * URL would leave some owners unable to give their own logo at all. The file
+     * goes through the media library, which validates the bytes and returns a
+     * stable address.
+     */
+    const picker = el('input', { className: 'ais-file', attrs: { type: 'file', accept: 'image/png,image/jpeg,image/webp' } });
+    const uploadBtn = el('button', { className: 'ais-btn ais-secondary', attrs: { type: 'button' }, text: 'Upload a logo' });
+    uploadBtn.addEventListener('click', () => picker.click());
+    picker.addEventListener('change', async () => {
+      const file = picker.files && picker.files[0];
+      if (!file) return;
+      uploadBtn.disabled = true;
+      uploadBtn.textContent = 'Uploading…';
+      const form = new FormData();
+      form.append('image', file);
+      const res = await api.apiRequest('/api/media', { method: 'POST', body: form });
+      uploadBtn.disabled = false;
+      uploadBtn.textContent = 'Upload a logo';
+      picker.value = '';
+      if (!res.ok) { toast(api.errorMessage(res, 'That logo could not be uploaded.'), 'err'); return; }
+      const asset = api.payload(res)?.media || api.payload(res);
+      const url = asset?.url;
+      if (!url) { toast('The upload did not return an image.', 'err'); return; }
+      brand.logoUrl = url;
+      brand.logoValidated = true;
+      logoIn.value = url;
+      showLogo();
+      toast('Logo uploaded', 'ok');
+    });
+
     card.appendChild(el('div', { className: 'ais-brandhead' }, [
       el('div', { className: 'ais-logowrap' }, [preview, placeholder]),
       el('div', { className: 'ais-logofield' }, [
         el('span', { className: 'ais-label', text: 'Logo' }),
         logoIn,
+        el('div', { className: 'ais-logoactions' }, [uploadBtn, picker]),
         brand.logoUrl && !brand.logoValidated
           ? el('span', { className: 'ais-hint', text: 'Found on your site but not verified. Check it looks right.' })
           : null,
@@ -210,6 +248,34 @@ export async function render(root, ctx) {
       ]),
 
       chipList(brand.socials, { label: 'Social profiles', placeholder: 'Add a profile URL' }),
+
+      /*
+       * The business's own photographs.
+       *
+       * This is the difference between a poster that looks like their post and
+       * one that looks like a template. Every picture found is offered, selected
+       * by default, and any that does not belong on a poster is one click from
+       * being left out. They load lazily — a dozen full-size site photographs
+       * would otherwise hold up the panel they sit in.
+       */
+      brand.images.length ? el('div', { className: 'ais-bgroup' }, [
+        el('span', { className: 'ais-label', text: `Photos from your site (${brand.images.length})` }),
+        el('div', { className: 'ais-photos' }, brand.images.map((img) => {
+          const tile = el('button', {
+            className: `ais-photo${img.chosen ? ' is-on' : ''}`,
+            attrs: { type: 'button', title: img.alt || img.url },
+          }, [
+            el('img', { attrs: { src: img.url, alt: img.alt || '', loading: 'lazy', decoding: 'async' } }),
+            el('span', { className: 'ais-photo-tick', text: '✓' }),
+          ]);
+          tile.addEventListener('click', () => {
+            img.chosen = !img.chosen;
+            tile.classList.toggle('is-on', img.chosen);
+          });
+          return tile;
+        })),
+        el('span', { className: 'ais-hint', text: 'Ticked photos can appear on your posters. Click one to leave it out.' }),
+      ]) : null,
     ].filter(Boolean)));
 
     card.appendChild(nextBar);
@@ -269,6 +335,9 @@ export async function render(root, ctx) {
       accent: b.colors?.accent || '#2563eb',
       colorCandidates: Array.isArray(b.colorCandidates) ? b.colorCandidates : [],
       services: Array.isArray(b.services) ? [...b.services] : [],
+      // Every photo starts ticked: the owner removes what does not belong,
+      // rather than having to find and add what does.
+      images: (Array.isArray(b.images) ? b.images : []).map((im) => ({ ...im, chosen: true })),
       socials: Array.isArray(b.socialLinks)
         ? b.socialLinks.map((s) => (typeof s === 'string' ? s : s?.url || s?.platform)).filter(Boolean)
         : Object.values(b.socialLinks || {}).filter(Boolean),

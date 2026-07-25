@@ -135,6 +135,16 @@ export function createWebsiteAnalysisService({
       colors: homeParsed.colors.length ? homeParsed.colors : about?.colors || [],
       fonts: homeParsed.fonts.headingFont || homeParsed.fonts.bodyFont ? homeParsed.fonts : about?.fonts || { headingFont: '', bodyFont: '' },
       socialLinks: homeParsed.socialLinks.length ? homeParsed.socialLinks : contact?.socialLinks || [],
+      // The schema type, which is where most sites actually state their trade.
+      businessCategory: firstNonEmpty(homeParsed.businessCategory, about?.businessCategory),
+      /*
+       * The business's own photographs, homepage first. A poster built from
+       * colour and type alone always looks like a template; their pictures are
+       * what make it look like their post.
+       */
+      images: [...(homeParsed.images || []), ...(about?.images || []), ...(services?.images || [])]
+        .filter((img, i, all) => all.findIndex((o) => o.url === img.url) === i)
+        .slice(0, WEBSITE_ANALYSIS.MAX_IMAGES ?? 12),
     };
 
     // Services: prefer a dedicated Services page, then merge the homepage's.
@@ -185,7 +195,13 @@ export function createWebsiteAnalysisService({
       pagesAnalyzed: pages.map((p) => ({ kind: p.kind, url: p.url })),
       suggestions: {
         businessName: merged.businessName,
-        businessCategory: normalized?.category || '',
+        /*
+         * The normalizer's category, then the site's own schema type. The field
+         * was coming back empty on real sites whose JSON-LD said exactly what
+         * they were ("GeneralContractor"), leaving the owner to guess at a field
+         * their own markup had already answered.
+         */
+        businessCategory: normalized?.category || merged.businessCategory || '',
         businessDescription: normalized?.description || merged.description,
         phone: merged.phone,
         email: merged.email,
@@ -207,6 +223,7 @@ export function createWebsiteAnalysisService({
         services: normalized?.services?.length ? normalized.services : merged.services,
         locations: [merged.city, merged.region].filter(Boolean).slice(0, WEBSITE_ANALYSIS.MAX_LOCATIONS),
         socialLinks: merged.socialLinks,
+        images: merged.images,
         defaultTone: normalized?.tone || '',
       },
     };
