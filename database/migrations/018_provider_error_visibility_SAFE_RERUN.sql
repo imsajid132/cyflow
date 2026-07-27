@@ -56,12 +56,16 @@ ALTER TABLE `user_integrations`
   ADD COLUMN IF NOT EXISTS `last_health_check_at` DATETIME NULL DEFAULT NULL;
 
 -- --- confirm it worked ------------------------------------------------------
--- Expect 9 rows for the first and 6 for the second.
-SELECT COLUMN_NAME FROM information_schema.COLUMNS
- WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'planner_run_items'
-   AND COLUMN_NAME LIKE 'image\_%';
+--
+-- SHOW COLUMNS, not information_schema: a shared-hosting database user is
+-- granted its own schema and nothing else, so querying information_schema fails
+-- with "Access denied" — and a verification step that cannot run on the machine
+-- it is meant to verify is worse than none, because the error looks like the
+-- migration failed when the columns are already in place.
+--
+-- Expect 9 rows from the first and 6 from the second.
+SHOW COLUMNS FROM `planner_run_items` LIKE 'image\_%';
 
-SELECT COLUMN_NAME FROM information_schema.COLUMNS
- WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_integrations'
-   AND COLUMN_NAME IN ('connection_label','last_success_at','last_failure_at',
-                       'last_error_category','last_error_message','last_health_check_at');
+SHOW COLUMNS FROM `user_integrations` WHERE `Field` IN
+  ('connection_label','last_success_at','last_failure_at',
+   'last_error_category','last_error_message','last_health_check_at');
