@@ -4,142 +4,123 @@
 > "Mandatory memory and crash-safe checkpoint rule". No secrets, ever.
 
 ## Current Objective
-Build the AI poster studio INTO Cyflow (branch `ai-poster-studio`): Claude designs
-the poster AND writes the captions (via the friend's AgentRouter key), a FREE
-renderer rasterizes the poster, and it runs on the user's own Hostinger reusing
-Cyflow's existing connected accounts + daily automation + publishing. Free forever
-to the user. No OpenAI, no HCTI in this engine. The tested OpenAI+HCTI "Make
-parity" engine must remain UNTOUCHED (additive, flag-gated).
+The product, as the owner finally defined it (docs/PRODUCT_SPEC.md): **a website
+in → a week of posts out → then it runs itself.** One path, no options. Analyze a
+site and show EVERYTHING found, all editable including the logo; one button
+generates a whole week with no tone/topic/style pickers because Claude decides;
+review with per-poster and per-caption regenerate; choose connected accounts;
+activate — one post goes out immediately, the rest scheduled daily in the user's
+timezone, for ever, without the app being open. Never a duplicate.
 
 ## Current Phase
-Wiring + free renderer + DB integration proof + a VISIBLE AI Studio page all COMPLETE.
-The AI engine is wired into the daily automation slot path (additive, flag-gated),
-renders posters browserlessly via @resvg/resvg-js (SVG -> PNG) so it runs on ANY
-Hostinger, is proven through the REAL automation + MariaDB path, and now has a
-dashboard page (/ai-studio) so the user can SEE and test it on demand — the user
-reported "redeploy did nothing", which was correct: the feature had no UI and its
-env switch was never set. Remaining: (1) bundle premium TTF fonts (polish, DejaVu
-fallback renders now), (2) the user sets AI_STUDIO_MODE=on + AI_API_KEY on Hostinger,
-(3) first careful live publish.
+Steps 1 and 2 of the spec are built and deployed; step 2 was blocked in
+PRODUCTION by a database that was a version behind, and that block is now cleared.
+This session: diagnosed and fixed the production stall, then made the studio
+survive a refresh.
 
 ## Current Branch
 ai-poster-studio (feature branch; base e103789 on cyflow-social-v1)
 
 ## Current HEAD
-03f0592 (auto-retry the AI client) — the new wiring below is STAGED/uncommitted,
-about to become the next commit.
+0a96030 — "fix(db): verify with SHOW COLUMNS, which a hosting database user can
+actually run". The session-persistence work below is uncommitted, about to become
+the next commit.
 
 ## Working Tree State
-Dirty — the AI-automation wiring, ready to commit:
-- NEW  src/services/aiStudio/aiStudioEngine.js — orchestrates one AI post: copy +
-  captions (one Claude text call) + poster design (a second text call) + free
-  render. `isAiStudioEnabled()`, `styleIdForPosition()`, `generateAiCopy()`,
-  `generateAiPost()`. Vision is NOT used (AgentRouter panics on images); captions
-  are grounded in the copy we generate.
-- M    src/services/plannerService.js — additive `generateAiStudioItem()` + a
-  flag-gated branch inside `generateAutomationSlotItem` (returns before the Make
-  engine). New injected deps: `mediaLibraryService`, `aiStudio`.
-- M    src/container.js — `mediaLibraryService` moved above the planner and
-  injected into it (the AI engine stores its PNG through that raw-bytes path).
-- M    src/config/constants.js — `PROVIDER_NAMES.AI_STUDIO = 'ai_studio'`.
-- M    src/utils/providerErrors.js — friendly label for the ai_studio provider.
-- NEW  tests/aiStudioAutomation.test.js — 3 unit tests (below).
+Dirty — refresh-proof studio + two test corrections:
+- NEW  `src/services/aiStudio/studioMemory.js` — the brand, kept server-side on
+  the user's business profile (`extracted_metadata_json.aiStudioBrand`). Merges
+  rather than replaces, so onboarding's own extract in that column survives.
+  `sanitizeBrand()` runs on the way IN and OUT. NO new migration.
+- M    `src/services/aiStudio/weekService.js` — `findLatestWeek(userId)`: the
+  newest `settings.engine === 'ai_studio'` run, whatever state it is in.
+- M    `src/controllers/aiStudioController.js` — `resume` (GET) + `saveBrand`
+  (POST); `analyze` now remembers the brand it returns.
+- M    `src/routes/aiStudioRoutes.js` — `GET /api/ai-studio/session`,
+  `POST /api/ai-studio/brand` (CSRF).
+- M    `public/assets/js/pages/aiStudio.js` — restores on load, saves edits
+  debounced (1.2s) via one delegated listener on the page.
+- MOVED `database/migrations/018_..._SAFE_RERUN.sql` → `database/repair/` +
+  a README. It is a repair script, not a numbered migration; it duplicated
+  number 018 and broke the migration-name gate.
+- M    `tests/integration/releaseJourney.integration.test.js` — CY-008.
+- NEW  `tests/studioMemory.test.js`, `tests/integration/studioSession.integration.test.js`.
 
 ## Last Completed Step
-Wrote + verified the additive AI-automation wiring. `generateAutomationSlotItem`,
-when `AI_STUDIO_MODE=on` and a key is set, builds the slot with Claude (poster +
-captions) and stores the poster via `mediaLibraryService.uploadImage` (raw-bytes /
-upload path — NOT the HCTI `createReadyImageAsset` path), producing a valid,
-reviewable planner item with a normalized, safe image state. Copy failure → null
-(worker retries), logged safely. Image/render failure → item still created with a
-specific retryable image-failed state (never a silent null, never a crash). AI
-posts are always NEEDS_REVIEW (never auto-approved).
+Full integration suite green against real MariaDB (52/52) after fixing CY-008.
 
 ## Files Changed (uncommitted, for the next commit)
-See "Working Tree State" — 4 modified, 2 new. All src/** changes are ADDITIVE; the
-OpenAI+HCTI engine path is unchanged and is bypassed (returns early) only when AI
-mode is explicitly on.
+See "Working Tree State" — 5 modified, 4 new, 1 moved. All additive; no schema
+change and no change to the Make (OpenAI+HCTI) engine.
 
 ## Tests Run and Results
-- NEW tests/aiStudioAutomation.test.js — 3/3 PASS:
-  1. AI slot → valid reviewable item, poster uploaded once, mediaAssetId set,
-     image READY, both platform captions present, OpenAI never called.
-  2. render/design failure → item still created, image FAILED+retryable, provider
-     ai_studio, caption intact, nothing uploaded.
-  3. copy failure → returns {item:null} (worker retries), OpenAI never called.
-- FULL unit suite: `node --test tests/*.test.js` = 1289/0 (was 1286; +3 new). No
-  regressions from the constants/container/planner changes.
-- Container boot smoke (test env): buildContainer() OK; planner + mediaLibraryService
-  wired. `node --check` clean on all changed files.
-- NOT run this session: integration suite (needs disposable MariaDB); browser
-  smokes. The wiring is unit-proven with the engine + media injected as fakes.
+- FULL unit suite: **1350/0** (was 1343; +7).
+- FULL integration suite on disposable MariaDB: **52/52, 0 skipped** (was 47/0;
+  +5 new, and 3 pre-existing failures fixed — see CY-008).
+- `npm run migrate:check` → PASS (naming, ordering, contents, schema parity).
+- `node --check` clean on the changed client module.
+- NOT run: browser smokes (no visual change this session — the studio's look is
+  unchanged; this was persistence plumbing).
 
 ## Current Failure or Blocker
-None. The Hostinger renderer question is SOLVED: `POSTER_RENDER_MODE` unset/`svg`
-(the default) → Claude emits a self-contained SVG poster, `@resvg/resvg-js`
-rasterizes it to PNG with NO browser (works on shared hosting, free forever). The
-HTML+Chrome path (`local`/`remote`) remains opt-in for a VPS. One honest polish
-item: fonts. The renderer loads system fonts + `POSTER_DEFAULT_FONT` (default
-'DejaVu Sans', present on Hostinger Linux), so text always renders; to get the
-EXACT premium families (Poppins/Playfair) identically on every host, drop TTFs into
-`POSTER_FONT_DIR`. Not a blocker — posters render premium now via the fallback.
+None in the repository. One thing is waiting on the OWNER: the production database
+now has migration 018 applied (they ran the repair script in phpMyAdmin on
+2026-07-28 and `SHOW COLUMNS` returned the nine columns), and they were asked to
+redeploy once — so pooled connections re-prepare their statements against the new
+table definition — then generate a fresh week. The 77 failed jobs are historical
+and will not re-run; a NEW week is required.
 
 ## Exact Next Step
-LIVE AND CONFIGURED. `/health` on production reports
-`aiStudio:{configured:true, mode:"on", source:"file"}`. Next: the user presses
-Generate on /ai-studio to see a real poster + post copy end to end; then the first
-careful live publish.
+Confirm on the live host that a newly generated week actually builds: `/health`
+should show `aiStudio.jobs.completed` rising and no new `lastFailure`. Then
+continue the spec: step 3 (per-poster and per-caption regenerate), step 4
+(connected-account selection), steps 5–6 (activate: one post immediately + the
+rest scheduled, world timezone + daily time) — 5 publishes live, so it is gated
+on the owner's explicit go-ahead and stays behind
+`ENABLE_LIVE_PROVIDER_PUBLISHING=false` until then.
 
-THREE DEPLOYMENT TRAPS, all found and fixed today (each cost real time):
- (a) Hostinger was deploying the branch `backup/cyflow-pre-ai-studio` — the
-     pre-feature snapshot. Always check hPanel → Deployments → Settings first.
- (b) The host's CDN strips `Cache-Control`/`ETag`, so browsers heuristically cached
-     the OLD module graph and kept running the previous release — even in
-     incognito. Fixed by the content-versioned asset path (see below).
- (c) The env panel CANNOT store `AI_API_KEY` / `AI_STUDIO_MODE`: singly, renamed,
-     and via bulk .env import all failed identically (shows 57, saves 55). Fixed by
-     reading a settings file instead — `private/ai.env` beside the media directory,
-     outside the deployed tree so a redeploy cannot wipe it.
-2. (Polish) Bundle 2-3 premium open-source TTF fonts into an assets/fonts dir and
-   point `POSTER_FONT_DIR` at it, so Linux typography matches local exactly.
-3. Then the first careful live publish reusing the user's existing Cyflow accounts
-   + Meta approval (Cyflow has never published live — go slow, one post).
+Still outstanding and NOT done by me: **make the GitHub repository private** —
+there is no `gh` CLI or token in this environment, so it is three clicks in the
+GitHub UI (Settings → General → Danger Zone → Change visibility).
 
 ## Commands or Tests to Run Next
-- node --test tests/aiStudioAutomation.test.js
-- node --test tests/*.test.js            (full unit suite; expect 1289/0)
-- AI_STUDIO_MODE=on with AI_* env set, then exercise an automation slot locally
-- npm run project:handoff ; npm run migrate:check
+- `node --test tests/*.test.js` (expect 1350/0)
+- integration: see `tests/integration/README.md` (expect 52/52)
+- `npm run migrate:check` ; `npm run project:handoff`
+- live: `curl -s https://cyflow.cyfrow.net/health` → check `aiStudio.jobs`
 
 ## Safety Flags
-- AI_STUDIO_MODE default OFF — the whole AI branch is dormant unless explicitly on
-  AND a key is present; the Make engine is the default and is untouched.
-- ENABLE_LIVE_PROVIDER_PUBLISHING=false (required) — nothing publishes yet.
-- The AgentRouter key lives ONLY in the gitignored `.env`; on Hostinger it goes in
-  the host env-vars panel. NEVER commit or push the key. No secrets in any log or
-  memory file (the ai_studio provider logs carry only category/status/time).
+- `ENABLE_LIVE_PROVIDER_PUBLISHING=false` — nothing publishes yet. The first live
+  publish is deliberate, one account, with the owner watching.
+- `AI_STUDIO_MODE` on via `private/ai.env` on the host (the env panel silently
+  refuses to store it — see the deployment traps below).
+- The AgentRouter key lives ONLY in the gitignored `.env` locally and in
+  `private/ai.env` on the host. Never committed, never logged.
+- The brand is kept SERVER-side, never in browser storage: a website extract
+  carries a real business's contact details (see `public/assets/js/api.js`).
 - Backup of pre-feature Cyflow: branch `backup/cyflow-pre-ai-studio` + tag
-  `backup-cyflow-2026-07-23` (pushed). Do not merge/deploy without the user's say.
+  `backup-cyflow-2026-07-23`.
 
-## Asset versioning (deploys now actually take effect in a browser)
-`src/utils/assetVersion.js` derives a 10-char stamp from the CONTENT of
-public/assets at boot; `src/app.js` exports it as `ASSET_VERSION`, mounts
-`/v/:assetVersion/assets` (immutable in prod), and renders app.html by replacing
-`__ASSET_V__`, serving the shell itself `no-store`. Versioning only the entry point
-is enough: ES imports are relative, so the WHOLE module graph inherits the prefix
-(verified in a real browser: 7 modules fetched, 0 unversioned). The unversioned
-/assets path still works for older shells/bookmarks. 7 focused tests in
-tests/assetVersioning.test.js, including that the stamp changes with content and
-that a missing assets dir degrades to "static" instead of crashing the boot.
+## Deployment traps found on this host (each cost real time)
+1. Hostinger was deploying `backup/cyflow-pre-ai-studio`, the pre-feature
+   snapshot. Check hPanel → Deployments → Settings FIRST.
+2. The CDN strips `Cache-Control`/`ETag`, so browsers heuristically cached the old
+   module graph — even in incognito. Fixed by content-versioned asset paths
+   (`/v/<hash>/assets/...`, `src/utils/assetVersion.js`).
+3. The env panel cannot store `AI_API_KEY` / `AI_STUDIO_MODE` (shows 57, saves
+   55). Fixed by reading `private/ai.env` beside the media directory, outside the
+   deployed tree so a redeploy cannot wipe it.
+4. The database can be a version behind the code with no visible symptom except
+   failing jobs — CY-007. `/health` now reports studio job counts and the last
+   failure category so this is diagnosable from outside, without signing in.
 
 ## Last Updated
-Four milestones this session, all proven: (1) AI-automation wiring (additive,
-flag-gated; commit 41f9a41); (2) the FREE browserless Hostinger renderer
-(@resvg/resvg-js SVG->PNG; commit a015e54), proven with real Claude -> an
-agency-quality poster; (3) DB integration proof through the real automation path,
-which caught + fixed a real bug (slot handler required OpenAI even in AI mode ->
-now skipped when AI mode is on; commit 98ac497); (4) the VISIBLE AI Studio page
-(/ai-studio + /api/ai-studio) in the dark studio aesthetic the user asked for,
-reviewed in a real browser at desktop and mobile (clean console, hex-field clipping
-found and fixed). Unit suite 1292/0, integration 47/0 (MariaDB), project:handoff OK.
-Remaining: the user sets the Hostinger env switch, font polish, first live publish.
+2026-07-28. Two things this session. (1) Cleared the production block: the live
+database was missing migration 018's nine `image_*` columns, which is why every
+week sat at 0/7 — found from outside using only `/health`, fixed with a
+re-runnable repair script, and the repair script's own verification had to be
+rewritten because a shared-hosting user cannot read `information_schema`. (2) The
+studio now survives a refresh: the corrected brand is kept server-side and the
+week in progress is found by asking rather than by remembering a run id that only
+ever lived in one browser tab. Unit 1350/0, integration 52/52 (including three
+pre-existing failures fixed), migrate:check PASS.

@@ -348,9 +348,26 @@ export function createWeekService({
     };
   }
 
+  /**
+   * The week this user is in the middle of, without being told which one.
+   *
+   * A week takes five to eight minutes to build, which is long enough to close
+   * the tab, and the run id only ever existed in that tab's memory. Without this
+   * a refresh lost a week that was still being built and would keep building —
+   * finished posters nobody could reach.
+   *
+   * The newest studio run wins, whatever state it is in: one still generating is
+   * the one to watch, and a finished one is the one to review.
+   */
+  async function findLatestWeek(userId) {
+    const recent = await runs.listRunsForUser(userId, { limit: 20 }).catch(() => []);
+    const mine = recent.find((r) => r.settings?.engine === 'ai_studio');
+    return mine ? getWeek(userId, mine.id) : null;
+  }
+
   const handlers = { [JOB_TYPES.AI_STUDIO_POST]: runPostJob };
 
-  return { startWeek, runPostJob, getWeek, handlers };
+  return { startWeek, runPostJob, getWeek, findLatestWeek, handlers };
 }
 
 export const weekService = createWeekService();

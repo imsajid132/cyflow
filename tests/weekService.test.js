@@ -43,6 +43,9 @@ function build({ planner, generatePost } = {}) {
     },
     findRunByIdForUser: async (id, userId) =>
       runsStore.find((r) => String(r.id) === String(id) && String(r.userId) === String(userId)) || null,
+    // Newest first, as the repository returns them.
+    listRunsForUser: async (userId) =>
+      runsStore.filter((r) => String(r.userId) === String(userId)).slice().reverse(),
     listItemsForRun: async (runId) => itemsStore.filter((i) => String(i.plannerRunId) === String(runId)),
     createItem: async (input) => { itemsStore.push(input); return input; },
     updateRun: async (id, userId, fields) => {
@@ -193,6 +196,30 @@ test('progress reports the plan and how much of it is built', async () => {
 
   // Another user's week is not readable.
   assert.equal(await svc.getWeek('999', runId), null);
+});
+
+/*
+ * A week takes five to eight minutes to build, which is long enough to close the
+ * tab — and the run id only ever lived in that tab. Without finding the week by
+ * asking, a refresh abandoned posters that were still being made and would keep
+ * being made: finished work nobody could reach.
+ */
+test('the week in progress is found without being given its id', async () => {
+  const { svc, runsStore } = build();
+  const { runId } = await svc.startWeek('7', BRAND);
+  await svc.runPostJob({ userId: '7', payload: { runId, day: 1 } });
+
+  const week = await svc.findLatestWeek('7');
+  assert.equal(week.runId, runId);
+  assert.equal(week.ready, 1);
+  assert.equal(week.total, 7);
+
+  // A run that is not a studio week is not the week to restore.
+  runsStore.push({ id: '999', userId: '7', settings: { engine: 'something_else' } });
+  assert.equal((await svc.findLatestWeek('7')).runId, runId);
+
+  // Someone else's week is not this user's, and a user with none gets none.
+  assert.equal(await svc.findLatestWeek('123'), null);
 });
 
 test('a week for a user who does not own the run does nothing', async () => {

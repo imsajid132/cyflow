@@ -104,3 +104,41 @@ Each issue is tracked with the fields below. Statuses: `open`, `in_progress`,
 - **Fix:** the two smokes now read `.status`; `tools/platform-smoke.mjs` matches
   the intentional "Platform · Account" meta; `tools/public-smoke.mjs` waits long
   enough for the SPA route render. All 17 smokes green (480 checks, 0 fail).
+
+## CY-007 — Production database was a version behind the code (week stuck at 0/7)
+- **Status:** resolved (schema applied 2026-07-28; awaiting the owner's first
+  successful week on the live host as final confirmation)
+- **Severity:** critical — every AI Studio week failed, silently from outside
+- **Cause:** migration 018 had never been applied to the Hostinger database. The
+  code reads the nine `image_*` columns on every planner-item read, so all seven
+  post jobs per week failed with `Unknown column 'image_status' in 'SELECT'` and
+  retried to exhaustion. 77 failed jobs accumulated. The code was correct and the
+  database was a version behind — the class of failure the deployment checklist
+  exists to prevent.
+- **How it was diagnosed from outside:** `/health` → `aiStudio.jobs.failed` and
+  `aiStudio.lastFailure` (added the same day, precisely because "a week stuck at
+  0/7" said nothing). Without those two fields this was invisible behind a login.
+- **Fix:** `database/repair/018_provider_error_visibility_safe_rerun.sql` — the
+  same change with `IF NOT EXISTS` on every step, safe on a database in any
+  state.
+- **Second trap, worth remembering:** the repair script originally verified
+  itself with `information_schema` queries, which a shared-hosting database user
+  is not granted. It failed with `#1044 Access denied` AFTER the `ALTER`s, so the
+  error read as "the migration failed" when it had not yet run at all. Verify
+  with `SHOW COLUMNS`, which needs no special privilege.
+- **Prevention:** `/health` now reports job counts and the last failure category
+  for the studio; check it after every deploy that ships a migration.
+
+## CY-008 — Three integration tests expired when the calendar passed their dates
+- **Status:** resolved
+- **Severity:** medium — they failed for a reason unrelated to the code, and the
+  failure impersonated a duplicate-prevention bug
+- **Cause:** `tests/integration/releaseJourney.integration.test.js` seeded review
+  items at two fixed instants in July 2026. Queueing correctly refuses a slot
+  whose time has passed, so from 2026-07-27 onward nothing was queued and three
+  assertions read as "the queue produced no post".
+- **Fix:** the seed is now relative to now (7 and 14 days out). The two tests
+  that assert calendar dates pass their own fixed instants, because a named date
+  is the point of those.
+- **Rule this leaves behind:** a test that expires is worse than no test —
+  someone eventually "fixes" it by weakening the guard it was written to protect.

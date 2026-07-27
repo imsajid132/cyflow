@@ -514,35 +514,30 @@ export async function render(root, ctx) {
     polling = setInterval(() => pollWeek(out.runId), 5000);
   });
 
-  // --- analyze -------------------------------------------------------------
-  let analyzing = false;
-  async function analyze() {
-    const url = urlIn.value.trim();
-    if (!url || analyzing) return;
-    analyzing = true;
-    analyzeBtn.disabled = true;
-    analyzeBtn.textContent = 'Reading…';
+  /*
+   * ---- what survives the tab ----------------------------------------------
+   *
+   * Reading a site takes the better part of a minute and is then corrected by
+   * hand, field by field. All of that used to live in one browser tab: a
+   * refresh, a slept phone, a closed laptop, and it was an empty URL box again.
+   * A week is worse — five to eight minutes of building, and the run id existed
+   * only in the tab that started it, so a refresh abandoned posters that were
+   * still being made.
+   *
+   * So the brand is kept on the server as it is edited, and the week is found by
+   * asking rather than by remembering an id.
+   */
 
-    const res = await api.apiRequest('/api/ai-studio/analyze', { method: 'POST', body: { url } });
-
-    analyzing = false;
-    analyzeBtn.disabled = false;
-    analyzeBtn.textContent = 'Analyze';
-
-    if (res.unauthorized) { ctx.navigate('/login'); return; }
-    if (!res.ok) { toast(api.errorMessage(res, 'That website could not be read.'), 'err'); return; }
-
-    const data = api.payload(res) || {};
-    const b = data.brand || {};
+  /** Server brand (nested, as analyze returns it) → the flat shape this screen edits. */
+  function applyServerBrand(b, fallbackUrl) {
     const c = b.contact || {};
-
     /*
      * The read REPLACES the panel rather than merging into it.
      *
      * Merging left the previous site's industry sitting under this site's name —
      * two businesses in one form, and no way to tell which field belonged to
-     * which. What this site did not say is shown empty, which is honest and
-     * one click from being filled in by hand.
+     * which. What this site did not say is shown empty, which is honest and one
+     * click from being filled in by hand.
      */
     Object.assign(brand, emptyBrand(), {
       businessName: b.businessName || '',
@@ -565,9 +560,98 @@ export async function render(root, ctx) {
         : Object.values(b.socialLinks || {}).filter(Boolean),
       phone: c.phone || '', email: c.email || '', address: c.address || '',
       city: c.city || '', region: c.region || '', postalCode: c.postalCode || '',
-      country: c.country || '', websiteUrl: c.websiteUrl || data.sourceUrl || '',
+      country: c.country || '', websiteUrl: c.websiteUrl || fallbackUrl || '',
     });
+  }
 
+  /** The flat shape this screen edits → the nested one the server keeps. */
+  function brandForServer() {
+    return {
+      businessName: brand.businessName,
+      industry: brand.industry,
+      description: brand.description,
+      services: brand.services,
+      logoUrl: brand.logoUrl,
+      logoValidated: brand.logoValidated,
+      fonts: { heading: brand.headingFont, body: brand.bodyFont },
+      colors: { primary: brand.primary, secondary: brand.secondary, accent: brand.accent },
+      colorCandidates: brand.colorCandidates,
+      contact: {
+        phone: brand.phone, email: brand.email, address: brand.address,
+        city: brand.city, region: brand.region, postalCode: brand.postalCode,
+        country: brand.country, websiteUrl: brand.websiteUrl,
+      },
+      // Chips are edited as a list; the server keeps them keyed so a link cannot
+      // lose which network it belongs to.
+      socialLinks: Object.fromEntries(brand.socials.map((url, i) => [`link${i + 1}`, url])),
+      images: brand.images,
+      sourceUrl: brand.websiteUrl,
+    };
+  }
+
+  /*
+   * Saved a beat after typing stops, not on every keystroke: a save per
+   * character would be a request per character. Failures are silent on purpose —
+   * this is a safety net, and a red toast every time a phone loses signal would
+   * be noise about something the user did not ask for.
+   */
+  let saveTimer = null;
+  function scheduleSave() {
+    if (!brand.businessName && !brand.websiteUrl) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      api.apiRequest('/api/ai-studio/brand', { method: 'POST', body: { brand: brandForServer() } }).catch(() => {});
+    }, 1200);
+  }
+  // One listener for the whole panel instead of a hook in every control: edits
+  // bubble, and a control added later is covered without being told to be.
+  page.addEventListener('input', scheduleSave);
+  page.addEventListener('change', scheduleSave);
+  page.addEventListener('click', scheduleSave);
+
+  /** Put back whatever this user had: the brand they corrected, the week they started. */
+  async function restore() {
+    const res = await api.apiRequest('/api/ai-studio/session');
+    if (!res.ok) return;
+    const data = api.payload(res) || {};
+
+    if (data.brand) {
+      applyServerBrand(data.brand, data.brand.sourceUrl);
+      if (!urlIn.value) urlIn.value = brand.websiteUrl || data.brand.sourceUrl || '';
+      drawCard();
+    }
+
+    if (data.week?.runId) {
+      drawWeek(data.week);
+      // Still building: pick the polling back up where the old tab left off.
+      const done = (data.week.ready || 0) + (data.week.failed || 0) >= data.week.total;
+      if (!done) {
+        if (polling) clearInterval(polling);
+        polling = setInterval(() => pollWeek(data.week.runId), 5000);
+      }
+    }
+  }
+
+  // --- analyze -------------------------------------------------------------
+  let analyzing = false;
+  async function analyze() {
+    const url = urlIn.value.trim();
+    if (!url || analyzing) return;
+    analyzing = true;
+    analyzeBtn.disabled = true;
+    analyzeBtn.textContent = 'Reading…';
+
+    const res = await api.apiRequest('/api/ai-studio/analyze', { method: 'POST', body: { url } });
+
+    analyzing = false;
+    analyzeBtn.disabled = false;
+    analyzeBtn.textContent = 'Analyze';
+
+    if (res.unauthorized) { ctx.navigate('/login'); return; }
+    if (!res.ok) { toast(api.errorMessage(res, 'That website could not be read.'), 'err'); return; }
+
+    const data = api.payload(res) || {};
+    applyServerBrand(data.brand || {}, data.sourceUrl);
     drawCard();
 
     if (data.warnings?.length) {
@@ -581,6 +665,10 @@ export async function render(root, ctx) {
 
   analyzeBtn.addEventListener('click', analyze);
   urlIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') analyze(); });
+
+  // Last, so the page is fully built before anything is put back into it. A
+  // failed restore leaves the empty studio, which is what it looked like before.
+  await restore().catch(() => {});
 }
 
 export default { render };

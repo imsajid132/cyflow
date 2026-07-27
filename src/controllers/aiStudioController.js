@@ -23,6 +23,7 @@ import { refineBrand } from '../services/aiStudio/brandRefiner.js';
 import { isClaudeConfigured } from '../services/aiStudio/claudeClient.js';
 import { websiteAnalysisService as defaultWebsiteAnalysis } from '../services/websiteAnalysisService.js';
 import { weekService as defaultWeekService } from '../services/aiStudio/weekService.js';
+import { studioMemory as defaultMemory } from '../services/aiStudio/studioMemory.js';
 
 const STYLES = new Set(['showcase', 'editorial', 'dynamic']);
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
@@ -33,6 +34,7 @@ const hex = (v, fallback) => (typeof v === 'string' && HEX_RE.test(v.trim()) ? v
 export function createAiStudioController({
   websiteAnalysis = defaultWebsiteAnalysis,
   weekService = defaultWeekService,
+  memory = defaultMemory,
 } = {}) {
   /** Whether the AI is configured, so the page can show a clear "add a key" note. */
   const status = asyncHandler(async (req, res) => sendSuccess(res, { configured: isClaudeConfigured() }));
@@ -118,53 +120,88 @@ export function createAiStudioController({
       chosen: picked ? picked.has(i) : im.kind === 'photo',
     }));
 
+    const brand = {
+      businessName: s.businessName || '',
+      // Claude's reading wins where it produced one; the scrape is the fallback.
+      industry: refined?.industry || s.businessCategory || '',
+      description: refined?.description || s.businessDescription || '',
+      tone: refined?.tone || s.defaultTone || '',
+      services: refined?.services?.length ? refined.services : list(s.services, 12),
+
+      // Identity marks. `logoValidated` is reported honestly: an unvalidated
+      // logo is shown, but the UI can say it could not be verified.
+      logoUrl: s.logoUrl || '',
+      logoValidated: Boolean(s.logoValidated),
+      faviconUrl: s.faviconUrl || '',
+
+      fonts: { heading: s.headingFont || '', body: s.bodyFont || '' },
+
+      colors: {
+        primary: hex(s.primaryColor, '#111827'),
+        secondary: hex(s.secondaryColor, '#6b7280'),
+        accent: hex(s.accentColor, s.primaryColor && HEX_RE.test(s.primaryColor) ? s.primaryColor : '#2563eb'),
+      },
+      colorCandidates: list(s.colorCandidates, 12).filter((c) => HEX_RE.test(c)),
+
+      contact: {
+        phone: s.phone || '',
+        email: s.email || '',
+        address: s.address || '',
+        city: s.city || '',
+        region: s.region || '',
+        postalCode: s.postalCode || '',
+        country: s.country || '',
+        websiteUrl: s.websiteUrl || '',
+      },
+      locations: list(s.locations, 6),
+      socialLinks: s.socialLinks && typeof s.socialLinks === 'object' ? s.socialLinks : {},
+      /*
+       * The business's own photographs. These are what stop a poster looking
+       * like a template, so they travel with the brand rather than being
+       * fetched again later.
+       */
+      images,
+      sourceUrl: result?.sourceUrl || websiteUrl,
+    };
+
+    // Kept before it is sent, so a refresh two seconds later still has it. A
+    // failure to remember is not a failure to analyse: it never throws.
+    await memory.rememberBrand(req.user.id, brand);
+
     return sendSuccess(res, {
       sourceUrl: result?.sourceUrl ?? null,
       pagesAnalyzed: list(result?.pagesAnalyzed, 8),
       warnings: list(result?.warnings, 6),
-      brand: {
-        businessName: s.businessName || '',
-        // Claude's reading wins where it produced one; the scrape is the fallback.
-        industry: refined?.industry || s.businessCategory || '',
-        description: refined?.description || s.businessDescription || '',
-        tone: refined?.tone || s.defaultTone || '',
-        services: refined?.services?.length ? refined.services : list(s.services, 12),
-
-        // Identity marks. `logoValidated` is reported honestly: an unvalidated
-        // logo is shown, but the UI can say it could not be verified.
-        logoUrl: s.logoUrl || '',
-        logoValidated: Boolean(s.logoValidated),
-        faviconUrl: s.faviconUrl || '',
-
-        fonts: { heading: s.headingFont || '', body: s.bodyFont || '' },
-
-        colors: {
-          primary: hex(s.primaryColor, '#111827'),
-          secondary: hex(s.secondaryColor, '#6b7280'),
-          accent: hex(s.accentColor, s.primaryColor && HEX_RE.test(s.primaryColor) ? s.primaryColor : '#2563eb'),
-        },
-        colorCandidates: list(s.colorCandidates, 12).filter((c) => HEX_RE.test(c)),
-
-        contact: {
-          phone: s.phone || '',
-          email: s.email || '',
-          address: s.address || '',
-          city: s.city || '',
-          region: s.region || '',
-          postalCode: s.postalCode || '',
-          country: s.country || '',
-          websiteUrl: s.websiteUrl || '',
-        },
-        locations: list(s.locations, 6),
-        socialLinks: s.socialLinks && typeof s.socialLinks === 'object' ? s.socialLinks : {},
-        /*
-         * The business's own photographs. These are what stop a poster looking
-         * like a template, so they travel with the brand rather than being
-         * fetched again later.
-         */
-        images,
-      },
+      brand,
     });
+  });
+
+  /**
+   * Keep the brand as it now stands on screen.
+   *
+   * The reader is often almost-right, so the product makes every field editable
+   * — and an edit that a refresh throws away is worse than no edit at all,
+   * because the user has to notice it is gone before they can redo it. The
+   * screen sends its state here as it changes.
+   */
+  const saveBrand = asyncHandler(async (req, res) => {
+    const brand = await memory.rememberBrand(req.user.id, req.body?.brand ?? req.body);
+    return sendSuccess(res, { saved: Boolean(brand) });
+  });
+
+  /**
+   * Everything this user should see when the studio opens.
+   *
+   * Two things survive a closed tab: the brand they corrected, and the week that
+   * is still building. Both are found here, so the page can restore itself
+   * without the user having to remember a run id that only ever lived in a tab.
+   */
+  const resume = asyncHandler(async (req, res) => {
+    const [brand, week] = await Promise.all([
+      memory.recallBrand(req.user.id),
+      weekService.findLatestWeek(req.user.id).catch(() => null),
+    ]);
+    return sendSuccess(res, { brand: brand ?? null, week: week ?? null });
   });
 
   /**
@@ -274,7 +311,7 @@ export function createAiStudioController({
     return sendSuccess(res, week);
   });
 
-  return { status, analyze, generate, startWeek, getWeek };
+  return { status, analyze, saveBrand, resume, generate, startWeek, getWeek };
 }
 
 export default createAiStudioController;

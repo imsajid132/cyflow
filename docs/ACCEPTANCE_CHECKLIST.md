@@ -63,3 +63,18 @@ which is the single remaining redeploy + live-acceptance step.
 - [x] Secret / raw-blueprint / provider-call scans clean.
 - [x] `npm run project:handoff` passes (memory files present + headed + current).
 - [x] Revert-verify: each focused fix fails its test when reverted, then restored.
+
+## Session persistence (2026-07-28)
+
+- [x] The analysed brand survives a page refresh — restored from the server, not
+      from browser storage.
+- [x] Every hand-edit survives too (industry retyped, a service added, a picture
+      unticked), saved a beat after typing stops.
+- [x] A week still building is found again after the tab is closed, and the
+      screen resumes polling it.
+- [x] A finished week is found again and shown for review.
+- [x] One user cannot see another user brand or week.
+- [x] The brand write does not delete onboarding own extract in the same column
+      (proved on real MariaDB).
+- [x] No new migration was required.
+- [ ] Confirmed by the owner on the live host after a fresh week builds.

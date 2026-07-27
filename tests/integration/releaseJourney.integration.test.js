@@ -106,7 +106,28 @@ beforeEach(async () => {
 });
 
 /** A run with the two staging items, stored as REAL UTC instants. */
-async function seedReviewItems() {
+/**
+ * A UTC instant `days` from now at 21:45 — which is 02:45 the NEXT day in
+ * Asia/Karachi, the offset the timezone assertions below exist to check.
+ */
+function utcSlot(days) {
+  const d = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  return `${d.toISOString().slice(0, 10)} 21:45:00`;
+}
+
+/*
+ * Two review items a week apart.
+ *
+ * The instants are relative to NOW. They were two fixed dates in July 2026, and
+ * on the day the calendar passed them three queue tests began failing for a
+ * reason that had nothing to do with the code: queueing correctly refuses a slot
+ * whose time has already passed, so nothing was queued and the assertions read
+ * as a duplicate-prevention bug. A test that expires is worse than no test —
+ * someone eventually "fixes" it by weakening the guard it was written to
+ * protect. The two tests that assert calendar dates pass their own fixed
+ * instants, because a fixed date is the point of those.
+ */
+async function seedReviewItems({ first = utcSlot(7), second = utcSlot(14) } = {}) {
   const run = await runsRepo.createRun({
     userId, name: 'Final Acceptance Automation', status: 'review', timezone: 'Asia/Karachi',
     startDate: null, endDate: null,
@@ -132,8 +153,8 @@ async function seedReviewItems() {
     approvalStatus: 'needs_review', position,
   });
   // 02:45 Asia/Karachi is 21:45 UTC the previous day.
-  const july19 = await mk('2026-07-18 21:45:00', 0);
-  const july26 = await mk('2026-07-25 21:45:00', 1);
+  const july19 = await mk(first, 0);
+  const july26 = await mk(second, 1);
   return { run, july19, july26 };
 }
 
@@ -141,7 +162,9 @@ const itemIn = (body, id) => body?.data?.items?.find((i) => String(i.id) === Str
 
 // ====================================================== board read path
 test('the board reports the plan range in the plan timezone', SKIP, async () => {
-  const { run } = await seedReviewItems();
+  // Fixed instants: this test is ABOUT the calendar date a UTC instant lands on
+  // in Asia/Karachi, so it needs dates it can name.
+  const { run } = await seedReviewItems({ first: '2026-07-18 21:45:00', second: '2026-07-25 21:45:00' });
   const plan = await agent.get(`/api/planner/plans/${run.id}`);
 
   assert.equal(plan.status, 200);

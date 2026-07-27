@@ -18,6 +18,17 @@ export function createAiStudioRoutes({ aiStudioController, requireAuth }) {
   const router = Router();
 
   router.get('/status', requireAuth, aiStudioController.status);
+
+  /*
+   * What to put back on screen when the studio opens: the brand this user last
+   * corrected, and the week that is still building. Both outlive the tab they
+   * were started in, so the page can restore itself after a refresh instead of
+   * starting from an empty URL box. A plain read.
+   */
+  router.get('/session', requireAuth, aiStudioController.resume);
+  // Keep the brand as edited. Changes state, so CSRF applies.
+  router.post('/brand', requireAuth, csrfProtection, aiStudioController.saveBrand);
+
   // Read a website and suggest a brand. Fetches an external site, so it carries
   // the same strict limiter the onboarding analyzer uses.
   router.post(

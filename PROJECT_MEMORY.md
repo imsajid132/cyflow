@@ -162,3 +162,29 @@ Authoritative Make format, phone footer, golden fixtures, integrations health +
 Test connection + billable warning, refill diagnostics + banner, browser E2E,
 crash-safe checkpoint. Committed to origin cyflow-social-v1. Residual: full
 17-item revert-verify, all smokes, 2-of-7 reproduction test (see AI_HANDOFF).
+
+## 2026-07-28 — production unblocked, and the studio stopped forgetting
+
+Two things.
+
+**The week that never built.** Every AI Studio week sat at 0/7. The cause was not
+in the code: the live database had never had migration 018 applied, so every read
+of a planner item asked for nine columns that did not exist and all seven jobs per
+week failed with `Unknown column 'image_status' in 'SELECT'`. It was diagnosed from
+outside the login, using only `/health` — which reports studio job counts and the
+last failure category precisely because "stuck at 0/7" says nothing. Fixed with
+`database/repair/018_provider_error_visibility_safe_rerun.sql`. See CY-007, which
+also records the second trap: a shared-hosting database user cannot read
+`information_schema`, so a verification query written against it fails AFTER the
+ALTERs and reads as "the migration failed".
+
+**The studio stopped forgetting.** Reading a site takes the better part of a
+minute and is then corrected field by field; a week takes five to eight minutes to
+build. All of that lived in one browser tab. Now the brand is kept server-side on
+the user's business profile (no new migration — an existing JSON column, merged
+not replaced) and the week in progress is found by asking
+(`weekService.findLatestWeek`) rather than by remembering a run id. Nothing is put
+in browser storage: a website extract carries a real business's contact details.
+
+Unit 1350/0, integration 52/52 — including three pre-existing failures that had
+expired when the calendar passed their hard-coded dates (CY-008).

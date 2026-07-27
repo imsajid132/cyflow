@@ -149,3 +149,37 @@ generation failures, 7 ready images OR a visible, specific reason per missing
 image (never a silent "No image"), correct chronological order, exact account
 targeting, one queue target per selected account, provider errors visible and
 surviving a refresh, and zero real provider publishing.
+
+## 2026-07-28 session — what changed
+
+**Production is unblocked.** The live database was a version behind: migration
+018 had never been applied, so every planner-item read failed on nine missing
+`image_*` columns and every AI Studio week sat at 0/7 (77 failed jobs). The owner
+applied `database/repair/018_provider_error_visibility_safe_rerun.sql` in
+phpMyAdmin on 2026-07-28 and `SHOW COLUMNS` confirmed the nine columns. They were
+asked to redeploy once (so pooled connections re-prepare against the new table
+definition) and generate a FRESH week — the 77 failures are historical and will
+not re-run.
+
+**The studio survives a refresh now.** `GET /api/ai-studio/session` returns the
+brand the user last corrected and the week still building;
+`POST /api/ai-studio/brand` saves edits as they are made. Server-side, per user,
+no new migration, nothing in browser storage.
+
+**Do not repeat these mistakes:**
+- A repair script must verify itself with `SHOW COLUMNS`, never
+  `information_schema` — a shared-hosting user is denied the latter, and the
+  denial arrives AFTER the ALTERs, so it reads as a failed migration.
+- A repair script is not a numbered migration. It lives in `database/repair/`;
+  putting it in `database/migrations/` duplicated number 018 and broke the gate.
+- Do not seed integration tests at fixed future dates. Three of them expired the
+  day the calendar passed 2026-07-26 and failed as though queueing were broken
+  (CY-008).
+
+**Next, in the spec order:** step 3 per-poster/per-caption regenerate; step 4
+connected-account selection; steps 5-6 activate + world timezone + daily time.
+Step 5 publishes live, so it needs the owner's explicit go-ahead and stays behind
+`ENABLE_LIVE_PROVIDER_PUBLISHING=false` until then.
+
+**Owner action still outstanding:** make the GitHub repository private (no `gh`
+CLI or token is available in this environment).
