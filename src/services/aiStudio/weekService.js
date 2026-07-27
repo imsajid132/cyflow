@@ -28,6 +28,7 @@ import { createMediaLibraryService } from '../mediaLibraryService.js';
 import { planWeek, WEEK_LENGTH } from './weekPlanner.js';
 import { generateAiPost, generateAiCopy, designPoster } from './aiStudioEngine.js';
 import { DESIGN_STYLES } from './designPrompts.js';
+import { fetchPosterPhoto, photoForDay } from './posterPhoto.js';
 
 const DAY_SECONDS = 24 * 60 * 60;
 
@@ -60,6 +61,7 @@ export function createWeekService({
   generatePost = generateAiPost,
   generateCopy = generateAiCopy,
   designOnly = designPoster,
+  fetchPhoto = fetchPosterPhoto,
   now = () => new Date(),
 } = {}) {
   /**
@@ -148,17 +150,26 @@ export function createWeekService({
     if (existing.some((it) => it.position === day - 1)) return;
 
     /*
-     * The chosen photographs are counted into the plan (so the strategist knows
-     * whether picture-led posts are possible) but are not yet placed ON the
-     * poster: the SVG renderer needs the bytes inline, which means fetching and
-     * embedding each one. That is the next piece of work, and saying so here is
-     * better than passing an argument the designer quietly ignores.
+     * A real photograph OF this business, embedded in the poster.
+     *
+     * This is what the posters were missing. Colour and type alone read as a
+     * coloured slide next to a designed post; a picture of the work is what
+     * makes it look like the business rather than a template. The bytes have to
+     * travel inside the SVG because resvg will not fetch a URL, and fetching is
+     * done through the safe path (see posterPhoto.js). A picture that cannot be
+     * had is simply absent: a plainer poster beats a lost post.
      */
+    const photo = await loadPhoto(brand.images, day);
+
     const post = await generatePost({
+      photo,
       brand: {
         businessName: brand.businessName,
         industry: brand.industry,
         tone: brand.tone,
+        websiteUrl: brand.websiteUrl,
+        phone: brand.phone,
+        city: brand.city,
       },
       colors: {
         primary: brand.primary || '#111827',
@@ -254,6 +265,13 @@ export function createWeekService({
         angle: entry.angle,
         service: entry.service,
         headlineNormalized: String(post.copy.headline || '').toLowerCase().trim(),
+        /*
+         * The poster's supporting points, kept so that redesigning it later can
+         * rebuild the same content block. They belong to the post's identity as
+         * much as its headline does, and there is no column for them; this JSON
+         * travels with the item and is ours.
+         */
+        posterPoints: post.copy.points || [],
       },
       editedFields: [],
     });
@@ -268,6 +286,19 @@ export function createWeekService({
     if (after.length >= (settings.plan || []).length) {
       await runs.updateRun(run.id, userId, { status: PLANNER_RUN_STATUS.REVIEW }).catch(() => {});
     }
+  }
+
+  /**
+   * The day's photograph, fetched and made embeddable — or null.
+   *
+   * Never throws and never blocks the post: a poster without the picture is
+   * plainer, a post that failed because a website was slow is nothing at all.
+   */
+  async function loadPhoto(images, day) {
+    const pick = photoForDay(images, day);
+    if (!pick) return null;
+    const fetched = await fetchPhoto(pick.url).catch(() => null);
+    return fetched ? { ...fetched, alt: pick.alt || '' } : null;
   }
 
   /** The day's post inside a run, or null. Position is zero-based; days are not. */
@@ -367,15 +398,33 @@ export function createWeekService({
     // "again" produces a different composition rather than the same one redrawn.
     const count = Number(item.regenerationCount || 0) + 1;
     const attemptedAt = toMysqlUtc(now());
+    /*
+     * A DIFFERENT photograph, not just a different layout. Asking again is
+     * asking for something else, and the picture is the loudest thing on the
+     * poster — redrawing the type around the same image would look like the
+     * same poster.
+     */
+    const photo = await loadPhoto(brand.images, day + count);
     const design = await designOnly({
-      brand: { businessName: brand.businessName, industry: brand.industry, tone: brand.tone },
+      photo,
+      brand: {
+        businessName: brand.businessName, industry: brand.industry, tone: brand.tone,
+        websiteUrl: brand.websiteUrl, phone: brand.phone, city: brand.city,
+      },
       colors: {
         primary: brand.primary || '#111827',
         secondary: brand.secondary || '#6b7280',
         accent: brand.accent || '#2563eb',
       },
       font: brand.headingFont || null,
-      content: { headline: item.headline || '', subtext: item.subheadline || '', cta: entry.cta || '' },
+      content: {
+        headline: item.headline || '',
+        subtext: item.subheadline || '',
+        cta: entry.cta || '',
+        // Kept on the item when it was first built, so the new design can
+        // rebuild the same content block instead of losing it.
+        points: item.fingerprint?.posterPoints || [],
+      },
       styleId: DESIGN_STYLES[(day - 1 + count) % DESIGN_STYLES.length].id,
       port: 9700 + (day % 50),
     });

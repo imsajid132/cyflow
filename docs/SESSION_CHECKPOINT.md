@@ -47,8 +47,26 @@ Dirty — refresh-proof studio + two test corrections:
 - NEW  `tests/studioMemory.test.js`, `tests/integration/studioSession.integration.test.js`.
 
 ## Last Completed Step
-Spec step 3: per-poster and per-caption regeneration, as durable jobs, with the
-card saying which half of it is busy.
+**Poster design rebuilt around real photographs and the reference grammar.** The
+owner looked at the first live week and said the posters were wrong: their
+friend's app puts the website's real images behind the design, and ours had no
+picture at all. Both halves of that are now fixed and were verified by RENDERING
+AND LOOKING (three posters through the production SVG path, then a re-render
+after the safe-area fix). See docs/ACCEPTANCE_CHECKLIST.md and the new section
+at the end of design-references/social-posts/REFERENCE_ANALYSIS.md.
+
+Two traps worth remembering:
+- The local `.env` has `POSTER_RENDER_MODE=local`, so a naive local render
+  exercises the HTML+Chrome path, NOT the SVG path production uses. Force
+  `POSTER_RENDER_MODE=svg` when reviewing posters locally, or you review the
+  wrong engine (I did, once: 1064x985 output with Google Fonts links was the
+  giveaway).
+- `isPrivateIp()` takes an IP, not a hostname: given "example.com" it returns
+  true. A helper that passed a hostname to it was deleted rather than fixed —
+  `fetchPosterPhoto` already does the check correctly via `assertPublicHost`.
+
+Before that, spec step 3: per-poster and per-caption regeneration, as durable
+jobs, with the card saying which half of it is busy.
 
 **PRODUCTION IS BUILDING.** After the owner applied the repair script and
 redeployed, a fresh week actually builds: `/health` went 1 -> 17 `completed` with
@@ -60,7 +78,10 @@ See "Working Tree State" — 5 modified, 4 new, 1 moved. All additive; no schema
 change and no change to the Make (OpenAI+HCTI) engine.
 
 ## Tests Run and Results
-- FULL unit suite: **1356/0** (was 1343; +13).
+- FULL unit suite: **1367/0** (was 1343; +24).
+- Rendered review: 3 posters at 1080x1080 through the production SVG path with a
+  real photograph, looked at, a defect found (footer clipped at the bottom edge,
+  third list row dropped), fixed, re-rendered and looked at again.
 - FULL integration suite on disposable MariaDB: **52/52, 0 skipped** (was 47/0;
   +5 new, and 3 pre-existing failures fixed — see CY-008).
 - `npm run migrate:check` → PASS (naming, ordering, contents, schema parity).

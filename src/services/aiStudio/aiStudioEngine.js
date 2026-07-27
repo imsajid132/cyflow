@@ -25,9 +25,13 @@ import {
   DESIGN_SYSTEM_PROMPT,
   buildDesignUserPrompt,
   SVG_DESIGN_SYSTEM_PROMPT,
+  SVG_PHOTO_RULES,
   buildSvgDesignUserPrompt,
 } from './designPrompts.js';
 import { renderHtmlToPng, renderSvgToPng } from './posterRenderer.js';
+
+/** What the designer writes where the photograph's bytes will go. */
+export const PHOTO_TOKEN = '{{PHOTO}}';
 
 /** Pull a bare <svg>...</svg> out of a model response (tolerates fences/prose). */
 export function extractSvg(text) {
@@ -75,6 +79,7 @@ For ONE social media post you produce two things at once:
 
 Rules for the ON-POSTER copy:
 - HEADLINE: punchy, 2 to 6 words. SUB-TEXT: one short supporting line. CTA: 2 to 4 words (e.g. "Book now", "Get a free quote").
+- POINTS: 3 short supporting points, 2 to 5 words each, that the designer will set as a list ON the poster. They are the EVIDENCE for the headline: the steps, the signs to look for, what is included, what goes wrong. Not slogans, and not a restatement of the headline. Give an empty array only if the angle genuinely supports no list.
 - It is real marketing for THIS business. Never invent a statistic, price, discount, guarantee or result that you were not given.
 
 Rules for the CAPTIONS:
@@ -86,6 +91,7 @@ Rules for the CAPTIONS:
 
 Return ONLY a single JSON object, no markdown and no commentary:
 { "headline": "...", "subtext": "...", "cta": "...",
+  "points": ["...", "...", "..."],
   "facebook": "...", "instagram": "...", "threads": "...",
   "hashtags": ["#one", "#two", "#three"] }`;
 
@@ -116,6 +122,11 @@ Write the on-poster copy and the three captions now. Return ONLY the JSON object
     headline: noDashes(obj.headline).slice(0, 120),
     subtext: noDashes(obj.subtext).slice(0, 240),
     cta: noDashes(obj.cta).slice(0, 40),
+    // The evidence the poster's content block is built from. Capped short: a
+    // list row that wraps is a list row that overflows the canvas.
+    points: Array.isArray(obj.points)
+      ? obj.points.map((p) => noDashes(p).trim().slice(0, 48)).filter(Boolean).slice(0, 5)
+      : [],
     captions: {
       facebook: noDashes(obj.facebook),
       instagram: noDashes(obj.instagram),
@@ -136,14 +147,21 @@ Write the on-poster copy and the three captions now. Return ONLY the JSON object
  * NEVER throws: the PNG is optional data, and a design or render failure returns
  * `{ png:null, imageError }` so the caller can record a safe, retryable state.
  *
+ * `ask` is injectable so the photograph substitution below can be tested
+ * without a network call — it is the only part of this function with a rule
+ * that can be got wrong silently.
+ *
  * @param {{
  *   brand:object, colors:{primary:string,secondary:string,accent:string},
  *   font?:string, content:{headline:string,subtext:string,cta:string},
- *   styleId?:string, port?:number
+ *   styleId?:string, port?:number, photo?:{dataUri:string,alt?:string}|null,
+ *   ask?:Function
  * }} input
  * @returns {Promise<{ markup:(string|null), png:(Buffer|null), imageError:(Error|null) }>}
  */
-export async function designPoster({ brand = {}, colors, font, content, styleId, port = 9700 }) {
+export async function designPoster({
+  brand = {}, colors, font, content, styleId, port = 9700, photo = null, ask = askClaude,
+}) {
   const style = DESIGN_STYLES.find((s) => s.id === styleId) || DESIGN_STYLES[0];
   // Default to the browserless SVG path — free forever and Hostinger-safe. The
   // HTML + headless-Chrome path is opt-in for a VPS / local dev (higher fidelity).
@@ -154,7 +172,7 @@ export async function designPoster({ brand = {}, colors, font, content, styleId,
   let imageError = null;
   try {
     if (mode === 'local' || mode === 'remote') {
-      const raw = await askClaude({
+      const raw = await ask({
         system: DESIGN_SYSTEM_PROMPT,
         userText: buildDesignUserPrompt({ brand, colors, font, content }, style.direction),
         maxTokens: 4000,
@@ -163,13 +181,34 @@ export async function designPoster({ brand = {}, colors, font, content, styleId,
       if (!markup || !/<html|<!doctype/i.test(markup)) throw new Error('The AI did not return a valid poster document.');
       png = await renderHtmlToPng(markup, { port });
     } else {
-      const raw = await askClaude({
-        system: SVG_DESIGN_SYSTEM_PROMPT,
-        userText: buildSvgDesignUserPrompt({ brand, colors, font, content }, style.direction),
+      const raw = await ask({
+        // The photograph rules are appended rather than always present: telling a
+        // model how to place an image it does not have invites it to invent one.
+        system: photo?.dataUri ? `${SVG_DESIGN_SYSTEM_PROMPT}\n${SVG_PHOTO_RULES}` : SVG_DESIGN_SYSTEM_PROMPT,
+        userText: buildSvgDesignUserPrompt(
+          { brand, colors, font, content, hasPhoto: Boolean(photo?.dataUri), photoAlt: photo?.alt || '' },
+          style.direction,
+        ),
         maxTokens: 4000,
       });
       markup = extractSvg(raw);
       if (!markup) throw new Error('The AI did not return a valid SVG poster.');
+
+      /*
+       * The bytes go in AFTER the model answers. A model asked to emit base64
+       * either hallucinates it or spends its whole response on it, and either
+       * way the poster is lost — so it writes a token and we do the swap.
+       *
+       * If it ignored the token, the poster is still a poster: it renders
+       * without the photograph rather than failing.
+       */
+      if (photo?.dataUri) markup = markup.split(PHOTO_TOKEN).join(photo.dataUri);
+      // A leftover token would be an <image> pointing at nothing. Strip any
+      // element still carrying it rather than shipping a broken reference.
+      if (markup.includes(PHOTO_TOKEN)) {
+        markup = markup.replace(new RegExp(`<image\\b[^>]*${PHOTO_TOKEN}[^>]*/?>`, 'g'), '');
+      }
+
       png = await renderSvgToPng(markup);
     }
   } catch (err) {
@@ -194,15 +233,16 @@ export async function designPoster({ brand = {}, colors, font, content, styleId,
  * @returns {Promise<{ copy:object, html:(string|null), png:(Buffer|null), imageError:(Error|null) }>}
  */
 export async function generateAiPost(input) {
-  const { brand = {}, colors, font, angle = '', styleId, port = 9700 } = input;
+  const { brand = {}, colors, font, angle = '', styleId, port = 9700, photo = null } = input;
   const copy = await generateAiCopy({ brand, angle });
   const design = await designPoster({
     brand,
     colors,
     font,
-    content: { headline: copy.headline, subtext: copy.subtext, cta: copy.cta },
+    content: { headline: copy.headline, subtext: copy.subtext, cta: copy.cta, points: copy.points },
     styleId,
     port,
+    photo,
   });
   return { copy, ...design };
 }

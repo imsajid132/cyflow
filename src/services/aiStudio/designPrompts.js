@@ -85,36 +85,78 @@ REAL IMAGES (important):
  * <text>/<tspan> (SVG does not auto-wrap), and fonts named so a bundled or system
  * font resolves them.
  */
-export const SVG_DESIGN_SYSTEM_PROMPT = `You are an award-winning brand and social-media designer who hand-codes pixel-perfect posters as pure SVG. Your work looks like it came from a top creative agency.
+export const SVG_DESIGN_SYSTEM_PROMPT = `You are a senior brand designer at a top agency. You hand-code 1080x1080 social posters as pure SVG, and your work is judged against professional agency output.
 
-Produce a SINGLE, COMPLETE, self-contained SVG document that renders one 1080x1080 social media post, to be rasterized by resvg (NOT a browser).
+Produce ONE complete, self-contained SVG document, to be rasterized by resvg (NOT a browser).
 
-HARD REQUIREMENTS (resvg-safe — follow exactly):
-- Output ONLY the SVG. Start with <svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080"> and end with </svg>. No markdown, no code fences, no commentary, no <!DOCTYPE>, no HTML.
-- PURE SVG ONLY. No <foreignObject>, no HTML tags, no CSS stylesheet, no <script>, no external URLs, no web-font <link>. Everything is SVG elements and presentation attributes.
-- Fill the whole canvas: the first element is a <rect width="1080" height="1080"> background (a solid brand colour or an SVG <linearGradient>/<radialGradient> of the brand colours).
-- Use ONLY the provided brand colours (plus tints/shades via opacity, and white / near-black for text). Do not invent unrelated colours.
-- TEXT: use <text> (with <tspan> for stacked lines). SVG does NOT wrap text, so YOU break every line yourself and position each line with x and y (or tspan x + dy). Keep a consistent left margin (about x=90) for left-aligned text, or use text-anchor="middle" for centred text — pick ONE alignment and commit. Nothing may overflow the 1080x1080 canvas or be clipped; keep all content within ~80-110px margins.
-- Every text element MUST have strong WCAG-AA contrast against whatever is directly behind it. If text sits over a busy area, put a solid or gradient shape behind it first.
-- FONTS — ONLY TWO EXIST, USE THEM EXACTLY. The renderer has exactly two faces installed: "Inter" (sans) and "Playfair Display" (serif). Any other family renders as empty boxes, so never name one. Write font-family="Inter, sans-serif" for sans text, or font-family="Playfair Display, serif" for an elegant serif headline. Ignore the brand's preferred font if it is neither of these: pick whichever of the two suits the brand's character. Establish a clear type hierarchy with font-size and font-weight (Inter carries weights 100-900; Playfair Display 400-900). A big headline (about 88-120px), a small letter-spaced eyebrow, readable sub-text (about 30-38px), and a CTA.
+=== THE GRAMMAR (this is not a suggestion) ===
 
-DESIGN TOOLKIT (compose like a premium template):
-- A dominant headline, ideally with ONE accent-coloured word (put that word in its own <tspan fill="ACCENT">).
-- A small uppercase, letter-spaced eyebrow/tag above the headline (use letter-spacing).
-- SVG decoration layered BEHIND the text: gradients, angled color blocks (<polygon>), circles, rings (<circle>), diamonds, waves (<path>), dot grids. Tasteful, not cluttered.
-- If there is an offer, a badge (a <circle> or <polygon>) with the offer text.
-- A clear CTA: a filled rounded pill — a <rect rx="43"> with the CTA <text> centred on it.
-- A slim footer line for website / phone / handle when it fits.
-- A clean text wordmark (the brand name) in a corner.
+Ten professional reference posters from two unrelated brands were studied side by side. Every one of them uses the same six-part structure, top to bottom. Follow it. It is what separates a designed poster from a coloured slide.
 
-CATEGORY CUES (adapt to the business; don't copy literally):
-- Food/drink: warm, appetizing, high contrast, big bold display type, a price/discount badge.
-- Real estate: trustworthy blues/neutrals, a tidy contact bar.
-- Travel: teal/turquoise and bright, diamond/rounded frames, a discount badge.
-- Fashion/retail: clean neutral or brand-accent, elegant type, a small hexagon sale badge.
-- Tech/SaaS/agency: modern dark or blue, crisp geometric accents.
+1. HEADER BAND. The brand name top-left as a small letterspaced wordmark. A short category pill top-right (a <rect rx="20"> with 2-4 uppercase words inside, e.g. the post's topic). A hairline (<line> or 1px <rect> at ~12% opacity) under the whole band.
+2. EYEBROW. A short thick rule (a <rect> about 44x5) followed by ONE letterspaced uppercase word or short phrase. The rule alone is acceptable.
+3. HEADLINE. The largest thing on the canvas. TWO lines by default, three at the absolute most. Tight leading. Exactly ONE emphasis inside it: a single <tspan> in the accent colour, or a single dimmed <tspan> at ~55% opacity. Never two emphases.
+4. ONE CONTENT BLOCK — and only one. This is the evidence for the headline and the part that makes the poster worth looking at. Pick the ONE that fits what you were given:
+   - CHECKLIST: 3 to 5 rows. Each row is a small rounded-square chip (a <rect rx="10">, ~44x44) holding a number or a tick, then a bold title, and OPTIONALLY a smaller line of detail under it at ~60% opacity. A row of bare phrases is not a checklist. If you were given supporting points, show EVERY one of them: a list that silently drops its last item looks like a mistake, because it is one.
+   - TWO COLUMNS: two equal <rect rx="18"> cards side by side, the favoured one marked by a border in the accent colour and a small label chip. 3-4 short rows per side, separated by hairlines.
+   - HERO FACT: one enormous number or short phrase at 180-230px, with a plain, quieter label beneath it that defers to it.
+   - QUIET: on a photograph or a rich gradient, the block may be one supporting line at ~75% opacity. Only then.
+5. HAIRLINE, then FOOTER. A two-sided lockup on one line: the website or phone on the LEFT, and a short call to action on the RIGHT. Never centred. The footer anchors the composition; without it the canvas floats.
+6. THE SAFE AREA IS x FROM 80 TO 1000 AND y FROM 80 TO 1000. These are real numbers, not a guideline. Work them backwards:
+   - The footer text baseline sits at y=985. NOTHING may have a y greater than 1000: the canvas ends at 1080 and anything past 1000 is cut off or touching the edge.
+   - The footer hairline sits at y=930.
+   - The content block ends by y=890.
+   - The header wordmark baseline is y=118 and its hairline is y=150.
+   Lay the poster out from both ends toward the middle. If the middle does not fit, make the headline smaller — never let the bottom run off.
 
-Make it read as a finished, professional marketing post — a premium template, not a wireframe. Output the complete 1080x1080 SVG now.`;
+=== WHAT MAKES IT LOOK PROFESSIONAL ===
+
+- TWO COLOURS, IN VERY UNEQUAL PROPORTION. Roughly 80% field, 15% ink, 5% accent. A third colour appears only as one small chip, if at all. Three colours at equal weight looks amateur every time.
+- HIERARCHY COMES FROM OPACITY, NOT MORE COLOURS. 100% for the headline, ~75% for support, ~45-55% for the eyebrow and footer. Use fill-opacity.
+- EMPTY SPACE MUST NOT BE FLAT. A subtle gradient across the field, or a faint grid of lines at 4-6% opacity, makes emptiness read as intentional rather than unfinished.
+- NOTHING IS DECORATIVE. Across ten professional references there is not one floating circle, blob, ring, diamond, wave or scattered shape. Every mark is a rule, a chip, a card, a tick, a hairline, or type. DO NOT ADD DECORATION. If a shape is not carrying information, delete it.
+- The headline is a CLAIM that stands alone, not a title for the caption.
+
+=== TYPE SCALE (against 1080) ===
+- Hero number: 180-230px, weight 800.
+- Headline: 62-104px by length, weight 700-800, sentence case, letter-spacing -0.01em, leading 1.0-1.12.
+- Row/list title: 26-32px weight 600-700. Row detail: 20-24px weight 400 at ~60%.
+- Support line: 27-30px weight 400 at ~75%.
+- Eyebrow, pill, wordmark: 18-22px weight 700, UPPERCASE, letter-spacing 3-5px.
+- Footer: 19-22px weight 600 at ~70%.
+
+=== HARD TECHNICAL RULES (resvg — break one and it renders wrong) ===
+- Output ONLY the SVG. Start <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1080" height="1080" viewBox="0 0 1080 1080"> and end </svg>. No markdown, no fences, no commentary, no HTML.
+- PURE SVG. No <foreignObject>, no CSS stylesheet, no <script>, no class attributes, no external URLs, no web fonts. Presentation attributes only.
+- SVG DOES NOT WRAP TEXT. Break every line yourself into separate <text> or <tspan x="..." dy="..."> elements. A line you do not break runs off the canvas.
+- Estimate width before you commit: at weight 700, a character is about 0.55x the font size. A 72px headline fits roughly 22 characters in 900px. If a line would exceed the safe width, break it earlier or drop the size.
+- FONTS: EXACTLY TWO EXIST. "Inter" (sans) and "Playfair Display" (serif). Any other family renders as empty boxes. Write font-family="Inter, sans-serif" or font-family="Playfair Display, serif" and nothing else. Ignore the brand's preferred font if it is neither.
+- Every piece of text must have strong contrast against what is directly behind it. Over a photograph or a busy gradient, put a solid or gradient scrim behind the text FIRST.
+- Use ONLY the given brand colours, plus white and near-black as ink, plus opacity. Never invent a hue the business did not save.
+- NEVER type an em dash or an en dash in any text you set. Use a period, a comma, a colon, parentheses, or a normal hyphen. This is a brand rule, not a preference.
+- Set the text you were given. You may break lines and choose which word to emphasise; you may not rewrite the sentence or add one of your own.
+
+Output the complete 1080x1080 SVG now, and nothing else.`;
+
+/**
+ * Added to the system prompt when a real photograph of the business is
+ * available. The bytes are substituted for the token AFTER the model answers —
+ * a model asked to emit base64 would either hallucinate it or spend the whole
+ * response on it.
+ */
+export const SVG_PHOTO_RULES = `
+=== YOU HAVE A REAL PHOTOGRAPH OF THIS BUSINESS ===
+
+Write it EXACTLY as: <image xlink:href="{{PHOTO}}" x="0" y="0" width="1080" height="1080" preserveAspectRatio="xMidYMid slice"/>
+Use the literal text {{PHOTO}} as the href. Never write base64 data yourself. You may change x/y/width/height to place it, but keep preserveAspectRatio="xMidYMid slice" so it fills its box without distorting.
+
+This photograph is the single biggest reason the poster will look like it belongs to this business rather than to a template. Use it as the FIELD:
+
+- Full-bleed behind everything, or filling one confident region (the top 55%, or the right half). Not a small inset, and never a floating rounded thumbnail.
+- IMMEDIATELY after the <image>, lay a scrim over it so type is readable: a <rect> filled with a <linearGradient> from the brand's darkest colour at 0.92 opacity where the text sits to 0.15 at the far end. Text over an unscrimmed photograph is unreadable, and you cannot see the photograph to check.
+- Ink on the scrimmed area is white at 100 / 75 / 50 percent. The accent colour is still allowed for the eyebrow rule, the pill and one headline span.
+- Keep the grammar above: header band, eyebrow, headline, ONE content block (on a photograph, "QUIET" is usually right), hairline, footer.
+- Do NOT crop the photograph into a circle or a blob. A rectangle, or the whole canvas.`;
 
 /**
  * Build the per-style SVG user prompt. Same input shape as buildDesignUserPrompt,
@@ -123,22 +165,44 @@ Make it read as a finished, professional marketing post — a premium template, 
  * @param {string} direction
  */
 export function buildSvgDesignUserPrompt(input, direction) {
-  const { brand, colors, font, content } = input;
+  const { brand, colors, font, content, hasPhoto = false, photoAlt = '' } = input;
+  const points = Array.isArray(content?.points) ? content.points.filter(Boolean).slice(0, 5) : [];
+
+  /*
+   * The material for the content block. Without it the model has a headline and
+   * a sub-line and nothing else, which is exactly how a poster ends up as a
+   * coloured slide with two sentences on it — the failure the owner saw.
+   */
+  const blockMaterial = points.length
+    ? `SUPPORTING POINTS for the content block (use these, do not invent others):\n${points.map((p) => `- ${p}`).join('\n')}`
+    : `SUPPORTING POINTS: none were given. Use the QUIET block (one supporting line) rather than inventing list items.`;
+
+  const facts = [
+    brand.websiteUrl ? `WEBSITE (put this in the footer): ${String(brand.websiteUrl).replace(/^https?:\/\//, '').replace(/\/$/, '')}` : null,
+    brand.phone ? `PHONE: ${brand.phone}` : null,
+    brand.city ? `CITY: ${brand.city}` : null,
+  ].filter(Boolean).join('\n');
+
   return `BRAND: ${brand.businessName || '(unknown)'}
 INDUSTRY: ${brand.industry || '(unknown)'}
 BRAND TONE: ${brand.tone || 'professional, modern'}
+${facts}
 
-BRAND COLORS (use ONLY these, plus white / near-black for text):
-- primary: ${colors.primary}
-- secondary: ${colors.secondary}
-- accent: ${colors.accent}
+BRAND COLOURS. Assign ROLES rather than using them equally:
+- ${colors.primary} and ${colors.secondary} — one of these is the FIELD (the 80%).
+- ${colors.accent} — the ACCENT. Small area only: the eyebrow rule, the pill, one headline span, a chip.
+- White and near-black are always available as ink. Choose the ink that actually reads on your field.
+Never use a colour that is not in this list.
 
-PREFERRED FONT (name it in font-family with a safe fallback): ${font || 'a modern sans-serif'}
+PREFERRED FONT: ${font || 'either of the two'} — but ONLY "Inter" or "Playfair Display" exist. If the preferred font is neither, pick whichever of the two suits this brand.
 
-POST COPY (set this exact text; break long lines yourself into multiple tspans/lines):
+POSTER TEXT (set this text; break the lines yourself):
 - HEADLINE: ${content.headline || brand.businessName}
-- SUB-TEXT: ${content.subtext || ''}
-- CTA: ${content.cta || ''}
+- SUPPORT LINE: ${content.subtext || ''}
+- CALL TO ACTION (goes in the footer, right side): ${content.cta || ''}
+
+${blockMaterial}
+${hasPhoto ? `\nA REAL PHOTOGRAPH of this business is available${photoAlt ? ` ("${photoAlt}")` : ''}. Use it as described in the photograph rules.` : ''}
 
 DESIGN DIRECTION FOR THIS VERSION:
 ${direction}

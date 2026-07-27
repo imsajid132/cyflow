@@ -295,3 +295,42 @@ Proportion target, from the references: roughly **80% field / 15% ink /
 A colour the business did not save must never appear. If a saved colour cannot
 carry legible ink, adjust its *lightness only*, keep its hue, and record that the
 adjustment happened.
+
+---
+
+## What was actually built from this (2026-07-28)
+
+The first live week was generated and looked at. The posters were brand-faithful
+and each said something different, and they still read as coloured slides rather
+than designed posts. Two causes, both fixed:
+
+**1. The SVG prompt asked for the opposite of this document.** It requested
+"circles, rings, diamonds, waves, dot grids" as decoration — and the finding
+above is that across ten professional references there is *not one* floating
+shape. It also had no header band, no eyebrow, no content block and no footer:
+the six-part grammar simply was not in the instructions. The prompt now states
+the grammar as the requirement it is, bans decoration explicitly, and gives the
+typography and spacing scales recorded here.
+
+**2. There was no evidence to put in the content block.** The copy call produced
+a headline, a sub-line and a CTA, so even a model following the grammar had
+nothing to build a checklist FROM, and left a void where the block belongs. The
+copy call now also returns 3 short supporting points — "the evidence for the
+headline" in the language of this document — and the designer is told to show
+every one of them.
+
+**One correction to this document's advice.** "The bottom ~12% belongs to the
+footer" did not survive contact: a model given a percentage put the footer at
+y=1067, touching the edge, and dropped the third list row to make it fit. Real
+coordinates worked immediately. The prompt now says the safe area is x 80..1000,
+y 80..1000, gives the footer baseline as y=985, the footer hairline as y=930 and
+the content block's floor as y=890, and tells the designer to lay out from both
+ends toward the middle. Percentages are advice; numbers are a specification.
+
+**And the thing the owner actually asked for: real photographs.** The references
+are all illustration-free brand fields, but the owner's comparison was against
+posts with the business's own photographs behind the type. That is now supported:
+`posterPhoto.js` fetches a picture from the site the reader already found, safely,
+and embeds it as a data URI (resvg will not fetch a URL from inside an SVG). The
+grammar above is unchanged over a photograph; only the field changes, which is
+exactly what reference #7 proved when it swapped purple for green.

@@ -47,3 +47,4 @@ temp/
 # The redacted extractions under make-scenario/extracted/ are the reviewable
 # form and are committed instead.
 design-references/make-scenario/*-blueprint.json
+.scratch/

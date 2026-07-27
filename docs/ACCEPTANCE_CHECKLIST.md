@@ -92,3 +92,26 @@ which is the single remaining redeploy + live-acceptance step.
 - [x] A failed regeneration leaves the poster the user already had.
 - [x] Another user cannot regenerate this week.
 - [ ] Looked at on the live host by the owner.
+
+## Poster design — real photographs + the reference grammar (2026-07-28)
+
+- [x] The business's own photograph is embedded IN the poster (data URI; resvg
+      will not fetch a URL from an SVG).
+- [x] Fetching it is SSRF-safe: every resolved address checked before the
+      connection, every redirect re-checked, body capped as it arrives, and the
+      file must be a JPEG or PNG by its own magic bytes.
+- [x] A picture that cannot be had makes a plainer poster, never a lost post.
+- [x] The days rotate through the ticked photographs; regeneration picks a
+      different one.
+- [x] The six-part grammar from REFERENCE_ANALYSIS.md is now the instruction:
+      header band, eyebrow, headline with ONE emphasis, ONE content block,
+      hairline, two-sided footer.
+- [x] Decoration is banned explicitly (no floating circles, rings, waves).
+- [x] The copy call returns 3 supporting points, so the content block has real
+      evidence to show instead of a void.
+- [x] The safe area is stated in coordinates, not percentages. Verified: max y
+      in the rendered markup was 985, nothing clipped.
+- [x] No em or en dash in the designed poster text (verified in the markup).
+- [x] THREE posters rendered at 1080x1080 through the production SVG path and
+      LOOKED AT, plus a re-render after the fix. Not approved on tests.
+- [ ] Looked at on the live host by the owner, on a real week.

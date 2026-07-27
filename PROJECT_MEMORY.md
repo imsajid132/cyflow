@@ -188,3 +188,31 @@ in browser storage: a website extract carries a real business's contact details.
 
 Unit 1350/0, integration 52/52 — including three pre-existing failures that had
 expired when the calendar passed their hard-coded dates (CY-008).
+
+## 2026-07-28 (later) — the posters get real photographs
+
+The owner looked at the first live week and named the gap exactly: their friend's
+app puts the website's real images behind the design, ours had no picture at all,
+and the design itself was weaker. Both were true.
+
+**Photographs.** `src/services/aiStudio/posterPhoto.js` fetches a picture from
+the site the reader already found and embeds it as a data URI, because resvg
+will not fetch a URL from inside an SVG (verified: it draws embedded JPEG and
+PNG). Fetching a user-supplied URL server-side is the shape of an SSRF, so every
+resolved address is checked before the connection, every redirect is re-checked,
+the body is capped as it arrives, and the file must be a JPEG or PNG by its own
+magic bytes. A picture that fails any of that is simply absent.
+
+**Design.** The SVG prompt was asking for the OPPOSITE of the project's own
+reference analysis: it requested circles, rings, waves and dot grids, and the
+analysis records that across ten professional references there is not one
+floating shape. It also never asked for the six-part grammar. It does now, and
+the copy call returns three supporting points so the content block has real
+evidence rather than a void.
+
+**Verified by looking**, per CLAUDE.md: three posters rendered at 1080x1080
+through the production SVG path, inspected, a real defect found (footer clipped
+at the bottom edge, third list row silently dropped), fixed with coordinates
+instead of percentages, re-rendered and inspected again.
+
+Unit 1367/0, integration 52/52.

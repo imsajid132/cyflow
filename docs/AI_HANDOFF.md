@@ -183,3 +183,23 @@ Step 5 publishes live, so it needs the owner's explicit go-ahead and stays behin
 
 **Owner action still outstanding:** make the GitHub repository private (no `gh`
 CLI or token is available in this environment).
+
+## Poster design (2026-07-28, later)
+
+The posters now carry a real photograph of the business and follow the grammar
+in design-references/social-posts/REFERENCE_ANALYSIS.md. Read the section at the
+end of that file before touching the design prompts again: it records what was
+changed and why, including that percentages did not work as a safe-area spec and
+coordinates did.
+
+**Two traps that cost time:**
+- Local `.env` sets `POSTER_RENDER_MODE=local`, so a local render exercises the
+  HTML+Chrome path, not the SVG path production uses. Force
+  `POSTER_RENDER_MODE=svg` when reviewing posters, or you review the wrong
+  engine.
+- `isPrivateIp()` takes an IP, not a hostname. Given "example.com" it returns
+  true, which would reject every real photograph.
+
+**Next:** spec step 4 (connected-account selection), then 5-6 (activate: one post
+immediately + the rest scheduled, every world timezone + a daily time). Step 5
+publishes live and needs the owner's explicit go-ahead.
