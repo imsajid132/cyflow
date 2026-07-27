@@ -22,9 +22,9 @@ survive a refresh.
 ai-poster-studio (feature branch; base e103789 on cyflow-social-v1)
 
 ## Current HEAD
-0a96030 — "fix(db): verify with SHOW COLUMNS, which a hosting database user can
-actually run". The session-persistence work below is uncommitted, about to become
-the next commit.
+700a295 — "feat(aiStudio): a week that failed offers the way out where the failure
+is read". Spec step 3 (regenerate one poster / one set of captions) is uncommitted
+below, about to become the next commit.
 
 ## Working Tree State
 Dirty — refresh-proof studio + two test corrections:
@@ -47,14 +47,20 @@ Dirty — refresh-proof studio + two test corrections:
 - NEW  `tests/studioMemory.test.js`, `tests/integration/studioSession.integration.test.js`.
 
 ## Last Completed Step
-Full integration suite green against real MariaDB (52/52) after fixing CY-008.
+Spec step 3: per-poster and per-caption regeneration, as durable jobs, with the
+card saying which half of it is busy.
+
+**PRODUCTION IS BUILDING.** After the owner applied the repair script and
+redeployed, a fresh week actually builds: `/health` went 1 -> 17 `completed` with
+`failed` frozen at 77 (all historical). The `Unknown column` failure has not
+recurred. This is the first end-to-end proof on the live host.
 
 ## Files Changed (uncommitted, for the next commit)
 See "Working Tree State" — 5 modified, 4 new, 1 moved. All additive; no schema
 change and no change to the Make (OpenAI+HCTI) engine.
 
 ## Tests Run and Results
-- FULL unit suite: **1350/0** (was 1343; +7).
+- FULL unit suite: **1356/0** (was 1343; +13).
 - FULL integration suite on disposable MariaDB: **52/52, 0 skipped** (was 47/0;
   +5 new, and 3 pre-existing failures fixed — see CY-008).
 - `npm run migrate:check` → PASS (naming, ordering, contents, schema parity).
@@ -71,13 +77,15 @@ table definition — then generate a fresh week. The 77 failed jobs are historic
 and will not re-run; a NEW week is required.
 
 ## Exact Next Step
-Confirm on the live host that a newly generated week actually builds: `/health`
-should show `aiStudio.jobs.completed` rising and no new `lastFailure`. Then
-continue the spec: step 3 (per-poster and per-caption regenerate), step 4
-(connected-account selection), steps 5–6 (activate: one post immediately + the
-rest scheduled, world timezone + daily time) — 5 publishes live, so it is gated
-on the owner's explicit go-ahead and stays behind
+Step 4: the connected-accounts panel under the reviewed week — just the user's
+own accounts, selectable, nothing else. Then steps 5-6 (activate: one post
+immediately + the rest scheduled, every world timezone + a daily time). Step 5
+publishes live, so it needs the owner's explicit go-ahead and stays behind
 `ENABLE_LIVE_PROVIDER_PUBLISHING=false` until then.
+
+Also worth doing before that: LOOK at the posters that just built on the live
+host. Tests do not read for tone or look at pictures (CLAUDE.md), and this is the
+first real week the AI engine has produced end to end.
 
 Still outstanding and NOT done by me: **make the GitHub repository private** —
 there is no `gh` CLI or token in this environment, so it is three clicks in the

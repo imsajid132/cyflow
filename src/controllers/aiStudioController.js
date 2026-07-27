@@ -311,7 +311,35 @@ export function createAiStudioController({
     return sendSuccess(res, week);
   });
 
-  return { status, analyze, saveBrand, resume, generate, startWeek, getWeek };
+  /**
+   * Redo one piece of one day: its poster, or its captions.
+   *
+   * Two separate asks on purpose. Someone who dislikes the picture is not asking
+   * for the words to be rewritten, and the product gives each its own control.
+   * It runs as a durable job, so the answer here is "queued", not the result.
+   */
+  const regenerate = asyncHandler(async (req, res) => {
+    if (!isClaudeConfigured()) {
+      throw new ValidationError('The AI is not configured yet, so nothing can be regenerated.');
+    }
+    const day = Number(req.params.day);
+    if (!Number.isInteger(day) || day < 1 || day > 31) throw new ValidationError('That day is not part of this week.');
+    const kind = req.params.kind;
+    if (kind !== 'poster' && kind !== 'caption') throw new ValidationError('There is nothing by that name to regenerate.');
+
+    const out = await weekService.requestRegenerate(req.user.id, req.params.runId, day, kind);
+    if (!out) throw new NotFoundError('That post was not found');
+    if (out.alreadyRunning) {
+      // Not an error: the user asked twice for something already happening.
+      return sendSuccess(res, { queued: false, message: 'That one is already being redone.' });
+    }
+    return sendSuccess(res, {
+      queued: true,
+      message: kind === 'poster' ? 'A new poster is being designed.' : 'New post copy is being written.',
+    }, 202);
+  });
+
+  return { status, analyze, saveBrand, resume, generate, startWeek, getWeek, regenerate };
 }
 
 export default createAiStudioController;

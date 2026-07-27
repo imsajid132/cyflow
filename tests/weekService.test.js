@@ -47,7 +47,11 @@ function build({ planner, generatePost } = {}) {
     listRunsForUser: async (userId) =>
       runsStore.filter((r) => String(r.userId) === String(userId)).slice().reverse(),
     listItemsForRun: async (runId) => itemsStore.filter((i) => String(i.plannerRunId) === String(runId)),
-    createItem: async (input) => { itemsStore.push(input); return input; },
+    createItem: async (input) => {
+      const item = { id: String(itemsStore.length + 1), ...input };
+      itemsStore.push(item);
+      return item;
+    },
     updateRun: async (id, userId, fields) => {
       const run = runsStore.find((r) => String(r.id) === String(id));
       if (run) Object.assign(run, fields);
@@ -56,6 +60,13 @@ function build({ planner, generatePost } = {}) {
   };
 
   const jobs = { enqueueJob: async (job) => { enqueued.push(job); return { job, created: true }; } };
+  // Items are updated in place by regeneration; the store holds objects, so a
+  // patch has to land on the one the service was given.
+  runs.updateItem = async (itemId, uid, fields) => {
+    const item = itemsStore.find((i) => String(i.id) === String(itemId));
+    if (item) Object.assign(item, fields);
+    return item || null;
+  };
   const uploads = [];
   const mediaLibraryService = {
     uploadImage: async (userId, file) => { uploads.push(file); return { id: `media_${uploads.length}` }; },
@@ -227,6 +238,165 @@ test('a week for a user who does not own the run does nothing', async () => {
   const { runId } = await svc.startWeek('7', BRAND);
   await svc.runPostJob({ userId: '999', payload: { runId, day: 1 } });
   assert.equal(itemsStore.length, 0, 'ownership is checked before any work');
+});
+
+/*
+ * ---- regeneration ---------------------------------------------------------
+ *
+ * Two separate asks, because they are two separate dissatisfactions. Someone who
+ * does not like the picture is not asking for the words to be rewritten.
+ */
+
+/** A week service whose jobs table can be read back, as regeneration needs. */
+function withJobStore(extra = {}) {
+  const enqueued = [];
+  const jobRows = [];
+  const base = build();
+  const svc = createWeekService({
+    ...base.parts,
+    jobs: {
+      enqueueJob: async (job) => { enqueued.push(job); jobRows.push({ ...job, status: 'pending', attemptCount: 0 }); return { created: true }; },
+      listJobsByKeyPrefix: async (userId, prefix) =>
+        jobRows.filter((j) => String(j.idempotencyKey).startsWith(prefix)),
+    },
+    ...extra,
+  });
+  return { svc, enqueued, jobRows, items: base.itemsStore };
+}
+
+test('regenerating a poster designs again without rewriting the words', async () => {
+  const designs = [];
+  const { svc, enqueued, items } = withJobStore({
+    designOnly: async (input) => {
+      designs.push(input);
+      return { markup: '<svg/>', png: Buffer.from('89504e470d0a1a0a', 'hex'), imageError: null };
+    },
+    generateCopy: async () => { throw new Error('copy must NOT be rewritten for a poster'); },
+  });
+
+  const { runId } = await svc.startWeek('7', BRAND);
+  await svc.runPostJob({ userId: '7', payload: { runId, day: 1 } });
+  const before = { ...items[0] };
+
+  const asked = await svc.requestRegenerate('7', runId, 1, 'poster');
+  assert.equal(asked.queued, true);
+  const job = enqueued.find((j) => j.payload?.regenerate === 'poster');
+  assert.ok(job, 'a durable job carries the work, so a closed tab does not lose it');
+  assert.match(job.idempotencyKey, /^ai_studio:\d+:day:1:poster:1$/);
+  // The card can say so before the worker even starts.
+  assert.equal(items[0].imageStatus, IMAGE_RENDER_STATUS.QUEUED);
+
+  await svc.runPostJob(job);
+
+  assert.equal(designs.length, 1, 'exactly one design call');
+  assert.equal(designs[0].content.headline, before.headline, 'the poster keeps its own words');
+  assert.equal(items[0].caption, before.caption, 'the captions are untouched');
+  assert.equal(items[0].imageStatus, IMAGE_RENDER_STATUS.READY);
+  assert.equal(items[0].mediaAssetId, 'media_2', 'the new poster replaced the old one');
+  assert.equal(items[0].regenerationCount, 1);
+});
+
+test('regenerating captions writes new copy and leaves the poster alone', async () => {
+  const { svc, enqueued, items } = withJobStore({
+    generateCopy: async () => ({
+      headline: 'IGNORED', subtext: '', cta: '',
+      captions: { facebook: 'Second FB', instagram: 'Second IG', threads: 'Second TH' },
+      hashtags: ['#new'],
+    }),
+    designOnly: async () => { throw new Error('the poster must NOT be redrawn for a caption'); },
+  });
+
+  const { runId } = await svc.startWeek('7', BRAND);
+  await svc.runPostJob({ userId: '7', payload: { runId, day: 2 } });
+  const posterBefore = items[0].mediaAssetId;
+  const headlineBefore = items[0].headline;
+
+  await svc.requestRegenerate('7', runId, 2, 'caption');
+  const job = enqueued.find((j) => j.payload?.regenerate === 'caption');
+  await svc.runPostJob(job);
+
+  assert.equal(items[0].platformCaptions.instagram.caption, 'Second IG');
+  assert.equal(items[0].caption, 'Second FB');
+  assert.deepEqual(items[0].hashtags, ['#new']);
+  assert.equal(items[0].mediaAssetId, posterBefore, 'the poster is the same file');
+  assert.equal(
+    items[0].headline, headlineBefore,
+    'the on-poster words are SET IN THE IMAGE: changing them here would describe a poster that says something else',
+  );
+});
+
+/*
+ * An impatient double-click should not buy two posters: each is a model call and
+ * a render, and the second would overwrite the first for nothing.
+ */
+test('asking twice while one is still running is refused, not queued', async () => {
+  const { svc, enqueued } = withJobStore({
+    designOnly: async () => ({ markup: '<svg/>', png: Buffer.from('89504e470d0a1a0a', 'hex'), imageError: null }),
+  });
+  const { runId } = await svc.startWeek('7', BRAND);
+  await svc.runPostJob({ userId: '7', payload: { runId, day: 1 } });
+
+  const first = await svc.requestRegenerate('7', runId, 1, 'poster');
+  const second = await svc.requestRegenerate('7', runId, 1, 'poster');
+
+  assert.equal(first.queued, true);
+  assert.equal(second.queued, false);
+  assert.equal(second.alreadyRunning, true);
+  assert.equal(enqueued.filter((j) => j.payload?.regenerate === 'poster').length, 1);
+});
+
+/*
+ * A failed retry that also erased the poster the user already had would punish
+ * them for asking.
+ */
+test('a regeneration that fails leaves the poster the user already had', async () => {
+  const { svc, enqueued, items } = withJobStore({
+    designOnly: async () => ({ markup: null, png: null, imageError: new Error('render service unavailable') }),
+  });
+  const { runId } = await svc.startWeek('7', BRAND);
+  await svc.runPostJob({ userId: '7', payload: { runId, day: 1 } });
+  const kept = items[0].mediaAssetId;
+
+  await svc.requestRegenerate('7', runId, 1, 'poster');
+  const job = enqueued.find((j) => j.payload?.regenerate === 'poster');
+  await assert.rejects(() => svc.runPostJob(job), 'it throws so the durable job retries');
+
+  assert.equal(items[0].mediaAssetId, kept, 'the old poster is still there');
+  assert.equal(items[0].imageStatus, IMAGE_RENDER_STATUS.READY, 'and is still shown as ready');
+  assert.ok(items[0].imageErrorMessage, 'with the reason recorded');
+});
+
+test('a day that is being redone says which half of it is busy', async () => {
+  const { svc, jobRows, items } = withJobStore({
+    designOnly: async () => ({ markup: '<svg/>', png: Buffer.from('89504e470d0a1a0a', 'hex'), imageError: null }),
+  });
+  const { runId } = await svc.startWeek('7', BRAND);
+  await svc.runPostJob({ userId: '7', payload: { runId, day: 1 } });
+  await svc.runPostJob({ userId: '7', payload: { runId, day: 2 } });
+  await svc.requestRegenerate('7', runId, 1, 'poster');
+  await svc.requestRegenerate('7', runId, 2, 'caption');
+
+  const week = await svc.getWeek('7', runId);
+  const byDay = new Map(week.posts.map((p) => [p.day, p]));
+  assert.equal(byDay.get(1).regenerating, 'poster');
+  assert.equal(byDay.get(2).regenerating, 'caption');
+
+  // A finished regeneration is no longer "busy".
+  jobRows.forEach((j) => { j.status = 'completed'; });
+  const after = await svc.getWeek('7', runId);
+  assert.equal(after.posts.every((p) => p.regenerating === null), true);
+  assert.equal(items.length, 2);
+});
+
+test('another user cannot regenerate this week, and neither can a day that is not there', async () => {
+  const { svc, enqueued } = withJobStore();
+  const { runId } = await svc.startWeek('7', BRAND);
+  await svc.runPostJob({ userId: '7', payload: { runId, day: 1 } });
+
+  assert.equal(await svc.requestRegenerate('999', runId, 1, 'poster'), null, 'ownership first');
+  assert.equal(await svc.requestRegenerate('7', runId, 6, 'poster'), null, 'a day with no post');
+  assert.equal(await svc.requestRegenerate('7', runId, 1, 'everything'), null, 'only the two named pieces');
+  assert.equal(enqueued.filter((j) => j.payload?.regenerate).length, 0);
 });
 
 /*

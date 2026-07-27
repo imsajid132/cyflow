@@ -458,6 +458,26 @@ export async function render(root, ctx) {
         ]);
       }
 
+      /*
+       * The two things a reviewer can ask for again, each under the thing it
+       * changes. They are separate because the dissatisfactions are separate:
+       * not liking the picture is not a request to rewrite the words.
+       *
+       * The work is a durable job, so the button's job is to say it was heard.
+       * The result arrives through the poll that is already running.
+       */
+      const redoing = post.regenerating;
+      const redoBtn = (kind, label) => {
+        const busy = redoing === kind;
+        const btn = el('button', {
+          className: `ais-btn ais-redo${busy ? ' is-busy' : ''}`,
+          attrs: { type: 'button', ...(busy ? { disabled: 'disabled' } : {}) },
+          text: busy ? (kind === 'poster' ? 'Designing a new poster…' : 'Writing new copy…') : label,
+        });
+        btn.addEventListener('click', () => regenerate(week.runId, post.day, kind, btn));
+        return btn;
+      };
+
       const poster = post.posterUrl
         ? el('img', { className: 'ais-dayposter', attrs: { src: post.posterUrl, alt: post.headline || `Day ${post.day} poster`, loading: 'lazy', decoding: 'async' } })
         : el('div', { className: 'ais-dayposter ais-dayposter-none' }, [
@@ -473,7 +493,10 @@ export async function render(root, ctx) {
         head,
         el('p', { className: 'ais-dayangle', text: post.angle || entry.angle }),
         el('div', { className: 'ais-daybody' }, [
-          poster,
+          el('div', { className: 'ais-daypost' }, [
+            poster,
+            redoBtn('poster', 'Regenerate poster'),
+          ]),
           el('div', { className: 'ais-daycaps' }, [
             caption('Facebook', post.captions.facebook),
             caption('Instagram', post.captions.instagram),
@@ -481,12 +504,50 @@ export async function render(root, ctx) {
             post.hashtags?.length
               ? el('div', { className: 'ais-tags' }, post.hashtags.map((h) => el('span', { className: 'ais-chip', text: h })))
               : null,
+            redoBtn('caption', 'Regenerate captions'),
           ].filter(Boolean)),
         ]),
       ]);
     })));
 
-    if (done && polling) { clearInterval(polling); polling = null; }
+    /*
+     * Stop polling when the week is finished AND nothing is being redone. The
+     * second half matters: a regeneration is asked for AFTER the week finishes,
+     * so a poll that stopped at "done" would leave the new poster sitting in
+     * storage with the old one still on screen.
+     */
+    const busy = week.posts?.some((p) => p.regenerating);
+    if (done && !busy && polling) { clearInterval(polling); polling = null; }
+    if ((!done || busy) && !polling && week.runId) {
+      polling = setInterval(() => pollWeek(week.runId), 5000);
+    }
+  }
+
+  /** Ask for one piece of one day again. The poll shows the result. */
+  async function regenerate(runId, day, kind, btn) {
+    if (!runId || btn.disabled) return;
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = kind === 'poster' ? 'Designing a new poster…' : 'Writing new copy…';
+
+    const res = await api.apiRequest(
+      `/api/ai-studio/week/${encodeURIComponent(runId)}/day/${day}/${kind}`,
+      { method: 'POST', body: {} },
+    );
+
+    if (res.unauthorized) { ctx.navigate('/login'); return; }
+    if (!res.ok) {
+      btn.disabled = false;
+      btn.textContent = original;
+      toast(api.errorMessage(res, 'That could not be regenerated.'), 'err');
+      return;
+    }
+
+    const out = api.payload(res) || {};
+    toast(out.message || 'Working on it.', 'ok');
+    // The button stays disabled: the next poll re-renders the card from the
+    // server, which is the only thing that knows when the work is actually done.
+    if (!polling) polling = setInterval(() => pollWeek(runId), 5000);
   }
 
   async function pollWeek(runId) {
@@ -646,15 +707,9 @@ export async function render(root, ctx) {
       drawCard();
     }
 
-    if (data.week?.runId) {
-      drawWeek(data.week);
-      // Still building: pick the polling back up where the old tab left off.
-      const done = (data.week.ready || 0) + (data.week.failed || 0) >= data.week.total;
-      if (!done) {
-        if (polling) clearInterval(polling);
-        polling = setInterval(() => pollWeek(data.week.runId), 5000);
-      }
-    }
+    // drawWeek decides for itself whether there is anything left to watch, so a
+    // week still building picks its polling back up where the old tab left off.
+    if (data.week?.runId) drawWeek(data.week);
   }
 
   // --- analyze -------------------------------------------------------------

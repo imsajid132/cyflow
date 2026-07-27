@@ -126,26 +126,25 @@ Write the on-poster copy and the three captions now. Return ONLY the JSON object
 }
 
 /**
- * The whole post: copy (text call) + poster design (text call) + free render.
+ * JUST the poster: one design call + the free render, for copy already written.
  *
- * NEVER throws for a render failure — the PNG is optional data. If Claude is
- * unreachable for the COPY it throws (there is no post without copy); a design or
- * render failure returns `{ png:null, imageError }` so the caller records a safe,
- * retryable image state instead of losing the post.
+ * Separate from `generateAiPost` because "design this again" is its own action.
+ * Re-running the whole post to get a different picture would rewrite the words
+ * as well, which is not what someone asking for a new poster meant — and it
+ * would spend a second model call to throw its answer away.
+ *
+ * NEVER throws: the PNG is optional data, and a design or render failure returns
+ * `{ png:null, imageError }` so the caller can record a safe, retryable state.
  *
  * @param {{
- *   brand:{businessName?:string,industry?:string,tone?:string},
- *   colors:{primary:string,secondary:string,accent:string},
- *   font?:string, angle?:string, styleId?:string, port?:number
+ *   brand:object, colors:{primary:string,secondary:string,accent:string},
+ *   font?:string, content:{headline:string,subtext:string,cta:string},
+ *   styleId?:string, port?:number
  * }} input
- * @returns {Promise<{ copy:object, html:(string|null), png:(Buffer|null), imageError:(Error|null) }>}
+ * @returns {Promise<{ markup:(string|null), png:(Buffer|null), imageError:(Error|null) }>}
  */
-export async function generateAiPost(input) {
-  const { brand = {}, colors, font, angle = '', styleId, port = 9700 } = input;
-  const copy = await generateAiCopy({ brand, angle });
-
+export async function designPoster({ brand = {}, colors, font, content, styleId, port = 9700 }) {
   const style = DESIGN_STYLES.find((s) => s.id === styleId) || DESIGN_STYLES[0];
-  const content = { headline: copy.headline, subtext: copy.subtext, cta: copy.cta };
   // Default to the browserless SVG path — free forever and Hostinger-safe. The
   // HTML + headless-Chrome path is opt-in for a VPS / local dev (higher fidelity).
   const mode = String(process.env.POSTER_RENDER_MODE || 'svg').toLowerCase();
@@ -176,5 +175,34 @@ export async function generateAiPost(input) {
   } catch (err) {
     imageError = err;
   }
-  return { copy, markup, png, imageError };
+  return { markup, png, imageError };
+}
+
+/**
+ * The whole post: copy (text call) + poster design (text call) + free render.
+ *
+ * NEVER throws for a render failure — the PNG is optional data. If Claude is
+ * unreachable for the COPY it throws (there is no post without copy); a design or
+ * render failure returns `{ png:null, imageError }` so the caller records a safe,
+ * retryable image state instead of losing the post.
+ *
+ * @param {{
+ *   brand:{businessName?:string,industry?:string,tone?:string},
+ *   colors:{primary:string,secondary:string,accent:string},
+ *   font?:string, angle?:string, styleId?:string, port?:number
+ * }} input
+ * @returns {Promise<{ copy:object, html:(string|null), png:(Buffer|null), imageError:(Error|null) }>}
+ */
+export async function generateAiPost(input) {
+  const { brand = {}, colors, font, angle = '', styleId, port = 9700 } = input;
+  const copy = await generateAiCopy({ brand, angle });
+  const design = await designPoster({
+    brand,
+    colors,
+    font,
+    content: { headline: copy.headline, subtext: copy.subtext, cta: copy.cta },
+    styleId,
+    port,
+  });
+  return { copy, ...design };
 }

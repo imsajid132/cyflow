@@ -26,10 +26,30 @@ import * as defaultJobs from '../../repositories/backgroundJobRepository.js';
 import * as defaultMedia from '../../repositories/mediaAssetRepository.js';
 import { createMediaLibraryService } from '../mediaLibraryService.js';
 import { planWeek, WEEK_LENGTH } from './weekPlanner.js';
-import { generateAiPost } from './aiStudioEngine.js';
+import { generateAiPost, generateAiCopy, designPoster } from './aiStudioEngine.js';
 import { DESIGN_STYLES } from './designPrompts.js';
 
 const DAY_SECONDS = 24 * 60 * 60;
+
+/** The two things a reviewer can ask for again, separately. */
+export const REGENERATE = { POSTER: 'poster', CAPTION: 'caption' };
+
+/** Statuses that mean a job has not finished yet, so a second one is refused. */
+const IN_FLIGHT = new Set(['pending', 'running', 'retry_scheduled']);
+
+/**
+ * `ai_studio:<run>:day:<n>` builds a day; `…:day:<n>:poster:<seq>` and
+ * `…:day:<n>:caption:<seq>` redo one piece of it. Parsed rather than assumed:
+ * reading the day off the END of the key was right until regeneration made the
+ * keys longer, at which point every day would have read as a sequence number.
+ */
+function parseJobKey(key) {
+  const parts = String(key || '').split(':');
+  if (parts[0] !== 'ai_studio' || parts[2] !== 'day') return null;
+  const day = Number(parts[3]);
+  if (!Number.isInteger(day)) return null;
+  return { day, kind: parts[4] || null };
+}
 
 export function createWeekService({
   runs = defaultRuns,
@@ -38,6 +58,8 @@ export function createWeekService({
   mediaLibraryService = createMediaLibraryService(),
   planner = planWeek,
   generatePost = generateAiPost,
+  generateCopy = generateAiCopy,
+  designOnly = designPoster,
   now = () => new Date(),
 } = {}) {
   /**
@@ -108,6 +130,10 @@ export function createWeekService({
     const runId = job.payload?.runId;
     const day = Number(job.payload?.day);
     if (!runId || !day) return;
+
+    // A regeneration is the same kind of work on an existing day, so it travels
+    // as the same job type and lands here.
+    if (job.payload?.regenerate) return runRegenerateJob(job);
 
     const run = await runs.findRunByIdForUser(runId, userId);
     if (!run) return;
@@ -244,6 +270,162 @@ export function createWeekService({
     }
   }
 
+  /** The day's post inside a run, or null. Position is zero-based; days are not. */
+  async function findDay(userId, runId, day) {
+    const run = await runs.findRunByIdForUser(runId, userId);
+    if (!run) return null;
+    const items = await runs.listItemsForRun(run.id, userId);
+    const item = items.find((it) => (it.position ?? 0) + 1 === day);
+    return item ? { run, item } : null;
+  }
+
+  /**
+   * Ask for one piece of one day again: the poster, or the captions.
+   *
+   * Two separate asks, because they are two separate dissatisfactions. Someone
+   * who does not like the picture does not want the words rewritten as well, and
+   * redoing the whole post to change one of them would spend a model call to
+   * throw its answer away.
+   *
+   * It is a durable job, like the original build: a design call plus a render can
+   * take a minute, and the product says the work must not depend on the tab
+   * staying open. A second request while one is still running is REFUSED rather
+   * than queued — an impatient double-click should not buy two posters.
+   */
+  async function requestRegenerate(userId, runId, day, kind) {
+    if (kind !== REGENERATE.POSTER && kind !== REGENERATE.CAPTION) return null;
+    const found = await findDay(userId, runId, day);
+    if (!found) return null;
+
+    const prefix = `ai_studio:${found.run.id}:day:${day}:${kind}:`;
+    const previous = typeof jobs.listJobsByKeyPrefix === 'function'
+      ? await jobs.listJobsByKeyPrefix(userId, prefix).catch(() => [])
+      : [];
+    if (previous.some((j) => IN_FLIGHT.has(j.status))) return { queued: false, alreadyRunning: true };
+
+    await jobs.enqueueJob({
+      userId,
+      jobType: JOB_TYPES.AI_STUDIO_POST,
+      // The sequence makes each ASK its own job while a retry of one ask stays
+      // idempotent.
+      idempotencyKey: `${prefix}${previous.length + 1}`,
+      payload: { runId: String(found.run.id), day, regenerate: kind },
+      maxAttempts: 3,
+    });
+
+    /*
+     * Say so on the item immediately. Between the click and the worker picking
+     * the job up, the card would otherwise show the old poster with no sign that
+     * anything was happening, and the honest answer is "being redrawn".
+     */
+    if (kind === REGENERATE.POSTER) {
+      await runs.updateItem(found.item.id, userId, { imageStatus: IMAGE_RENDER_STATUS.QUEUED }).catch(() => {});
+    }
+    return { queued: true, day, kind };
+  }
+
+  /** Redo the poster, or the captions, for a day that already exists. */
+  async function runRegenerateJob(job) {
+    const userId = job.userId;
+    const day = Number(job.payload?.day);
+    const kind = job.payload?.regenerate;
+    const found = await findDay(userId, job.payload?.runId, day);
+    if (!found) return;
+    const { run, item } = found;
+
+    const brand = run.settings?.brand || {};
+    const entry = (run.settings?.plan || []).find((p) => p.day === day) || {};
+    const angle = [entry.angle, entry.service ? `Service: ${entry.service}` : null, entry.why]
+      .filter(Boolean).join('. ');
+
+    if (kind === REGENERATE.CAPTION) {
+      /*
+       * New words for the same picture. The poster keeps its headline: those
+       * words are SET IN THE IMAGE, and rewriting them here would leave the
+       * caption describing a poster that says something else.
+       */
+      const copy = await generateCopy({
+        brand: { businessName: brand.businessName, industry: brand.industry, tone: brand.tone },
+        angle,
+      });
+      const caps = copy.captions || {};
+      const hashtags = copy.hashtags || [];
+      await runs.updateItem(item.id, userId, {
+        caption: caps.facebook || caps.instagram || caps.threads || '',
+        hashtags,
+        platformCaptions: {
+          facebook: { caption: caps.facebook || '', hashtags },
+          instagram: { caption: caps.instagram || '', hashtags },
+          threads: { caption: caps.threads || '', hashtags },
+        },
+        regenerationCount: Number(item.regenerationCount || 0) + 1,
+      });
+      return;
+    }
+
+    // A new poster for the same words. The style ROTATES on each attempt, so
+    // "again" produces a different composition rather than the same one redrawn.
+    const count = Number(item.regenerationCount || 0) + 1;
+    const attemptedAt = toMysqlUtc(now());
+    const design = await designOnly({
+      brand: { businessName: brand.businessName, industry: brand.industry, tone: brand.tone },
+      colors: {
+        primary: brand.primary || '#111827',
+        secondary: brand.secondary || '#6b7280',
+        accent: brand.accent || '#2563eb',
+      },
+      font: brand.headingFont || null,
+      content: { headline: item.headline || '', subtext: item.subheadline || '', cta: entry.cta || '' },
+      styleId: DESIGN_STYLES[(day - 1 + count) % DESIGN_STYLES.length].id,
+      port: 9700 + (day % 50),
+    });
+
+    if (!design.png) {
+      const pe = normalizeProviderError(
+        design.imageError || new Error('The poster could not be designed.'),
+        { provider: PROVIDER_NAMES.AI_STUDIO, operation: 'regenerate_poster' },
+      );
+      logProviderFailure(pe, { jobType: JOB_TYPES.AI_STUDIO_POST, plannerRunId: run.id });
+      /*
+       * The OLD poster is left in place. A failed retry that also erased what
+       * the user already had would punish them for asking, and the previous
+       * poster is still a real poster.
+       */
+      await runs.updateItem(item.id, userId, {
+        imageStatus: item.mediaAssetId ? IMAGE_RENDER_STATUS.READY : IMAGE_RENDER_STATUS.FAILED,
+        imageErrorCategory: pe.category,
+        imageErrorCode: pe.errorCode,
+        imageErrorMessage: pe.userMessage,
+        imageHttpStatus: pe.httpStatus,
+        imageRetryable: pe.retryable,
+        imageAttemptCount: Number(item.imageAttemptCount || 0) + 1,
+        imageLastAttemptAt: attemptedAt,
+      });
+      // Thrown so the durable job records the failure and retries it.
+      throw pe;
+    }
+
+    const asset = await mediaLibraryService.uploadImage(userId, {
+      buffer: design.png,
+      originalName: `week-${run.id}-day-${day}-v${count + 1}.png`,
+      declaredMime: 'image/png',
+    });
+
+    await runs.updateItem(item.id, userId, {
+      mediaAssetId: asset.id,
+      imageStatus: IMAGE_RENDER_STATUS.READY,
+      imageProvider: PROVIDER_NAMES.AI_STUDIO,
+      imageErrorCategory: null,
+      imageErrorCode: null,
+      imageErrorMessage: null,
+      imageHttpStatus: null,
+      imageRetryable: null,
+      imageAttemptCount: Number(item.imageAttemptCount || 0) + 1,
+      imageLastAttemptAt: attemptedAt,
+      regenerationCount: count,
+    });
+  }
+
   /**
    * Progress for the studio screen: the plan, and what has been built.
    *
@@ -269,9 +451,13 @@ export function createWeekService({
       ? await jobs.listJobsByKeyPrefix(userId, `ai_studio:${run.id}:day:`).catch(() => [])
       : [];
     const jobByDay = new Map();
+    // Which days are having a piece redone right now, and which piece.
+    const regenByDay = new Map();
     for (const j of jobRows) {
-      const day = Number(String(j.idempotencyKey).split(':').pop());
-      if (Number.isInteger(day)) jobByDay.set(day, j);
+      const parsed = parseJobKey(j.idempotencyKey);
+      if (!parsed) continue;
+      if (!parsed.kind) { jobByDay.set(parsed.day, j); continue; }
+      if (IN_FLIGHT.has(j.status)) regenByDay.set(parsed.day, parsed.kind);
     }
 
     const posts = [];
@@ -300,6 +486,9 @@ export function createWeekService({
         // Honest about a poster that failed: the card says why, and can retry.
         imageStatus: item.imageStatus || null,
         imageError: item.imageErrorMessage || null,
+        // 'poster' | 'caption' | null — so the card can say which half of it is
+        // being redone, and disable only that button.
+        regenerating: regenByDay.get((item.position ?? 0) + 1) || null,
         scheduledFor: item.scheduledFor || null,
       });
     }
@@ -367,7 +556,7 @@ export function createWeekService({
 
   const handlers = { [JOB_TYPES.AI_STUDIO_POST]: runPostJob };
 
-  return { startWeek, runPostJob, getWeek, findLatestWeek, handlers };
+  return { startWeek, runPostJob, requestRegenerate, getWeek, findLatestWeek, handlers };
 }
 
 export const weekService = createWeekService();

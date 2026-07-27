@@ -61,6 +61,23 @@ export function createAiStudioRoutes({ aiStudioController, requireAuth }) {
   // Progress. A plain read, polled while the week builds, so no CSRF.
   router.get('/week/:runId', requireAuth, aiStudioController.getWeek);
 
+  /*
+   * Redo one piece of one day: `kind` is `poster` or `caption`. Each is a model
+   * call and (for a poster) a render, so it carries the image-generation limiter
+   * and runs as a durable job — the response says "queued", and the screen's
+   * existing poll shows the result when it lands.
+   */
+  router.post(
+    // A plain parameter, checked in the controller: a regex constraint in the
+    // path works on Express 4 and throws on Express 5, and the check has to
+    // exist in the controller anyway.
+    '/week/:runId/day/:day/:kind',
+    requireAuth,
+    imageGenerationLimiter,
+    csrfProtection,
+    aiStudioController.regenerate,
+  );
+
   return router;
 }
 

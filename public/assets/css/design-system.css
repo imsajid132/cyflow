@@ -1394,6 +1394,15 @@ legend { padding: 0; }
 .ais-dayposter { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 10px; border: 1px solid var(--ais-border); display: block; }
 .ais-dayposter-none { display: grid; place-items: center; text-align: center; padding: 1rem; background: var(--ais-panel); }
 .ais-daycaps { display: flex; flex-direction: column; gap: .6rem; min-width: 0; }
+/* The poster and its own "again" button travel together, so the control sits
+   under the thing it changes rather than in a row of buttons about the card. */
+.ais-daypost { display: flex; flex-direction: column; gap: .55rem; min-width: 0; }
+.ais-redo {
+  width: 100%; font-size: .82rem; padding: .5rem .7rem;
+  background: var(--ais-panel); color: var(--ais-ink); border: 1px solid var(--ais-border);
+}
+.ais-redo:hover:not(:disabled) { border-color: var(--ais-accent); color: var(--ais-accent); }
+.ais-redo.is-busy, .ais-redo:disabled { opacity: .65; cursor: default; }
 .ais-daywait { display: flex; align-items: center; gap: .6rem; }
 .ais-spinner-sm { width: 18px; height: 18px; border-width: 2px; margin: 0; }
 

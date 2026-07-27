@@ -78,3 +78,17 @@ which is the single remaining redeploy + live-acceptance step.
       (proved on real MariaDB).
 - [x] No new migration was required.
 - [ ] Confirmed by the owner on the live host after a fresh week builds.
+
+## Step 3 — regenerate one piece of one day (2026-07-28)
+
+- [x] Every poster has its own "Regenerate poster", under the poster.
+- [x] Every post has its own "Regenerate captions", under the captions.
+- [x] The two are independent: a new poster keeps the words, new captions keep
+      the picture (and keep the on-poster headline, which is set in the image).
+- [x] A new poster is a DIFFERENT composition: the style rotates each time.
+- [x] The work is a durable job, so closing the tab does not lose it.
+- [x] The card says which half of it is busy, and disables only that button.
+- [x] Asking twice while one is running is refused, not queued.
+- [x] A failed regeneration leaves the poster the user already had.
+- [x] Another user cannot regenerate this week.
+- [ ] Looked at on the live host by the owner.
