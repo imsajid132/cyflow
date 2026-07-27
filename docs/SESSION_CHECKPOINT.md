@@ -116,11 +116,22 @@ straight away, the rest one a day) → 6 every world timezone + a daily time.
 What remains is not more building:
 1. The owner looks at a real week on the live host, including the accounts panel
    and an activation, and says whether the posters are right.
-2. THE FIRST LIVE PUBLISH. This is the only remaining thing that needs a
-   deliberate decision: `ENABLE_LIVE_PROVIDER_PUBLISHING=false` is the current
-   and required state, activation produces a real schedule that nothing acts on
-   until that switch is turned on, and the screen says so. Turn it on once, for
-   one account, with the owner watching. Do NOT do this unprompted.
+2. THE FIRST LIVE PUBLISH. **The owner authorised this on 2026-07-28, "carefully".**
+   It has not happened yet. The agreed order, and the reasons:
+   a. Integrations → Test connection on the ONE account to be used first.
+   b. Set `ENABLE_LIVE_PROVIDER_PUBLISHING=true` in the Hostinger panel and
+      redeploy. Then VERIFY with `/health` → `publishing.liveEnabled`. This
+      verification is not optional: that panel has silently dropped variables
+      on save before, and a flag you believe is off when it is on is the worst
+      possible state for this particular switch.
+   c. Generate a FRESH week, so the posters are the photo-backed ones.
+   d. Review them, regenerate anything weak.
+   e. Activate with exactly ONE account ticked. The first post goes out about
+      two minutes later; the next is a full day away, which is the gap that
+      makes this careful.
+   f. Look at the real page. If it is wrong: Queue → Cancel on the remaining
+      targets, and/or set the flag back to false.
+   The owner executes b themselves — there is no host access from here.
 3. Make the GitHub repository private. Owner action: there is no `gh` CLI or
    token in this environment, so it is Settings → General → Danger Zone →
    Change visibility.
