@@ -384,7 +384,13 @@ export async function render(root, ctx) {
         ? 'Check each post below. Nothing is scheduled or published until you say so.'
         : 'Claude has planned the week. The posters are being designed now — you can close this page and come back.';
 
-    weekView.appendChild(el('div', { className: 'ais-weekhead' }, [
+    /*
+     * A week that finished with gaps offers the way out from HERE, next to the
+     * failure. The button that starts a week already exists further up the page,
+     * but a user reading "0 of 7 were built" should not have to work out that
+     * scrolling back to a button labelled "Next" is what fixes it.
+     */
+    const head = el('div', { className: 'ais-weekhead' }, [
       el('div', {}, [
         el('h2', { className: 'ais-brandname', text: title }),
         el('p', { className: 'ais-hint', text: sub }),
@@ -393,7 +399,16 @@ export async function render(root, ctx) {
         el('span', { className: 'ais-weeknum', text: `${week.ready} / ${week.total}` }),
         el('span', { className: 'ais-hint', text: 'posts built' }),
       ]),
-    ]));
+    ]);
+    if (done && failed) {
+      const again = el('button', {
+        className: 'ais-btn ais-again', attrs: { type: 'button' },
+        text: failed >= week.total ? 'Generate a new week' : 'Generate a new week instead',
+      });
+      again.addEventListener('click', startWeek);
+      head.appendChild(again);
+    }
+    weekView.appendChild(head);
 
     weekView.appendChild(el('div', { className: 'ais-bar' }, [
       el('span', { className: 'ais-bar-fill', attrs: { style: `width:${Math.round((week.ready / week.total) * 100)}%` } }),
@@ -481,8 +496,17 @@ export async function render(root, ctx) {
     if (week) drawWeek(week);
   }
 
+  /*
+   * Plan a week and start watching it build.
+   *
+   * One function, two ways in: the button under the brand, and the one offered
+   * on a week that finished with gaps. A week that failed needs starting again
+   * from where the user is LOOKING at the failure — sending them back up the
+   * page to find the original button is asking them to work out that the two
+   * buttons are the same thing.
+   */
   let starting = false;
-  nextBtn.addEventListener('click', async () => {
+  async function startWeek() {
     if (starting) return;
     if (!brand.businessName.trim()) { toast('Add your business name first.', 'warn'); return; }
 
@@ -512,7 +536,8 @@ export async function render(root, ctx) {
 
     if (polling) clearInterval(polling);
     polling = setInterval(() => pollWeek(out.runId), 5000);
-  });
+  }
+  nextBtn.addEventListener('click', startWeek);
 
   /*
    * ---- what survives the tab ----------------------------------------------

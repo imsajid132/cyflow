@@ -1364,6 +1364,11 @@ legend { padding: 0; }
 .ais-weekcount { display: flex; flex-direction: column; align-items: flex-end; }
 .ais-weeknum { font-size: 1.3rem; font-weight: 700; color: var(--ais-accent); }
 
+/* Offered beside a week that finished with gaps, so the way out is where the
+   failure is being read rather than back up the page. Full width on its own
+   line: it is a decision, not a header ornament. */
+.ais-again { flex-basis: 100%; margin-top: .35rem; }
+
 .ais-bar { height: 4px; border-radius: 999px; background: var(--ais-panel2); overflow: hidden; margin: .9rem 0 1.2rem; }
 .ais-bar-fill { display: block; height: 100%; background: var(--ais-accent); transition: width .4s ease; }
 
