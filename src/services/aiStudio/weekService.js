@@ -29,7 +29,7 @@ import { createMediaLibraryService } from '../mediaLibraryService.js';
 import { planWeek, WEEK_LENGTH } from './weekPlanner.js';
 import { generateAiPost, generateAiCopy, designPoster } from './aiStudioEngine.js';
 import { DESIGN_STYLES } from './designPrompts.js';
-import { fetchPosterPhoto, photoForDay } from './posterPhoto.js';
+import { fetchPosterPhoto, photoForDay, PHOTO_SKIP, PHOTO_SKIP_MESSAGE } from './posterPhoto.js';
 
 const DAY_SECONDS = 24 * 60 * 60;
 
@@ -168,10 +168,10 @@ export function createWeekService({
      * done through the safe path (see posterPhoto.js). A picture that cannot be
      * had is simply absent: a plainer poster beats a lost post.
      */
-    const photo = await loadPhoto(brand.images, day);
+    const picture = await loadPhoto(brand.images, day);
 
     const post = await generatePost({
-      photo,
+      photo: picture.photo,
       brand: {
         businessName: brand.businessName,
         industry: brand.industry,
@@ -281,6 +281,15 @@ export function createWeekService({
          * travels with the item and is ours.
          */
         posterPoints: post.copy.points || [],
+        /*
+         * Whether this poster got a photograph, and if not WHY.
+         *
+         * A poster that quietly has no picture is indistinguishable from one
+         * that was never meant to have one — and the owner is the only person
+         * who can fix "that picture is a WebP" or "that address 404s". A silent
+         * skip here is the same class of defect as a silent provider failure.
+         */
+        photo: { used: Boolean(picture.photo), reason: picture.reason },
       },
       editedFields: [],
     });
@@ -305,9 +314,11 @@ export function createWeekService({
    */
   async function loadPhoto(images, day) {
     const pick = photoForDay(images, day);
-    if (!pick) return null;
-    const fetched = await fetchPhoto(pick.url).catch(() => null);
-    return fetched ? { ...fetched, alt: pick.alt || '' } : null;
+    if (!pick) return { photo: null, reason: PHOTO_SKIP.NO_PICTURE };
+    const out = await fetchPhoto(pick.url).catch(() => ({ photo: null, reason: PHOTO_SKIP.UNREACHABLE }));
+    return out?.photo
+      ? { photo: { ...out.photo, alt: pick.alt || '' }, reason: null }
+      : { photo: null, reason: out?.reason || PHOTO_SKIP.UNREACHABLE };
   }
 
   /** The day's post inside a run, or null. Position is zero-based; days are not. */
@@ -413,9 +424,9 @@ export function createWeekService({
      * poster — redrawing the type around the same image would look like the
      * same poster.
      */
-    const photo = await loadPhoto(brand.images, day + count);
+    const picture = await loadPhoto(brand.images, day + count);
     const design = await designOnly({
-      photo,
+      photo: picture.photo,
       brand: {
         businessName: brand.businessName, industry: brand.industry, tone: brand.tone,
         websiteUrl: brand.websiteUrl, phone: brand.phone, city: brand.city,
@@ -547,6 +558,14 @@ export function createWeekService({
         // 'poster' | 'caption' | null — so the card can say which half of it is
         // being redone, and disable only that button.
         regenerating: regenByDay.get((item.position ?? 0) + 1) || null,
+        // Whether the poster carries one of the business's own photographs, and
+        // a sentence the owner can act on when it does not.
+        photo: {
+          used: Boolean(item.fingerprint?.photo?.used),
+          reason: item.fingerprint?.photo?.reason
+            ? PHOTO_SKIP_MESSAGE[item.fingerprint.photo.reason] || null
+            : null,
+        },
         scheduledFor: item.scheduledFor || null,
       });
     }

@@ -38,7 +38,7 @@ function fakeFetch(responses) {
 const publicLookup = async () => [{ address: '93.184.216.34' }];
 
 test('a real photograph comes back as an embeddable data URI', async () => {
-  const photo = await fetchPosterPhoto('https://example.test/shop.jpg', {
+  const { photo } = await fetchPosterPhoto('https://example.test/shop.jpg', {
     fetchImpl: fakeFetch({ body: JPEG, headers: { 'content-type': 'image/jpeg' } }),
     lookup: publicLookup,
   });
@@ -47,7 +47,7 @@ test('a real photograph comes back as an embeddable data URI', async () => {
   assert.equal(photo.bytes, JPEG.length);
   assert.match(photo.dataUri, /^data:image\/jpeg;base64,/);
   // resvg draws PNG too, and a site's photographs are often PNG.
-  const asPng = await fetchPosterPhoto('https://example.test/shop.png', {
+  const { photo: asPng } = await fetchPosterPhoto('https://example.test/shop.png', {
     fetchImpl: fakeFetch({ body: PNG }),
     lookup: publicLookup,
   });
@@ -60,7 +60,7 @@ test('a real photograph comes back as an embeddable data URI', async () => {
  */
 test('an address that resolves to a private network is refused', async () => {
   const fetchImpl = fakeFetch({ body: JPEG });
-  const photo = await fetchPosterPhoto('https://internal.example.test/x.jpg', {
+  const { photo } = await fetchPosterPhoto('https://internal.example.test/x.jpg', {
     fetchImpl,
     lookup: async () => [{ address: '127.0.0.1' }],
   });
@@ -74,7 +74,7 @@ test('a redirect into a private network is refused too', async () => {
     { body: JPEG },
   ]);
   let asked = 0;
-  const photo = await fetchPosterPhoto('https://example.test/photo.jpg', {
+  const { photo } = await fetchPosterPhoto('https://example.test/photo.jpg', {
     fetchImpl,
     lookup: async (host) => { asked += 1; return [{ address: asked === 1 ? '93.184.216.34' : '169.254.169.254' }]; },
   });
@@ -94,7 +94,7 @@ test('the addresses that never need a lookup are refused outright', async () => 
   for (const url of unsafe) {
     const fetchImpl = fakeFetch({ body: JPEG });
     // eslint-disable-next-line no-await-in-loop
-    const photo = await fetchPosterPhoto(url, { fetchImpl, lookup: publicLookup });
+    const { photo } = await fetchPosterPhoto(url, { fetchImpl, lookup: publicLookup });
     assert.equal(photo, null, `${url} must be refused`);
     assert.equal(fetchImpl.calls.length, 0, `${url} must not be fetched at all`);
   }
@@ -105,7 +105,7 @@ test('the addresses that never need a lookup are refused outright', async () => 
  * uncapped body is a way to exhaust a shared host with one URL.
  */
 test('a declared length over the cap is refused before a byte is read', async () => {
-  const photo = await fetchPosterPhoto('https://example.test/huge.jpg', {
+  const { photo } = await fetchPosterPhoto('https://example.test/huge.jpg', {
     fetchImpl: fakeFetch({ body: JPEG, headers: { 'content-length': String(MAX_PHOTO_BYTES + 1) } }),
     lookup: publicLookup,
   });
@@ -113,7 +113,7 @@ test('a declared length over the cap is refused before a byte is read', async ()
 });
 
 test('a body that grows past the cap is dropped', async () => {
-  const photo = await fetchPosterPhoto('https://example.test/big.jpg', {
+  const { photo } = await fetchPosterPhoto('https://example.test/big.jpg', {
     maxBytes: 100,
     fetchImpl: fakeFetch({ body: Buffer.concat([JPEG, Buffer.alloc(500, 1)]) }),
     lookup: publicLookup,
@@ -128,7 +128,7 @@ test('a body that grows past the cap is dropped', async () => {
  */
 test('the file must actually be an image by its own first bytes', async () => {
   const html = Buffer.from(`<!doctype html><html><body>${'not an image '.repeat(20)}</body></html>`);
-  const photo = await fetchPosterPhoto('https://example.test/oops.jpg', {
+  const { photo } = await fetchPosterPhoto('https://example.test/oops.jpg', {
     fetchImpl: fakeFetch({ body: html, headers: { 'content-type': 'image/jpeg' } }),
     lookup: publicLookup,
   });
@@ -142,11 +142,11 @@ test('a failure is a plainer poster, never a thrown error', async () => {
   ];
   for (const c of cases) {
     // eslint-disable-next-line no-await-in-loop
-    const photo = await fetchPosterPhoto('https://example.test/x.jpg', { fetchImpl: fakeFetch(c), lookup: publicLookup });
+    const { photo } = await fetchPosterPhoto('https://example.test/x.jpg', { fetchImpl: fakeFetch(c), lookup: publicLookup });
     assert.equal(photo, null);
   }
   // A fetch that explodes is still not an exception the caller has to handle.
-  const boom = await fetchPosterPhoto('https://example.test/x.jpg', {
+  const { photo: boom } = await fetchPosterPhoto('https://example.test/x.jpg', {
     fetchImpl: async () => { throw new Error('socket hang up'); },
     lookup: publicLookup,
   });
@@ -173,4 +173,44 @@ test('the days rotate through the pictures the user actually ticked', () => {
   assert.equal(photoForDay([{ url: 'l.png', kind: 'logo', chosen: true }], 1), null);
   assert.equal(photoForDay([], 1), null);
   assert.equal(photoForDay(null, 1), null);
+});
+
+/*
+ * ---- saying WHY -----------------------------------------------------------
+ *
+ * A poster that quietly has no photograph is indistinguishable from one that
+ * was never meant to have one. The owner is the only person who can fix "that
+ * picture is a WebP" or "that address is gone", and they cannot fix what nobody
+ * tells them about. This is the same rule as never turning a provider failure
+ * into a silent null.
+ */
+test('every refusal comes back with a reason, not a bare null', async () => {
+  const { PHOTO_SKIP, PHOTO_SKIP_MESSAGE } = await import('../src/services/aiStudio/posterPhoto.js');
+
+  // WebP: the common real-world answer, and a genuine dead end — resvg draws
+  // neither WebP nor AVIF (verified), so accepting one puts a hole in the
+  // poster instead of a picture.
+  const webp = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WEBP'), Buffer.alloc(400, 3)]);
+  const cases = [
+    [{ body: webp, headers: { 'content-type': 'image/webp' } }, PHOTO_SKIP.UNSUPPORTED_FORMAT],
+    [{ status: 404 }, PHOTO_SKIP.UNREACHABLE],
+    [{ body: JPEG, headers: { 'content-length': String(MAX_PHOTO_BYTES + 1) } }, PHOTO_SKIP.TOO_LARGE],
+  ];
+  for (const [response, expected] of cases) {
+    // eslint-disable-next-line no-await-in-loop
+    const out = await fetchPosterPhoto('https://example.test/x', { fetchImpl: fakeFetch(response), lookup: publicLookup });
+    assert.equal(out.photo, null);
+    assert.equal(out.reason, expected);
+    assert.ok(PHOTO_SKIP_MESSAGE[out.reason], 'and the reason has words a person can act on');
+  }
+
+  // An address we refuse outright is refused for a DIFFERENT reason than one
+  // that simply did not answer, because they need different fixes.
+  const blocked = await fetchPosterPhoto('http://localhost/x.jpg', { fetchImpl: fakeFetch({}), lookup: publicLookup });
+  assert.equal(blocked.reason, PHOTO_SKIP.BLOCKED);
+
+  // And a success says so with no reason attached.
+  const ok = await fetchPosterPhoto('https://example.test/x.jpg', { fetchImpl: fakeFetch({ body: JPEG }), lookup: publicLookup });
+  assert.ok(ok.photo);
+  assert.equal(ok.reason, null);
 });

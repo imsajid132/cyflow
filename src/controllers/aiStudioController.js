@@ -290,9 +290,19 @@ export function createAiStudioController({
       accent: hex(b.accent, '#2563eb'),
       city: str(b.city, 80), region: str(b.region, 80), country: str(b.country, 80),
       websiteUrl: str(b.websiteUrl, 300), logoUrl: str(b.logoUrl, 500),
+      /*
+       * `kind` travels with the picture. It was dropped here, and the poster
+       * builder treats a picture with no kind as a photograph — so a logo the
+       * user had ticked in the library could end up stretched across a poster
+       * background, which is a mistake nobody would make on purpose.
+       */
       images: Array.isArray(b.images)
-        ? b.images.slice(0, 40).map((im) => ({ url: str(im?.url, 500), alt: str(im?.alt, 160), chosen: im?.chosen !== false }))
-          .filter((im) => im.url)
+        ? b.images.slice(0, 40).map((im) => ({
+          url: str(im?.url, 500),
+          alt: str(im?.alt, 160),
+          kind: str(im?.kind, 20) || 'photo',
+          chosen: im?.chosen !== false,
+        })).filter((im) => im.url)
         : [],
     };
 

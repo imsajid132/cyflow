@@ -43,7 +43,14 @@ Dirty — the accounts panel and activation:
 - M `tests/weekService.test.js` (+4), `tests/integration/studioSession...` (+1).
 
 ## Last Completed Step
-**Spec steps 4, 5 and 6.** The accounts panel under a finished week (the user's
+**A poster with no photograph now says why (CY-009), and a ticked logo can no
+longer become a poster background (CY-010).** The owner asked why photographs
+were not appearing and there was no answer anywhere — the fetch returned a bare
+null for every refusal. Diagnosis first: their site serves JPEG and PNG, so
+format was NOT the blocker there; but resvg draws neither WebP nor AVIF
+(verified), so on other sites it will be, and the card now says so.
+
+Before that, **spec steps 4, 5 and 6.** The accounts panel under a finished week (the user's
 own connections, selectable, nothing else), and Activate: every world timezone,
 a daily time applied as wall clock, the first post timed to go straight away and
 the rest one a day. Queueing is `plannerService.queueApproved`, injected rather
@@ -83,7 +90,7 @@ See "Working Tree State" — 7 modified. All additive; no schema change and no
 change to the Make (OpenAI+HCTI) engine.
 
 ## Tests Run and Results
-- FULL unit suite: **1371/0** (was 1343; +28).
+- FULL unit suite: **1374/0** (was 1343; +31).
 - Rendered review: 3 posters at 1080x1080 through the production SVG path with a
   real photograph, looked at, a defect found (footer clipped at the bottom edge,
   third list row dropped), fixed, re-rendered and looked at again.

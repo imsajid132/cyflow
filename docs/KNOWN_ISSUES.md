@@ -142,3 +142,31 @@ Each issue is tracked with the fields below. Statuses: `open`, `in_progress`,
   is the point of those.
 - **Rule this leaves behind:** a test that expires is worse than no test —
   someone eventually "fixes" it by weakening the guard it was written to protect.
+
+## CY-009 — A poster with no photograph said nothing about why
+- **Status:** resolved
+- **Severity:** medium — invisible, and the exact thing the owner was judging
+- **Cause:** `fetchPosterPhoto` returned a bare `null` for every refusal, so a
+  poster built without a picture looked identical to one that was never meant to
+  have one. When the owner asked why their photographs were not appearing, there
+  was no answer anywhere: not on the card, not in the row, not in a log. This is
+  the same class as turning a provider failure into a silent `null`, which the
+  permanent rules forbid.
+- **Fix:** every refusal now carries a reason (`no_picture`, `unreachable`,
+  `blocked`, `too_large`, `unsupported_format`), it is stored on the item, and
+  the card says it in words the owner can act on.
+- **What a reason actually tells you:** `unsupported_format` is the common one
+  and a genuine dead end — resvg draws neither WebP nor AVIF (verified: both
+  render as nothing), so only JPEG and PNG can go on a poster.
+
+## CY-010 — A ticked logo could be stretched across a poster background
+- **Status:** resolved
+- **Severity:** medium
+- **Cause:** the analyze step classifies each picture (`photo` / `logo` /
+  `icon`), and the poster builder only uses photographs — but the studio's
+  `startWeek` controller dropped `kind` when it copied the images onto the run.
+  With no kind, the builder treats a picture as a photograph, so a logo the user
+  had ticked in the image library was eligible to become a full-bleed poster
+  background.
+- **Fix:** `kind` travels with the picture, defaulting to `photo` only when the
+  reader genuinely did not say.

@@ -87,24 +87,48 @@ async function readCapped(response, maxBytes) {
 }
 
 /**
- * Fetch one picture and return it as a data URI ready to embed, or null.
+ * Why a picture was not used. Short, safe, and written for a person: this
+ * reaches the screen, because a poster that quietly has no photograph is
+ * indistinguishable from a poster that was never meant to have one, and the
+ * owner cannot fix what nobody tells them about.
+ */
+export const PHOTO_SKIP = {
+  NO_PICTURE: 'no_picture',
+  UNREACHABLE: 'unreachable',
+  BLOCKED: 'blocked',
+  TOO_LARGE: 'too_large',
+  UNSUPPORTED_FORMAT: 'unsupported_format',
+};
+
+/** The same reasons, in words the owner of a small business can act on. */
+export const PHOTO_SKIP_MESSAGE = {
+  [PHOTO_SKIP.NO_PICTURE]: 'No photograph was ticked for this post.',
+  [PHOTO_SKIP.UNREACHABLE]: 'That picture could not be downloaded from your website.',
+  [PHOTO_SKIP.BLOCKED]: 'That picture is at an address this app will not open.',
+  [PHOTO_SKIP.TOO_LARGE]: 'That picture is too large to put on a poster.',
+  [PHOTO_SKIP.UNSUPPORTED_FORMAT]: 'That picture is in a format the poster renderer cannot draw (only JPEG and PNG work).',
+};
+
+/**
+ * Fetch one picture and return it ready to embed, with the reason when it is not.
  *
  * NEVER throws. A missing photograph makes a poster plainer; an exception here
  * would lose the whole post, and the post is the thing the user asked for.
  *
  * @param {string} url
  * @param {{ maxBytes?:number, fetchImpl?:Function, lookup?:Function }} [deps]
- * @returns {Promise<{ dataUri:string, mime:string, bytes:number }|null>}
+ * @returns {Promise<{ photo:{dataUri:string,mime:string,bytes:number}|null, reason:string|null }>}
  */
 export async function fetchPosterPhoto(url, { maxBytes = MAX_PHOTO_BYTES, fetchImpl = fetch, lookup } = {}) {
+  const no = (reason) => ({ photo: null, reason });
   try {
     let current = new URL(String(url));
 
     for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-      if (current.protocol !== 'https:' && current.protocol !== 'http:') return null;
+      if (current.protocol !== 'https:' && current.protocol !== 'http:') return no(PHOTO_SKIP.BLOCKED);
       // Credentials in a URL are never accepted, here or anywhere.
-      if (current.username || current.password) return null;
-      if (isBlockedHostname(current.hostname)) return null;
+      if (current.username || current.password) return no(PHOTO_SKIP.BLOCKED);
+      if (isBlockedHostname(current.hostname)) return no(PHOTO_SKIP.BLOCKED);
       // Resolve first: a public-looking name can answer with a private address.
       // eslint-disable-next-line no-await-in-loop
       await assertPublicHost(current.hostname, { lookup });
@@ -126,26 +150,36 @@ export async function fetchPosterPhoto(url, { maxBytes = MAX_PHOTO_BYTES, fetchI
 
       if (response.status >= 300 && response.status < 400) {
         const location = response.headers?.get?.('location');
-        if (!location || hop === MAX_REDIRECTS) return null;
+        if (!location || hop === MAX_REDIRECTS) return no(PHOTO_SKIP.UNREACHABLE);
         current = new URL(location, current);
         continue;
       }
-      if (!response.ok) return null;
+      if (!response.ok) return no(PHOTO_SKIP.UNREACHABLE);
 
       // eslint-disable-next-line no-await-in-loop
       const buf = await readCapped(response, maxBytes);
-      if (!buf || buf.length < 100) return null;
+      if (!buf) return no(PHOTO_SKIP.TOO_LARGE);
+      if (buf.length < 100) return no(PHOTO_SKIP.UNREACHABLE);
 
       const mime = sniffImageType(buf);
-      if (!mime) return null;
+      /*
+       * WebP and AVIF are the common answer here, and they are a real dead end
+       * rather than an oversight: resvg draws neither (verified — both render
+       * as nothing at all), so accepting one would put a hole in the poster
+       * instead of a picture.
+       */
+      if (!mime) return no(PHOTO_SKIP.UNSUPPORTED_FORMAT);
 
-      return { dataUri: `data:${mime};base64,${buf.toString('base64')}`, mime, bytes: buf.length };
+      return {
+        photo: { dataUri: `data:${mime};base64,${buf.toString('base64')}`, mime, bytes: buf.length },
+        reason: null,
+      };
     }
-    return null;
+    return no(PHOTO_SKIP.UNREACHABLE);
   } catch {
     // Including the ValidationError assertPublicHost throws for a private
     // address. Refusing a picture is never worth failing a post over.
-    return null;
+    return no(PHOTO_SKIP.UNREACHABLE);
   }
 }
 
@@ -169,4 +203,4 @@ export function photoForDay(images, day) {
   return usable[i];
 }
 
-export default { fetchPosterPhoto, photoForDay, MAX_PHOTO_BYTES };
+export default { fetchPosterPhoto, photoForDay, PHOTO_SKIP, PHOTO_SKIP_MESSAGE, MAX_PHOTO_BYTES };

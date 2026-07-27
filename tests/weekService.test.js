@@ -76,6 +76,10 @@ function build({ planner, generatePost } = {}) {
     runs,
     jobs,
     mediaLibraryService,
+    // No network in unit tests. The photograph path has its own file
+    // (posterPhoto.test.js); left unstubbed this would really try to resolve
+    // x.test on every run.
+    fetchPhoto: async () => ({ photo: null, reason: 'unreachable' }),
     planner: planner || (async () => PLAN),
     generatePost: generatePost || (async () => ({
       copy: {
@@ -90,7 +94,7 @@ function build({ planner, generatePost } = {}) {
     now: () => new Date('2026-07-26T08:00:00Z'),
   });
 
-  return { svc, runsStore, itemsStore, enqueued, uploads, parts: { runs, mediaLibraryService, planner: async () => PLAN, generatePost: async () => ({ copy: { headline: "H", subtext: "", cta: "", captions: { facebook: "FB" }, hashtags: [] }, png: Buffer.from("89504e470d0a1a0a","hex"), imageError: null }) } };
+  return { svc, runsStore, itemsStore, enqueued, uploads, parts: { runs, mediaLibraryService, fetchPhoto: async () => ({ photo: null, reason: 'unreachable' }), planner: async () => PLAN, generatePost: async () => ({ copy: { headline: "H", subtext: "", cta: "", captions: { facebook: "FB" }, hashtags: [] }, png: Buffer.from("89504e470d0a1a0a","hex"), imageError: null }) } };
 }
 
 test('starting a week returns the plan at once and queues one job per day', async () => {
@@ -560,4 +564,61 @@ test('each unbuilt day reports which kind of "not yet" it is', async () => {
   assert.equal(byDay.get(5).attempts, 3);
   assert.equal(week.failed, 1, 'the count says a week finished with a gap');
   assert.ok(svc, 'built helper is used');
+});
+
+/*
+ * A poster that quietly has no photograph is indistinguishable from one that
+ * was never meant to have one, and the owner is the only person who can fix
+ * "that picture is a WebP" or "that address is gone". The same rule as never
+ * turning a provider failure into a silent null.
+ */
+test('a post records whether it got a photograph, and why not', async () => {
+  const png = Buffer.from('89504e470d0a1a0a', 'hex');
+
+  // A picture that arrived.
+  const withPhoto = build();
+  const svcOk = createWeekService({
+    ...withPhoto.parts,
+    fetchPhoto: async () => ({ photo: { dataUri: 'data:image/jpeg;base64,AA', mime: 'image/jpeg', bytes: 9 }, reason: null }),
+    jobs: { enqueueJob: async () => ({ created: true }), listJobsByKeyPrefix: async () => [] },
+  });
+  const runA = (await svcOk.startWeek('7', BRAND)).runId;
+  await svcOk.runPostJob({ userId: '7', payload: { runId: runA, day: 1 } });
+  let week = await svcOk.getWeek('7', runA);
+  assert.equal(week.posts[0].photo.used, true);
+  assert.equal(week.posts[0].photo.reason, null);
+
+  // A picture in a format the renderer cannot draw. The post is still built.
+  const withoutPhoto = build();
+  const svcNo = createWeekService({
+    ...withoutPhoto.parts,
+    fetchPhoto: async () => ({ photo: null, reason: 'unsupported_format' }),
+    jobs: { enqueueJob: async () => ({ created: true }), listJobsByKeyPrefix: async () => [] },
+  });
+  const runB = (await svcNo.startWeek('7', BRAND)).runId;
+  await svcNo.runPostJob({ userId: '7', payload: { runId: runB, day: 1 } });
+  week = await svcNo.getWeek('7', runB);
+  assert.equal(week.posts[0].photo.used, false);
+  assert.match(week.posts[0].photo.reason, /JPEG and PNG/, 'a sentence the owner can act on, not a code');
+  assert.ok(week.posts[0].headline, 'and the post itself is fine');
+  assert.ok(png);
+});
+
+/*
+ * A picture the user never ticked is a different situation from one that could
+ * not be downloaded, and they need different answers.
+ */
+test('no ticked photograph says so, rather than blaming the website', async () => {
+  const bare = build();
+  const svc = createWeekService({
+    ...bare.parts,
+    fetchPhoto: async () => { throw new Error('must not be called'); },
+    jobs: { enqueueJob: async () => ({ created: true }), listJobsByKeyPrefix: async () => [] },
+  });
+  const runId = (await svc.startWeek('7', { ...BRAND, images: [] })).runId;
+  await svc.runPostJob({ userId: '7', payload: { runId, day: 1 } });
+
+  const week = await svc.getWeek('7', runId);
+  assert.equal(week.posts[0].photo.used, false);
+  assert.match(week.posts[0].photo.reason, /ticked/i);
 });

@@ -1554,3 +1554,8 @@ select.ais-input { appearance: none; cursor: pointer; }
   background: var(--ais-panel2); border: 1px solid var(--ais-border); color: var(--ais-accent);
   border-radius: 999px; padding: .2rem .6rem; font-size: .78rem;
 }
+
+/* Whether a poster carries the business's own photograph. Quiet by default and
+   only loud when something needs doing: a silent skip is the thing this fixes. */
+.ais-photonote { margin: 0; font-size: .78rem; color: var(--ais-warn, #e0a458); line-height: 1.4; }
+.ais-photonote.is-on { color: var(--ais-muted); }

@@ -495,8 +495,20 @@ export async function render(root, ctx) {
         el('div', { className: 'ais-daybody' }, [
           el('div', { className: 'ais-daypost' }, [
             poster,
+            /*
+             * Whether this poster carries one of the business's own
+             * photographs, and if not, why. A poster that quietly has no
+             * picture looks the same as one that was never meant to have one,
+             * and the owner is the only person who can fix "that picture is a
+             * WebP" or "that address is gone".
+             */
+            post.photo?.used
+              ? el('p', { className: 'ais-photonote is-on', text: 'Your own photograph is on this poster.' })
+              : post.photo?.reason
+                ? el('p', { className: 'ais-photonote', text: `No photograph: ${post.photo.reason}` })
+                : null,
             redoBtn('poster', 'Regenerate poster'),
-          ]),
+          ].filter(Boolean)),
           el('div', { className: 'ais-daycaps' }, [
             caption('Facebook', post.captions.facebook),
             caption('Instagram', post.captions.instagram),
