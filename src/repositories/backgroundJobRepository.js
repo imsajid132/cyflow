@@ -281,6 +281,24 @@ export async function listJobsByKeyPrefix(userId, keyPrefix, connection) {
   }));
 }
 
+/**
+ * Counts by status for ONE job type.
+ *
+ * A week that never appears is invisible from outside: the overall pending count
+ * cannot distinguish "no work was ever queued" from "seven jobs failed", and
+ * those need opposite fixes. This is counts only — no ids, no payloads, no
+ * messages — so it is safe to report publicly.
+ */
+export async function jobStatusCounts(jobType, connection) {
+  const [rows] = await runner(connection).execute(
+    'SELECT status, COUNT(*) AS n FROM background_jobs WHERE job_type = ? GROUP BY status',
+    [jobType],
+  );
+  const counts = {};
+  for (const r of rows) counts[r.status] = Number(r.n);
+  return counts;
+}
+
 /** Health/metrics: counts by status, and how many running leases are stale. */
 export async function jobStats({ now = new Date() } = {}, connection) {
   const conn = runner(connection);

@@ -12,8 +12,8 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { checkHealth } from '../db/pool.js';
 import { config } from '../config/env.js';
 import { nowIso } from '../utils/time.js';
-import { APP_NAME } from '../config/constants.js';
-import { jobStats } from '../repositories/backgroundJobRepository.js';
+import { APP_NAME, JOB_TYPES } from '../config/constants.js';
+import { jobStats, jobStatusCounts } from '../repositories/backgroundJobRepository.js';
 import { backgroundStatus } from '../jobs/backgroundStatus.js';
 import { isClaudeConfigured } from '../services/aiStudio/claudeClient.js';
 import { isAiStudioMode } from '../services/aiStudio/aiStudioEngine.js';
@@ -69,6 +69,22 @@ router.get(
       // signing in. A location, never a value.
       source: aiConfigFileUsed() ? 'file' : 'env',
     };
+
+    /*
+     * How the week-building jobs are actually going.
+     *
+     * A week that never appears is invisible from outside, and the overall
+     * pending count cannot tell "no work was ever queued" from "seven jobs
+     * failed" — which need opposite fixes. Counts by status, and nothing else:
+     * no ids, no payloads, no messages.
+     */
+    if (db.ok) {
+      try {
+        aiStudio.jobs = await jobStatusCounts(JOB_TYPES.AI_STUDIO_POST);
+      } catch {
+        aiStudio.jobs = null;
+      }
+    }
 
     /*
      * Whether THIS process is running the jobs, and how its last cycle went.
