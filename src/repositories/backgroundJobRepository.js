@@ -246,6 +246,41 @@ export async function findJobById(id, connection) {
   return sanitizeJob(rows[0]);
 }
 
+/**
+ * The jobs belonging to one AI Studio week, by their idempotency keys.
+ *
+ * A week whose posts are not appearing has to be explainable. Without this the
+ * screen can only say "0 of 7" for ever — it cannot tell a day that is queued
+ * from one that is running from one that failed three times and stopped, and the
+ * user is left watching a number that will never move.
+ *
+ * User-scoped, like every other read here: a run id is never enough on its own.
+ *
+ * @param {string|number} userId
+ * @param {string} keyPrefix e.g. `ai_studio:42:day:`
+ */
+export async function listJobsByKeyPrefix(userId, keyPrefix, connection) {
+  const [rows] = await runner(connection).execute(
+    `SELECT id, job_type, status, idempotency_key, attempt_count, max_attempts,
+            last_error_category, last_error_message, available_at, completed_at
+       FROM background_jobs
+      WHERE user_id = ? AND idempotency_key LIKE ?
+      ORDER BY id`,
+    [userId, `${String(keyPrefix).replace(/[%_\\]/g, '\\$&')}%`],
+  );
+  return rows.map((r) => ({
+    id: String(r.id),
+    jobType: r.job_type,
+    status: r.status,
+    idempotencyKey: r.idempotency_key,
+    attemptCount: Number(r.attempt_count ?? 0),
+    maxAttempts: Number(r.max_attempts ?? 0),
+    // A CATEGORY and a safe message only — never a provider body or a prompt.
+    lastErrorCategory: r.last_error_category ?? null,
+    lastErrorMessage: r.last_error_message ?? null,
+  }));
+}
+
 /** Health/metrics: counts by status, and how many running leases are stale. */
 export async function jobStats({ now = new Date() } = {}, connection) {
   const conn = runner(connection);

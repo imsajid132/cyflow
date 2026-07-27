@@ -257,6 +257,23 @@ export function createWeekService({
     const items = await runs.listItemsForRun(run.id, userId);
     const plan = run.settings?.plan || [];
 
+    /*
+     * What each day's job is DOING. A week whose posts never appear has to be
+     * explainable: without this the screen can only count to zero for ever, and
+     * cannot tell a day that is queued from one that failed three times and
+     * stopped. A category and a safe message only.
+     */
+    // Reading job state is diagnostic: it must never be able to break the page
+    // it exists to explain, so an absent or failing lookup simply says nothing.
+    const jobRows = typeof jobs.listJobsByKeyPrefix === 'function'
+      ? await jobs.listJobsByKeyPrefix(userId, `ai_studio:${run.id}:day:`).catch(() => [])
+      : [];
+    const jobByDay = new Map();
+    for (const j of jobRows) {
+      const day = Number(String(j.idempotencyKey).split(':').pop());
+      if (Number.isInteger(day)) jobByDay.set(day, j);
+    }
+
     const posts = [];
     for (const item of items) {
       let posterUrl = null;
@@ -288,12 +305,45 @@ export function createWeekService({
     }
     posts.sort((a, b) => a.day - b.day);
 
+    /*
+     * A day that has no post yet says WHY, in the plan itself. "Waiting" and
+     * "gave up after three tries" look identical on screen otherwise, and one of
+     * them needs the user to do something.
+     */
+    const builtDays = new Set(posts.map((p) => p.day));
+    const days = plan.map((entry) => {
+      if (builtDays.has(entry.day)) return { ...entry, state: 'built' };
+      const j = jobByDay.get(entry.day);
+      if (!j) return { ...entry, state: 'queued' };
+      if (j.status === 'failed') {
+        return {
+          ...entry,
+          state: 'failed',
+          errorCategory: j.lastErrorCategory,
+          error: j.lastErrorMessage || 'This post could not be built.',
+          attempts: j.attemptCount,
+        };
+      }
+      if (j.status === 'running') return { ...entry, state: 'building' };
+      // Queued, or waiting out a retry backoff after a transient failure.
+      return {
+        ...entry,
+        state: j.attemptCount > 0 ? 'retrying' : 'queued',
+        attempts: j.attemptCount,
+        error: j.attemptCount > 0 ? (j.lastErrorMessage || null) : null,
+      };
+    });
+
+    const failed = days.filter((d) => d.state === 'failed').length;
+
     return {
       runId: String(run.id),
       status: run.status,
       total: plan.length || WEEK_LENGTH,
       ready: posts.length,
+      failed,
       plan,
+      days,
       posts,
     };
   }

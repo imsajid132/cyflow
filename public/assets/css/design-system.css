@@ -1373,6 +1373,14 @@ legend { padding: 0; }
   padding: .9rem 1rem; animation: ais-rise .25s ease-out both;
 }
 .ais-day.is-waiting { opacity: .72; }
+/* A day that gave up looks different from one that is still trying. */
+.ais-day.is-failed { border-color: var(--err-bd); }
+.ais-dayfail {
+  background: var(--err-bg); border: 1px solid var(--err-bd); border-radius: 9px;
+  padding: .65rem .8rem; display: flex; flex-direction: column; gap: .2rem;
+}
+.ais-dayfail .ais-cap-label { color: var(--err-fg); }
+.ai-studio .ais-dayfail p { margin: 0; }
 .ais-dayhead { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .35rem; }
 .ais-daynum { font-weight: 700; font-size: .9rem; color: var(--ais-fg); }
 .ais-dayangle { margin: 0 0 .8rem; color: var(--ais-muted); font-size: .86rem; line-height: 1.5; max-width: 80ch; }

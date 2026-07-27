@@ -76,7 +76,7 @@ function build({ planner, generatePost } = {}) {
     now: () => new Date('2026-07-26T08:00:00Z'),
   });
 
-  return { svc, runsStore, itemsStore, enqueued, uploads };
+  return { svc, runsStore, itemsStore, enqueued, uploads, parts: { runs, mediaLibraryService, planner: async () => PLAN, generatePost: async () => ({ copy: { headline: "H", subtext: "", cta: "", captions: { facebook: "FB" }, hashtags: [] }, png: Buffer.from("89504e470d0a1a0a","hex"), imageError: null }) } };
 }
 
 test('starting a week returns the plan at once and queues one job per day', async () => {
@@ -200,4 +200,41 @@ test('a week for a user who does not own the run does nothing', async () => {
   const { runId } = await svc.startWeek('7', BRAND);
   await svc.runPostJob({ userId: '999', payload: { runId, day: 1 } });
   assert.equal(itemsStore.length, 0, 'ownership is checked before any work');
+});
+
+/*
+ * A week whose posts never appear has to be EXPLAINABLE. Half an hour of "0 / 7"
+ * with nothing on screen to say why is the failure this covers: waiting and
+ * "gave up after three tries" looked identical, and one of them needs the user
+ * to do something.
+ */
+test('each unbuilt day reports which kind of "not yet" it is', async () => {
+  const jobRows = [
+    { id: '1', status: 'completed', idempotencyKey: 'ai_studio:1:day:1', attemptCount: 1, lastErrorCategory: null, lastErrorMessage: null },
+    { id: '2', status: 'running', idempotencyKey: 'ai_studio:1:day:2', attemptCount: 1, lastErrorCategory: null, lastErrorMessage: null },
+    { id: '3', status: 'pending', idempotencyKey: 'ai_studio:1:day:3', attemptCount: 0, lastErrorCategory: null, lastErrorMessage: null },
+    { id: '4', status: 'retry_scheduled', idempotencyKey: 'ai_studio:1:day:4', attemptCount: 2, lastErrorCategory: 'rate_limited', lastErrorMessage: 'The AI is busy right now.' },
+    { id: '5', status: 'failed', idempotencyKey: 'ai_studio:1:day:5', attemptCount: 3, lastErrorCategory: 'timeout', lastErrorMessage: 'The AI did not answer in time.' },
+  ];
+  const { svc, parts } = build();
+  const withJobs = createWeekService({
+    ...parts,
+    jobs: { enqueueJob: async () => ({ created: true }), listJobsByKeyPrefix: async () => jobRows },
+  });
+
+  const { runId } = await withJobs.startWeek('7', BRAND);
+  await withJobs.runPostJob({ userId: '7', payload: { runId, day: 1 } });
+
+  const week = await withJobs.getWeek('7', runId);
+  const byDay = new Map(week.days.map((d) => [d.day, d]));
+
+  assert.equal(byDay.get(1).state, 'built');
+  assert.equal(byDay.get(2).state, 'building');
+  assert.equal(byDay.get(3).state, 'queued');
+  assert.equal(byDay.get(4).state, 'retrying', 'a backoff after a transient failure is not "queued"');
+  assert.equal(byDay.get(5).state, 'failed');
+  assert.equal(byDay.get(5).error, 'The AI did not answer in time.', 'the reason reaches the screen');
+  assert.equal(byDay.get(5).attempts, 3);
+  assert.equal(week.failed, 1, 'the count says a week finished with a gap');
+  assert.ok(svc, 'built helper is used');
 });

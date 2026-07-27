@@ -374,13 +374,20 @@ export async function render(root, ctx) {
     weekView.textContent = '';
     weekView.hidden = false;
 
-    const done = week.ready >= week.total;
+    const failed = Number(week.failed || 0);
+    const done = week.ready + failed >= week.total;
+    // "Finished with two failures" is not "ready", and must not read as ready.
+    const title = done && failed ? 'Your week finished with some gaps' : done ? 'Your week is ready to review' : 'Building your week';
+    const sub = done && failed
+      ? `${week.ready} of ${week.total} posts were built. The rest are marked below with what went wrong.`
+      : done
+        ? 'Check each post below. Nothing is scheduled or published until you say so.'
+        : 'Claude has planned the week. The posters are being designed now — you can close this page and come back.';
+
     weekView.appendChild(el('div', { className: 'ais-weekhead' }, [
       el('div', {}, [
-        el('h2', { className: 'ais-brandname', text: done ? 'Your week is ready to review' : 'Building your week' }),
-        el('p', { className: 'ais-hint', text: done
-          ? 'Check each post below. Nothing is scheduled or published until you say so.'
-          : 'Claude has planned the week. The posters are being designed now — you can close this page and come back.' }),
+        el('h2', { className: 'ais-brandname', text: title }),
+        el('p', { className: 'ais-hint', text: sub }),
       ]),
       el('div', { className: 'ais-weekcount' }, [
         el('span', { className: 'ais-weeknum', text: `${week.ready} / ${week.total}` }),
@@ -393,7 +400,10 @@ export async function render(root, ctx) {
     ]));
 
     const byDay = new Map(week.posts.map((p) => [p.day, p]));
-    weekView.appendChild(el('div', { className: 'ais-days' }, week.plan.map((entry) => {
+    // `days` carries each day's state (built / queued / building / retrying /
+    // failed). The plain plan is the fallback for an older response.
+    const rows = Array.isArray(week.days) && week.days.length ? week.days : week.plan;
+    weekView.appendChild(el('div', { className: 'ais-days' }, rows.map((entry) => {
       const post = byDay.get(entry.day);
       const head = el('div', { className: 'ais-dayhead' }, [
         el('span', { className: 'ais-daynum', text: `Day ${entry.day}` }),
@@ -402,14 +412,33 @@ export async function render(root, ctx) {
       ].filter(Boolean));
 
       if (!post) {
-        // Waiting: the idea is already known, so it is shown rather than hidden
-        // behind a spinner. The user can read the week while it builds.
+        /*
+         * A day with no post yet says WHICH kind of "not yet" it is. Waiting and
+         * "gave up after three tries" looked identical — a spinner that would
+         * never stop — and one of them needs the user to do something.
+         */
+        if (entry.state === 'failed') {
+          return el('article', { className: 'ais-day is-failed' }, [
+            head,
+            el('p', { className: 'ais-dayangle', text: entry.angle }),
+            el('div', { className: 'ais-dayfail' }, [
+              el('span', { className: 'ais-cap-label', text: 'This post could not be built' }),
+              el('p', { className: 'ais-hint', text: entry.error || 'The AI could not be reached.' }),
+              entry.attempts ? el('p', { className: 'ais-hint', text: `Tried ${entry.attempts} times.` }) : null,
+            ].filter(Boolean)),
+          ]);
+        }
+        const waitText = entry.state === 'retrying'
+          ? `Trying again${entry.attempts ? ` (attempt ${entry.attempts + 1})` : ''}…`
+          : entry.state === 'queued'
+            ? 'Waiting its turn…'
+            : 'Designing the poster and writing the copy…';
         return el('article', { className: 'ais-day is-waiting' }, [
           head,
           el('p', { className: 'ais-dayangle', text: entry.angle }),
           el('div', { className: 'ais-daywait' }, [
             el('span', { className: 'ais-spinner ais-spinner-sm' }),
-            el('span', { className: 'ais-hint', text: 'Designing the poster and writing the copy…' }),
+            el('span', { className: 'ais-hint', text: waitText }),
           ]),
         ]);
       }
