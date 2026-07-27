@@ -216,3 +216,34 @@ at the bottom edge, third list row silently dropped), fixed with coordinates
 instead of percentages, re-rendered and inspected again.
 
 Unit 1367/0, integration 52/52.
+
+## 2026-07-28 (end) — the whole path is built
+
+Steps 4, 5 and 6 landed, which completes the product spec end to end: a website
+in, a week of posts out, then it runs itself.
+
+The accounts panel is the user's own connections and nothing else. Activate
+turns the reviewed week into a real schedule: the first post timed to go
+straight away, the rest at a chosen wall-clock time, one a day, in any of the
+world's timezones.
+
+Two decisions worth keeping:
+
+**Queueing was not reimplemented.** `plannerService.queueApproved` already
+resolves the run's chosen accounts and claims each item atomically, and it holds
+no account list of its own on purpose — an earlier version built one and
+attached seven Facebook Pages to a single post. Activation writes the selection
+onto the RUN and hands over. The integration test asserts exactly one target row
+per post, on the chosen account, which is the assertion that catches that
+defect returning.
+
+**The first post is scheduled two minutes out, not "now".** Queueing skips a
+slot whose time has already passed, so asking for this instant would silently
+drop the one post the user was promised would go immediately.
+
+NOTHING PUBLISHES. `ENABLE_LIVE_PROVIDER_PUBLISHING=false` remains the required
+state; activation produces a schedule that the publishing phase will act on once
+that switch is deliberately turned on, and the screen says so in plain words
+rather than implying a post has gone out.
+
+Unit 1371/0, integration 53/53.

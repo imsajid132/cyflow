@@ -18,7 +18,8 @@
  */
 
 import { JOB_TYPES, PLANNER_RUN_STATUS, PLANNER_ITEM_STATUS, PLANNER_QUALITY_STATUS, IMAGE_RENDER_STATUS, PROVIDER_NAMES } from '../../config/constants.js';
-import { toMysqlUtc, addSecondsUtc } from '../../utils/time.js';
+import { toMysqlUtc, addSecondsUtc, zonedWallTimeToUtc, isValidTimezone } from '../../utils/time.js';
+import { ValidationError } from '../../utils/errors.js';
 import { normalizeProviderError } from '../../utils/providerErrors.js';
 import { logProviderFailure } from '../../utils/providerLog.js';
 import * as defaultRuns from '../../repositories/plannerRunRepository.js';
@@ -62,6 +63,14 @@ export function createWeekService({
   generateCopy = generateAiCopy,
   designOnly = designPoster,
   fetchPhoto = fetchPosterPhoto,
+  /*
+   * Queueing is NOT reimplemented here. `plannerService.queueApproved` already
+   * resolves the run's chosen accounts, claims each item atomically so a
+   * double-click cannot post twice, and refuses a slot whose time has passed.
+   * Injected rather than imported at module scope because the planner service
+   * is built by the container and importing it here would tie a knot.
+   */
+  queue = null,
   now = () => new Date(),
 } = {}) {
   /**
@@ -587,6 +596,113 @@ export function createWeekService({
   }
 
   /**
+   * Turn a reviewed week into a schedule, and hand it to the queue.
+   *
+   * The product says: choose the accounts, choose a timezone and a daily time,
+   * press one button, and one post goes out straight away while the rest follow
+   * one a day. This does the timing and the approving; the QUEUEING is
+   * `queueApproved`, which already exists and is not reimplemented here.
+   *
+   * That last point is deliberate. Queueing has no account list inside it on
+   * purpose: an earlier version built its own answer ("every active account
+   * whose type matches the platform") and attached seven Facebook Pages to one
+   * post. The selection lives on the RUN, which is why this writes it there and
+   * then gets out of the way.
+   *
+   * @param {{ accountIds:string[], timezone:string, dailyTime:string }} choice
+   */
+  async function activateWeek(userId, runId, choice = {}) {
+    const run = await runs.findRunByIdForUser(runId, userId);
+    if (!run) return null;
+
+    const accountIds = [...new Set((Array.isArray(choice.accountIds) ? choice.accountIds : [])
+      .map((id) => String(id).trim()).filter(Boolean))];
+    if (!accountIds.length) throw new ValidationError('Choose at least one account to post to.');
+
+    if (!isValidTimezone(choice.timezone)) throw new ValidationError('Choose the timezone your posts should go out in.');
+    const timezone = choice.timezone;
+
+    const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(String(choice.dailyTime || '').trim());
+    if (!m) throw new ValidationError('Choose the time of day your posts should go out.');
+    const hour = Number(m[1]);
+    const minute = Number(m[2]);
+    const dailyTime = `${String(hour).padStart(2, '0')}:${m[2]}`;
+
+    if (typeof queue !== 'function') {
+      throw new ValidationError('Scheduling is not available right now. Please try again shortly.');
+    }
+
+    const items = (await runs.listItemsForRun(run.id, userId))
+      .slice()
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+    if (!items.length) throw new ValidationError('This week has no posts to activate yet.');
+
+    /*
+     * The first post goes out NOW, and "now" has to be a moment that has not
+     * happened yet: queueing skips an item whose scheduled time has passed, so
+     * asking for this instant would silently drop the one post the user was
+     * promised would go immediately. Two minutes survives a worker cycle.
+     */
+    const start = now();
+    // A Date, not addSecondsUtc's MySQL string: this instant is compared with
+    // the day's slot below before it is ever formatted.
+    const firstAt = new Date(start.getTime() + 120_000);
+
+    /*
+     * The rest land at the chosen WALL-CLOCK time, one a day. Wall clock, not
+     * "every 24 hours": someone who picks 09:00 means nine in the morning every
+     * morning, and across a daylight-saving change those are not the same
+     * interval apart.
+     */
+    const local = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(start).reduce((acc, p) => (p.type === 'literal' ? acc : { ...acc, [p.type]: Number(p.value) }), {});
+
+    // If today's slot has already gone, the daily run starts tomorrow.
+    const todaySlot = zonedWallTimeToUtc({ ...local, hour, minute }, timezone);
+    const dayOffset = todaySlot.getTime() <= firstAt.getTime() ? 1 : 0;
+
+    const scheduled = items.map((item, i) => ({
+      item,
+      when: i === 0
+        ? firstAt
+        : zonedWallTimeToUtc(
+          { year: local.year, month: local.month, day: local.day + dayOffset + (i - 1), hour, minute },
+          timezone,
+        ),
+    }));
+
+    // The selection and the schedule belong to the RUN, so a later profile edit
+    // cannot move a week that is already going out.
+    await runs.updateRun(run.id, userId, {
+      timezone,
+      settings: { ...(run.settings || {}), selectedAccountIds: accountIds, dailyTime },
+    });
+
+    for (const { item, when } of scheduled) {
+      // eslint-disable-next-line no-await-in-loop
+      await runs.updateItem(item.id, userId, {
+        scheduledFor: toMysqlUtc(when),
+        originalTimezone: timezone,
+        // Activating IS the approval: the review step is the screen the user is
+        // looking at when they press it.
+        approvalStatus: PLANNER_ITEM_STATUS.APPROVED,
+      });
+    }
+
+    const result = await queue(userId, run.id, scheduled.map((s) => s.item.id));
+    return {
+      runId: String(run.id),
+      timezone,
+      dailyTime,
+      accountIds,
+      firstAt: toMysqlUtc(firstAt),
+      queued: result?.queued?.length ?? 0,
+      skipped: result?.skipped ?? [],
+    };
+  }
+
+  /**
    * The week this user is in the middle of, without being told which one.
    *
    * A week takes five to eight minutes to build, which is long enough to close
@@ -605,7 +721,7 @@ export function createWeekService({
 
   const handlers = { [JOB_TYPES.AI_STUDIO_POST]: runPostJob };
 
-  return { startWeek, runPostJob, requestRegenerate, getWeek, findLatestWeek, handlers };
+  return { startWeek, runPostJob, requestRegenerate, activateWeek, getWeek, findLatestWeek, handlers };
 }
 
 export const weekService = createWeekService();

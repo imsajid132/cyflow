@@ -160,3 +160,92 @@ test('the week in progress is found again after the tab is gone', SKIP, async ()
   // A user with no studio week gets null, not someone else's.
   assert.equal(await createWeekService().findLatestWeek(await seedUser('nobody@example.test')), null);
 });
+
+/*
+ * Activating a week, through the REAL planner queue on MariaDB.
+ *
+ * The unit tests record the queue call; they cannot see whether the schedule it
+ * produces is one the queue will accept. Two things only a real run proves: the
+ * first post must be timed into the FUTURE (queueing silently skips a slot whose
+ * time has passed, which would drop the one post the user was promised goes out
+ * immediately), and the account selection must be read from the RUN rather than
+ * rebuilt — the defect that once attached seven Facebook Pages to one post.
+ */
+test('activating a week schedules it through the real queue', SKIP, async () => {
+  const { buildContainer } = await import('../../src/container.js');
+  const social = await import('../../src/repositories/socialAccountRepository.js');
+  const postsRepo = await import('../../src/repositories/postRepository.js');
+
+  const userId = await seedUser('activate@example.test');
+  await social.upsertSocialAccount({
+    userId, provider: 'meta', accountType: 'facebook_page', providerAccountId: 'fb-activate',
+    displayName: 'Pioneer Construction NYC', username: 'pioneer', encryptedAccessToken: 'v1:t',
+    scopes: [], providerMetadata: {}, status: 'active',
+  });
+  const [chosen] = await social.listAccountsForUser(userId);
+
+  const container = buildContainer();
+  const svc = container.aiStudioWeekService;
+
+  const plan = Array.from({ length: 3 }, (_, i) => ({
+    day: i + 1, job: 'introduce', angle: `Angle ${i + 1}`, service: 'Brick pointing', why: 'For owners.',
+  }));
+  const weekSvc = (await import('../../src/services/aiStudio/weekService.js')).createWeekService({
+    planner: async () => plan,
+    generatePost: async () => ({
+      copy: {
+        headline: 'Bad pointing lets water in', subtext: 'We stop it', cta: 'Book now', points: ['a', 'b'],
+        captions: { facebook: 'FB copy', instagram: 'IG copy', threads: 'TH copy' },
+        hashtags: ['#masonry'],
+      },
+      png: null,
+      imageError: null,
+    }),
+    fetchPhoto: async () => null,
+    queue: (u, r, ids) => container.plannerService.queueApproved(u, r, ids),
+  });
+
+  const { runId } = await weekSvc.startWeek(userId, {
+    businessName: 'Pioneer Construction NYC', industry: 'General contractor',
+    primary: '#121212', secondary: '#8a8a8a', accent: '#e8402a',
+  }, { timezone: 'America/New_York' });
+  for (let d = 1; d <= 3; d += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await weekSvc.runPostJob({ userId, payload: { runId, day: d } });
+  }
+
+  const out = await weekSvc.activateWeek(userId, runId, {
+    accountIds: [String(chosen.id)],
+    timezone: 'America/New_York',
+    dailyTime: '09:00',
+  });
+
+  assert.equal(out.queued, 3, 'every post reached the queue, including the immediate one');
+  assert.deepEqual(out.skipped, [], `nothing was skipped: ${JSON.stringify(out.skipped)}`);
+
+  // In the tables, not only through the return value.
+  const [rows] = await pool.query('SELECT COUNT(*) AS n FROM scheduled_posts WHERE user_id = ?', [userId]);
+  assert.equal(Number(rows[0].n), 3);
+
+  /*
+   * Exactly one target per post, and it is the account that was CHOSEN. This is
+   * the assertion that would have caught the seven-Pages fan-out.
+   */
+  const [targets] = await pool.query(
+    `SELECT t.social_account_id AS acct, COUNT(*) AS n
+       FROM scheduled_post_targets t JOIN scheduled_posts p ON p.id = t.scheduled_post_id
+      WHERE p.user_id = ? GROUP BY t.social_account_id`,
+    [userId],
+  );
+  assert.equal(targets.length, 1, 'one account, not a fan-out');
+  assert.equal(String(targets[0].acct), String(chosen.id));
+  assert.equal(Number(targets[0].n), 3);
+
+  // The selection and the schedule are on the run, where a later profile edit
+  // cannot reach them.
+  const run = await (await import('../../src/repositories/plannerRunRepository.js')).findRunByIdForUser(runId, userId);
+  assert.deepEqual(run.settings.selectedAccountIds, [String(chosen.id)]);
+  assert.equal(run.settings.dailyTime, '09:00');
+  assert.equal(run.timezone, 'America/New_York');
+  assert.ok(postsRepo, 'posts repository is reachable');
+});

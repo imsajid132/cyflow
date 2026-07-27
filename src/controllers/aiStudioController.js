@@ -18,6 +18,8 @@ import { sendSuccess } from '../utils/apiResponse.js';
 import { ValidationError, NotFoundError } from '../utils/errors.js';
 import { normalizeProviderError } from '../utils/providerErrors.js';
 import { PROVIDER_NAMES } from '../config/constants.js';
+import { config } from '../config/env.js';
+import * as defaultSocialAccounts from '../repositories/socialAccountRepository.js';
 import { generateAiPost } from '../services/aiStudio/aiStudioEngine.js';
 import { refineBrand } from '../services/aiStudio/brandRefiner.js';
 import { isClaudeConfigured } from '../services/aiStudio/claudeClient.js';
@@ -35,6 +37,7 @@ export function createAiStudioController({
   websiteAnalysis = defaultWebsiteAnalysis,
   weekService = defaultWeekService,
   memory = defaultMemory,
+  socialAccounts = defaultSocialAccounts,
 } = {}) {
   /** Whether the AI is configured, so the page can show a clear "add a key" note. */
   const status = asyncHandler(async (req, res) => sendSuccess(res, { configured: isClaudeConfigured() }));
@@ -339,7 +342,58 @@ export function createAiStudioController({
     }, 202);
   });
 
-  return { status, analyze, saveBrand, resume, generate, startWeek, getWeek, regenerate };
+  /**
+   * The user's own connected accounts, and nothing else.
+   *
+   * The product is explicit that this step is a list of accounts to tick, not a
+   * settings page. Only what a person needs to recognise their own account:
+   * which network, what it is called, and whether it can actually be posted to.
+   * No tokens, no ids from the provider, no scopes.
+   */
+  const accounts = asyncHandler(async (req, res) => {
+    const rows = await socialAccounts.listAccountsForUser(req.user.id);
+    return sendSuccess(res, {
+      accounts: rows.map((a) => ({
+        id: String(a.id),
+        platform: a.accountType || a.provider,
+        displayName: a.displayName || a.username || 'Connected account',
+        username: a.username || '',
+        // A revoked or expired connection is shown, and shown as unusable: an
+        // account missing from the list with no explanation is the version of
+        // this screen that generates support questions.
+        connected: a.status === 'active',
+        status: a.status,
+      })),
+    });
+  });
+
+  /**
+   * Activate: one post goes out straight away, the rest one a day.
+   *
+   * This is the end of the product's single path. It writes the account
+   * selection and the schedule onto the run and hands the week to the queue.
+   *
+   * It does NOT publish. Live publishing is off by design
+   * (`ENABLE_LIVE_PROVIDER_PUBLISHING=false`), so what this produces is a real
+   * schedule that the publishing phase will act on once that switch is
+   * deliberately turned on. The response says so rather than implying a post
+   * has gone out.
+   */
+  const activate = asyncHandler(async (req, res) => {
+    const b = req.body || {};
+    const out = await weekService.activateWeek(req.user.id, req.params.runId, {
+      accountIds: Array.isArray(b.accountIds) ? b.accountIds : [],
+      timezone: str(b.timezone, 60),
+      dailyTime: str(b.dailyTime, 5),
+    });
+    if (!out) throw new NotFoundError('That week was not found');
+    return sendSuccess(res, {
+      ...out,
+      liveEnabled: Boolean(config.publishing?.liveEnabled),
+    }, 202);
+  });
+
+  return { status, analyze, saveBrand, resume, generate, startWeek, getWeek, regenerate, accounts, activate };
 }
 
 export default createAiStudioController;

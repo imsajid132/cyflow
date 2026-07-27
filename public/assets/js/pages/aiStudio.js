@@ -511,6 +511,15 @@ export async function render(root, ctx) {
     })));
 
     /*
+     * The last step, and only once there is a week to send.
+     *
+     * The product is strict about what belongs here: the accounts the user has
+     * already connected, a timezone, a time. No audience settings, no per-post
+     * scheduling, nothing to configure. One button.
+     */
+    if (done && week.ready > 0) weekView.appendChild(activateBar(week));
+
+    /*
      * Stop polling when the week is finished AND nothing is being redone. The
      * second half matters: a regeneration is asked for AFTER the week finishes,
      * so a poll that stopped at "done" would leave the new poster sitting in
@@ -521,6 +530,121 @@ export async function render(root, ctx) {
     if ((!done || busy) && !polling && week.runId) {
       polling = setInterval(() => pollWeek(week.runId), 5000);
     }
+  }
+
+  /*
+   * ---- step 4, 5 and 6: accounts, timezone, activate -----------------------
+   *
+   * Fetched once and kept: the list does not change while someone is looking at
+   * it, and re-fetching on every poll would flicker the ticks they just made.
+   */
+  let accountsCache = null;
+  const chosenAccounts = new Set();
+
+  async function loadAccounts() {
+    if (accountsCache) return accountsCache;
+    const res = await api.apiRequest('/api/ai-studio/accounts');
+    accountsCache = res.ok ? (api.payload(res)?.accounts || []) : [];
+    // Everything usable starts ticked: someone who connected an account meant
+    // to post to it, and unticking is easier than hunting for the one they want.
+    accountsCache.forEach((a) => { if (a.connected) chosenAccounts.add(a.id); });
+    return accountsCache;
+  }
+
+  /** Every timezone this browser knows, so nobody has to find theirs in a short list. */
+  function allTimezones() {
+    const supported = typeof Intl.supportedValuesOf === 'function'
+      ? Intl.supportedValuesOf('timeZone')
+      : [];
+    const here = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    // The user's own zone first: it is the answer nine times out of ten.
+    return supported.length ? [here, ...supported.filter((z) => z !== here)] : [here, 'UTC'];
+  }
+
+  function activateBar(week) {
+    const bar = el('section', { className: 'ais-activate' });
+    bar.appendChild(el('h3', { className: 'ais-brandname', text: 'Send this week' }));
+    bar.appendChild(el('p', {
+      className: 'ais-hint',
+      text: 'Choose where it goes and when. One post goes out straight away; the rest follow one a day, and it keeps going without this page being open.',
+    }));
+
+    const list = el('div', { className: 'ais-accounts' }, [
+      el('span', { className: 'ais-hint', text: 'Loading your accounts…' }),
+    ]);
+    bar.appendChild(list);
+
+    const tzSelect = el('select', { className: 'ais-input ais-select' });
+    const here = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    for (const zone of allTimezones()) {
+      tzSelect.appendChild(el('option', { attrs: { value: zone, ...(zone === here ? { selected: 'selected' } : {}) }, text: zone }));
+    }
+    const timeInput = el('input', { className: 'ais-input ais-time', attrs: { type: 'time', value: '09:00' } });
+
+    bar.appendChild(el('div', { className: 'ais-when' }, [
+      el('label', { className: 'ais-row' }, [el('span', { className: 'ais-label', text: 'Timezone' }), tzSelect]),
+      el('label', { className: 'ais-row' }, [el('span', { className: 'ais-label', text: 'Time each day' }), timeInput]),
+    ]));
+
+    const go = el('button', { className: 'ais-btn ais-go', attrs: { type: 'button' }, text: 'Activate this week' });
+    const note = el('p', { className: 'ais-hint ais-gonote' });
+    bar.appendChild(el('div', { className: 'ais-gorow' }, [go, note]));
+
+    loadAccounts().then((accounts) => {
+      list.textContent = '';
+      if (!accounts.length) {
+        list.appendChild(el('p', { className: 'ais-hint', text: 'No accounts are connected yet. Connect one on the Connections page, then come back.' }));
+        go.disabled = true;
+        return;
+      }
+      for (const a of accounts) {
+        const box = el('input', {
+          className: 'ais-check',
+          attrs: { type: 'checkbox', ...(chosenAccounts.has(a.id) ? { checked: 'checked' } : {}), ...(a.connected ? {} : { disabled: 'disabled' }) },
+        });
+        box.addEventListener('change', () => {
+          if (box.checked) chosenAccounts.add(a.id); else chosenAccounts.delete(a.id);
+        });
+        list.appendChild(el('label', { className: `ais-account${a.connected ? '' : ' is-off'}` }, [
+          box,
+          el('span', { className: 'ais-acct-name', text: a.displayName }),
+          el('span', { className: 'ais-chip', text: a.platform }),
+          // An account that cannot be posted to says so, rather than going
+          // missing from a list with no explanation.
+          a.connected ? null : el('span', { className: 'ais-hint', text: 'needs reconnecting' }),
+        ].filter(Boolean)));
+      }
+    });
+
+    go.addEventListener('click', async () => {
+      if (!chosenAccounts.size) { toast('Choose at least one account first.', 'warn'); return; }
+      go.disabled = true;
+      go.textContent = 'Scheduling…';
+
+      const res = await api.apiRequest(`/api/ai-studio/week/${encodeURIComponent(week.runId)}/activate`, {
+        method: 'POST',
+        body: { accountIds: [...chosenAccounts], timezone: tzSelect.value, dailyTime: timeInput.value },
+      });
+
+      go.disabled = false;
+      go.textContent = 'Activate this week';
+
+      if (res.unauthorized) { ctx.navigate('/login'); return; }
+      if (!res.ok) { toast(api.errorMessage(res, 'This week could not be scheduled.'), 'err'); return; }
+
+      const out = api.payload(res) || {};
+      /*
+       * Said plainly, because it is the difference between "your post is live"
+       * and "your post is scheduled". Live publishing is off, and a screen that
+       * implied otherwise would be lying to someone about their own business.
+       */
+      note.textContent = out.liveEnabled
+        ? `${out.queued} posts scheduled. The first goes out in about two minutes.`
+        : `${out.queued} posts scheduled, one a day at ${out.dailyTime} (${out.timezone}). Sending to your accounts is still switched off, so nothing has been posted yet.`;
+      toast('Your week is scheduled.', 'ok');
+    });
+
+    return bar;
   }
 
   /** Ask for one piece of one day again. The poll shows the result. */

@@ -13,41 +13,46 @@ activate — one post goes out immediately, the rest scheduled daily in the user
 timezone, for ever, without the app being open. Never a duplicate.
 
 ## Current Phase
-Steps 1 and 2 of the spec are built and deployed; step 2 was blocked in
-PRODUCTION by a database that was a version behind, and that block is now cleared.
-This session: diagnosed and fixed the production stall, then made the studio
-survive a refresh.
+**Every step of the product spec is built.** 1 analyze → 2 generate a week →
+3 regenerate a poster or its captions → 4 choose accounts → 5 activate → 6 world
+timezone + daily time. Production builds weeks successfully. What is left is the
+owner's judgement on the output, and the first deliberate live publish.
 
 ## Current Branch
 ai-poster-studio (feature branch; base e103789 on cyflow-social-v1)
 
 ## Current HEAD
-700a295 — "feat(aiStudio): a week that failed offers the way out where the failure
-is read". Spec step 3 (regenerate one poster / one set of captions) is uncommitted
-below, about to become the next commit.
+7b5d782 — "feat(aiStudio): put the business's own photographs on the posters".
+Steps 4, 5 and 6 (accounts panel + activate + timezone) are uncommitted below,
+about to become the next commit.
 
 ## Working Tree State
-Dirty — refresh-proof studio + two test corrections:
-- NEW  `src/services/aiStudio/studioMemory.js` — the brand, kept server-side on
-  the user's business profile (`extracted_metadata_json.aiStudioBrand`). Merges
-  rather than replaces, so onboarding's own extract in that column survives.
-  `sanitizeBrand()` runs on the way IN and OUT. NO new migration.
-- M    `src/services/aiStudio/weekService.js` — `findLatestWeek(userId)`: the
-  newest `settings.engine === 'ai_studio'` run, whatever state it is in.
-- M    `src/controllers/aiStudioController.js` — `resume` (GET) + `saveBrand`
-  (POST); `analyze` now remembers the brand it returns.
-- M    `src/routes/aiStudioRoutes.js` — `GET /api/ai-studio/session`,
-  `POST /api/ai-studio/brand` (CSRF).
-- M    `public/assets/js/pages/aiStudio.js` — restores on load, saves edits
-  debounced (1.2s) via one delegated listener on the page.
-- MOVED `database/migrations/018_..._SAFE_RERUN.sql` → `database/repair/` +
-  a README. It is a repair script, not a numbered migration; it duplicated
-  number 018 and broke the migration-name gate.
-- M    `tests/integration/releaseJourney.integration.test.js` — CY-008.
-- NEW  `tests/studioMemory.test.js`, `tests/integration/studioSession.integration.test.js`.
+Dirty — the accounts panel and activation:
+- M `src/services/aiStudio/weekService.js` — `activateWeek(userId, runId,
+  {accountIds, timezone, dailyTime})`: times the week, approves it, and hands it
+  to the injected `queue`. First post +120s (a slot in the past is skipped by
+  queueing); the rest at the chosen WALL-CLOCK time, one a day.
+- M `src/container.js` — injects `plannerService.queueApproved` as that `queue`.
+  Queueing is deliberately not reimplemented.
+- M `src/controllers/aiStudioController.js` — `accounts` (the user's own
+  connections, no tokens) and `activate` (reports `liveEnabled` honestly).
+- M `src/routes/aiStudioRoutes.js` — `GET /accounts`, `POST /week/:runId/activate`.
+- M `public/assets/js/pages/aiStudio.js` + `design-system.css` — the panel: tick
+  accounts, pick a timezone from every zone the browser knows, pick a time, one
+  button.
+- M `tests/weekService.test.js` (+4), `tests/integration/studioSession...` (+1).
 
 ## Last Completed Step
-**Poster design rebuilt around real photographs and the reference grammar.** The
+**Spec steps 4, 5 and 6.** The accounts panel under a finished week (the user's
+own connections, selectable, nothing else), and Activate: every world timezone,
+a daily time applied as wall clock, the first post timed to go straight away and
+the rest one a day. Queueing is `plannerService.queueApproved`, injected rather
+than reimplemented, and an integration test on real MariaDB asserts exactly one
+target row per post on the chosen account — the assertion that catches the
+seven-Pages fan-out returning. NOTHING PUBLISHES; the screen says so.
+
+Before that: **poster design rebuilt around real photographs and the reference
+grammar.** The
 owner looked at the first live week and said the posters were wrong: their
 friend's app puts the website's real images behind the design, and ours had no
 picture at all. Both halves of that are now fixed and were verified by RENDERING
@@ -74,47 +79,48 @@ redeployed, a fresh week actually builds: `/health` went 1 -> 17 `completed` wit
 recurred. This is the first end-to-end proof on the live host.
 
 ## Files Changed (uncommitted, for the next commit)
-See "Working Tree State" — 5 modified, 4 new, 1 moved. All additive; no schema
-change and no change to the Make (OpenAI+HCTI) engine.
+See "Working Tree State" — 7 modified. All additive; no schema change and no
+change to the Make (OpenAI+HCTI) engine.
 
 ## Tests Run and Results
-- FULL unit suite: **1367/0** (was 1343; +24).
+- FULL unit suite: **1371/0** (was 1343; +28).
 - Rendered review: 3 posters at 1080x1080 through the production SVG path with a
   real photograph, looked at, a defect found (footer clipped at the bottom edge,
   third list row dropped), fixed, re-rendered and looked at again.
-- FULL integration suite on disposable MariaDB: **52/52, 0 skipped** (was 47/0;
-  +5 new, and 3 pre-existing failures fixed — see CY-008).
+- FULL integration suite on disposable MariaDB: **53/53, 0 skipped** (was 47/0;
+  +6 new, and 3 pre-existing failures fixed — see CY-008). The newest proves an
+  activation through the REAL planner queue: one target row per post, on the
+  chosen account, no fan-out.
 - `npm run migrate:check` → PASS (naming, ordering, contents, schema parity).
 - `node --check` clean on the changed client module.
-- NOT run: browser smokes (no visual change this session — the studio's look is
-  unchanged; this was persistence plumbing).
+- NOT run: browser smokes. The accounts panel has not been looked at in a real
+  browser yet — it is the one piece of this session no human eye has checked.
 
 ## Current Failure or Blocker
-None in the repository. One thing is waiting on the OWNER: the production database
-now has migration 018 applied (they ran the repair script in phpMyAdmin on
-2026-07-28 and `SHOW COLUMNS` returned the nine columns), and they were asked to
-redeploy once — so pooled connections re-prepare their statements against the new
-table definition — then generate a fresh week. The 77 failed jobs are historical
-and will not re-run; a NEW week is required.
+None. Production applied migration 018 and now builds weeks end to end: /health
+reached 21 completed with failed frozen at 77 (all historical), and the
+`Unknown column` failure has not recurred.
 
 ## Exact Next Step
-Step 4: the connected-accounts panel under the reviewed week — just the user's
-own accounts, selectable, nothing else. Then steps 5-6 (activate: one post
-immediately + the rest scheduled, every world timezone + a daily time). Step 5
-publishes live, so it needs the owner's explicit go-ahead and stays behind
-`ENABLE_LIVE_PROVIDER_PUBLISHING=false` until then.
+**Every step of the product spec is now built.** 1 analyze → 2 generate a week →
+3 regenerate a poster or its captions → 4 choose accounts → 5 activate (one post
+straight away, the rest one a day) → 6 every world timezone + a daily time.
 
-Also worth doing before that: LOOK at the posters that just built on the live
-host. Tests do not read for tone or look at pictures (CLAUDE.md), and this is the
-first real week the AI engine has produced end to end.
-
-Still outstanding and NOT done by me: **make the GitHub repository private** —
-there is no `gh` CLI or token in this environment, so it is three clicks in the
-GitHub UI (Settings → General → Danger Zone → Change visibility).
+What remains is not more building:
+1. The owner looks at a real week on the live host, including the accounts panel
+   and an activation, and says whether the posters are right.
+2. THE FIRST LIVE PUBLISH. This is the only remaining thing that needs a
+   deliberate decision: `ENABLE_LIVE_PROVIDER_PUBLISHING=false` is the current
+   and required state, activation produces a real schedule that nothing acts on
+   until that switch is turned on, and the screen says so. Turn it on once, for
+   one account, with the owner watching. Do NOT do this unprompted.
+3. Make the GitHub repository private. Owner action: there is no `gh` CLI or
+   token in this environment, so it is Settings → General → Danger Zone →
+   Change visibility.
 
 ## Commands or Tests to Run Next
-- `node --test tests/*.test.js` (expect 1350/0)
-- integration: see `tests/integration/README.md` (expect 52/52)
+- `node --test tests/*.test.js` (expect 1371/0)
+- integration: see `tests/integration/README.md` (expect 53/53)
 - `npm run migrate:check` ; `npm run project:handoff`
 - live: `curl -s https://cyflow.cyfrow.net/health` → check `aiStudio.jobs`
 

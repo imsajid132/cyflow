@@ -78,6 +78,27 @@ export function createAiStudioRoutes({ aiStudioController, requireAuth }) {
     aiStudioController.regenerate,
   );
 
+  /*
+   * Step 4: the accounts to choose from. A plain read of the user's own
+   * connections — no tokens, no provider ids.
+   */
+  router.get('/accounts', requireAuth, aiStudioController.accounts);
+
+  /*
+   * Step 5 and 6: activate. The chosen accounts, a timezone and a daily time
+   * become a real schedule; the first post is timed to go straight away and the
+   * rest follow one a day.
+   *
+   * This does NOT publish. Live publishing is off by design and the response
+   * reports that honestly rather than implying a post has gone out.
+   */
+  router.post(
+    '/week/:runId/activate',
+    requireAuth,
+    csrfProtection,
+    aiStudioController.activate,
+  );
+
   return router;
 }
 

@@ -400,6 +400,132 @@ test('another user cannot regenerate this week, and neither can a day that is no
 });
 
 /*
+ * ---- activate --------------------------------------------------------------
+ *
+ * The end of the product's single path: choose the accounts, choose a timezone
+ * and a daily time, press once. One post goes out straight away and the rest
+ * follow one a day, for ever, without the app being open.
+ */
+
+/** A service whose queueing is recorded rather than performed. */
+function withQueue(extra = {}) {
+  const base = build();
+  const queued = [];
+  const svc = createWeekService({
+    ...base.parts,
+    jobs: { enqueueJob: async () => ({ created: true }), listJobsByKeyPrefix: async () => [] },
+    queue: async (userId, runId, itemIds) => { queued.push({ userId, runId, itemIds }); return { queued: itemIds, skipped: [] }; },
+    now: () => new Date('2026-07-28T04:00:00Z'), // 09:00 in Asia/Karachi
+    ...extra,
+  });
+  return { svc, queued, items: base.itemsStore, runs: base.runsStore };
+}
+
+async function seedWeek(svc, days = 3) {
+  const { runId } = await svc.startWeek('7', BRAND);
+  for (let d = 1; d <= days; d += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await svc.runPostJob({ userId: '7', payload: { runId, day: d } });
+  }
+  return runId;
+}
+
+test('activating schedules the first post now and the rest one a day', async () => {
+  const { svc, queued, items, runs: runsStore } = withQueue();
+  const runId = await seedWeek(svc, 3);
+
+  const out = await svc.activateWeek('7', runId, {
+    accountIds: ['11', '12', '11'],
+    timezone: 'Asia/Karachi',
+    dailyTime: '18:30',
+  });
+
+  assert.equal(out.queued, 3);
+  assert.deepEqual(out.accountIds, ['11', '12'], 'the same account twice is still one account');
+  assert.equal(out.dailyTime, '18:30');
+
+  /*
+   * The first post must be in the FUTURE. Queueing skips a slot whose time has
+   * passed, so scheduling "now" would silently drop the one post the user was
+   * promised would go immediately.
+   */
+  assert.equal(items[0].scheduledFor, '2026-07-28 04:02:00');
+  // 18:30 Karachi is 13:30 UTC. Today's 18:30 is still ahead of 04:02, so the
+  // daily run starts TODAY for post 2.
+  assert.equal(items[1].scheduledFor, '2026-07-28 13:30:00');
+  assert.equal(items[2].scheduledFor, '2026-07-29 13:30:00');
+  assert.ok(items.every((i) => i.originalTimezone === 'Asia/Karachi'));
+
+  // Activating IS the approval: the review step is the screen they pressed it on.
+  assert.ok(items.every((i) => i.approvalStatus === PLANNER_ITEM_STATUS.APPROVED));
+
+  /*
+   * The selection lives on the RUN. Queueing deliberately holds no account list
+   * of its own — an earlier version built one and attached seven Facebook Pages
+   * to a single post.
+   */
+  assert.deepEqual(runsStore[0].settings.selectedAccountIds, ['11', '12']);
+  assert.equal(runsStore[0].timezone, 'Asia/Karachi');
+  assert.equal(queued.length, 1, 'queueing is called once, not per item');
+});
+
+/*
+ * Wall clock, not "every 24 hours". Someone who picks 09:00 means nine in the
+ * morning every morning.
+ */
+test('a daily time that has already passed today starts tomorrow', async () => {
+  const { svc, items } = withQueue();
+  const runId = await seedWeek(svc, 2);
+
+  // 04:00 UTC is 09:00 in Karachi, so 06:00 local is already gone.
+  await svc.activateWeek('7', runId, { accountIds: ['11'], timezone: 'Asia/Karachi', dailyTime: '06:00' });
+
+  assert.equal(items[0].scheduledFor, '2026-07-28 04:02:00', 'the first still goes now');
+  assert.equal(items[1].scheduledFor, '2026-07-29 01:00:00', 'tomorrow 06:00 Karachi = 01:00 UTC');
+});
+
+test('the same daily time means the same wall clock in any timezone', async () => {
+  for (const [tz, expected] of [
+    ['Asia/Karachi', '2026-07-28 13:30:00'],
+    ['America/New_York', '2026-07-28 22:30:00'],
+    ['UTC', '2026-07-28 18:30:00'],
+  ]) {
+    const { svc, items } = withQueue();
+    // eslint-disable-next-line no-await-in-loop
+    const runId = await seedWeek(svc, 2);
+    // eslint-disable-next-line no-await-in-loop
+    await svc.activateWeek('7', runId, { accountIds: ['11'], timezone: tz, dailyTime: '18:30' });
+    assert.equal(items[1].scheduledFor, expected, `${tz} 18:30`);
+  }
+});
+
+test('activating refuses what it cannot honour', async () => {
+  const { svc, queued } = withQueue();
+  const runId = await seedWeek(svc, 2);
+
+  await assert.rejects(
+    () => svc.activateWeek('7', runId, { accountIds: [], timezone: 'UTC', dailyTime: '09:00' }),
+    /at least one account/i,
+    'nowhere to send it is not a schedule',
+  );
+  await assert.rejects(
+    () => svc.activateWeek('7', runId, { accountIds: ['11'], timezone: 'Mars/Olympus', dailyTime: '09:00' }),
+    /timezone/i,
+  );
+  for (const bad of ['', '9am', '25:00', '09:60', '9:5']) {
+    // eslint-disable-next-line no-await-in-loop
+    await assert.rejects(
+      () => svc.activateWeek('7', runId, { accountIds: ['11'], timezone: 'UTC', dailyTime: bad }),
+      /time of day/i,
+      `"${bad}" is not a time`,
+    );
+  }
+  assert.equal(queued.length, 0, 'nothing was queued by a refused activation');
+  // Another user's week cannot be activated.
+  assert.equal(await svc.activateWeek('999', runId, { accountIds: ['11'], timezone: 'UTC', dailyTime: '09:00' }), null);
+});
+
+/*
  * A week whose posts never appear has to be EXPLAINABLE. Half an hour of "0 / 7"
  * with nothing on screen to say why is the failure this covers: waiting and
  * "gave up after three tries" looked identical, and one of them needs the user

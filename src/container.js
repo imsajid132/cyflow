@@ -207,9 +207,16 @@ export function buildContainer(overrides = {}) {
   const parseSingleImage = overrides.parseSingleImage ?? createMediaUploadMiddleware();
   const businessProfileController = createBusinessProfileController({ businessProfileService });
   const plannerController = createPlannerController({ plannerService });
-  // The AI Studio week: planned in the request, built by durable jobs.
+  // The AI Studio week: planned in the request, built by durable jobs, and
+  // scheduled through the planner's own queueing — which resolves the run's
+  // chosen accounts and claims each item atomically. Activating a week must not
+  // grow a second copy of that logic.
   const aiStudioWeekService = overrides.aiStudioWeekService
-    ?? createWeekService({ runs: plannerRuns, mediaLibraryService });
+    ?? createWeekService({
+      runs: plannerRuns,
+      mediaLibraryService,
+      queue: (userId, runId, itemIds) => plannerService.queueApproved(userId, runId, itemIds),
+    });
   const aiStudioController = createAiStudioController({ weekService: aiStudioWeekService });
 
   // D1: content automations + the durable background job runtime. The automation

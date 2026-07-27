@@ -115,3 +115,28 @@ which is the single remaining redeploy + live-acceptance step.
 - [x] THREE posters rendered at 1080x1080 through the production SVG path and
       LOOKED AT, plus a re-render after the fix. Not approved on tests.
 - [ ] Looked at on the live host by the owner, on a real week.
+
+## Steps 4, 5, 6 — accounts, activate, timezone (2026-07-28)
+
+- [x] Under a finished week: the user's own connected accounts, selectable, and
+      nothing else. No settings, no audience, no per-post scheduling.
+- [x] An account that cannot be posted to is SHOWN and marked, not hidden.
+- [x] Every world timezone (Intl.supportedValuesOf), the user's own first.
+- [x] A daily time, applied as WALL CLOCK — 09:00 means nine every morning, not
+      "every 24 hours".
+- [x] One button. The first post is timed to go straight away; the rest one a
+      day. Proved: the first slot is in the FUTURE, because queueing skips a
+      slot whose time has passed and would have silently dropped it.
+- [x] A slot already gone today starts the daily run tomorrow.
+- [x] Activating IS the approval; the review step is the screen it is pressed on.
+- [x] Queueing is NOT reimplemented — plannerService.queueApproved is reused, so
+      the account resolution and the atomic per-item claim still apply.
+- [x] Proved on real MariaDB: 3 posts queued, exactly ONE target row per post,
+      and it is the chosen account (the assertion that catches a fan-out).
+- [x] The selection and schedule live on the RUN, so a later profile edit cannot
+      move a week already going out.
+- [x] Refusals: no account, an unknown timezone, a malformed time. Nothing is
+      queued by a refused activation, and another user cannot activate the week.
+- [x] NOTHING PUBLISHES. Live publishing stays off and the screen says so in
+      plain words rather than implying a post has gone out.
+- [ ] Looked at on the live host by the owner.

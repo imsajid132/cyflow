@@ -1403,6 +1403,30 @@ legend { padding: 0; }
 }
 .ais-redo:hover:not(:disabled) { border-color: var(--ais-accent); color: var(--ais-accent); }
 .ais-redo.is-busy, .ais-redo:disabled { opacity: .65; cursor: default; }
+
+/* The last step: accounts, a timezone, a time, one button. Nothing else is
+   allowed on this panel — it is a choice, not a settings page. */
+.ais-activate {
+  margin-top: 1.6rem; padding-top: 1.3rem; border-top: 1px solid var(--ais-border);
+  display: flex; flex-direction: column; gap: .75rem;
+}
+.ais-accounts { display: flex; flex-direction: column; gap: .5rem; }
+.ais-account {
+  display: flex; align-items: center; gap: .6rem; cursor: pointer;
+  background: var(--ais-panel2); border: 1px solid var(--ais-border);
+  border-radius: 10px; padding: .6rem .8rem;
+}
+.ais-account:hover { border-color: var(--ais-accent); }
+.ais-account.is-off { opacity: .55; cursor: default; }
+.ais-account.is-off:hover { border-color: var(--ais-border); }
+.ais-acct-name { font-weight: 600; }
+.ais-check { width: 18px; height: 18px; accent-color: var(--ais-accent); flex: none; }
+.ais-when { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 1rem; }
+@media (max-width: 620px) { .ais-when { grid-template-columns: 1fr; } }
+.ais-select, .ais-time { width: 100%; }
+.ais-gorow { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.ais-go { font-weight: 700; }
+.ais-gonote { margin: 0; }
 .ais-daywait { display: flex; align-items: center; gap: .6rem; }
 .ais-spinner-sm { width: 18px; height: 18px; border-width: 2px; margin: 0; }
 
