@@ -13,7 +13,7 @@ import { checkHealth } from '../db/pool.js';
 import { config } from '../config/env.js';
 import { nowIso } from '../utils/time.js';
 import { APP_NAME, JOB_TYPES } from '../config/constants.js';
-import { jobStats, jobStatusCounts } from '../repositories/backgroundJobRepository.js';
+import { jobStats, jobStatusCounts, lastJobFailure } from '../repositories/backgroundJobRepository.js';
 import { backgroundStatus } from '../jobs/backgroundStatus.js';
 import { isClaudeConfigured } from '../services/aiStudio/claudeClient.js';
 import { isAiStudioMode } from '../services/aiStudio/aiStudioEngine.js';
@@ -81,6 +81,8 @@ router.get(
     if (db.ok) {
       try {
         aiStudio.jobs = await jobStatusCounts(JOB_TYPES.AI_STUDIO_POST);
+        // Counts alone say everything is failing and nothing about why.
+        if (aiStudio.jobs?.failed) aiStudio.lastFailure = await lastJobFailure(JOB_TYPES.AI_STUDIO_POST);
       } catch {
         aiStudio.jobs = null;
       }

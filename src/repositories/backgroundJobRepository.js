@@ -299,6 +299,33 @@ export async function jobStatusCounts(jobType, connection) {
   return counts;
 }
 
+/**
+ * The most recent failure for a job type: its category and its SAFE message.
+ *
+ * Sixty-three failed jobs told us that everything was failing and nothing about
+ * why, which is half a diagnosis. The message stored on a job is already the
+ * normalized, credential-free one (see utils/providerErrors.js) — the same text
+ * shown to the user — so reporting it here reveals nothing new. No ids, no
+ * payload, no user.
+ */
+export async function lastJobFailure(jobType, connection) {
+  const [rows] = await runner(connection).execute(
+    `SELECT last_error_category, last_error_message, attempt_count, updated_at
+       FROM background_jobs
+      WHERE job_type = ? AND status = 'failed'
+      ORDER BY updated_at DESC
+      LIMIT 1`,
+    [jobType],
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    category: row.last_error_category ?? null,
+    message: row.last_error_message ? String(row.last_error_message).slice(0, 300) : null,
+    attempts: Number(row.attempt_count ?? 0),
+  };
+}
+
 /** Health/metrics: counts by status, and how many running leases are stale. */
 export async function jobStats({ now = new Date() } = {}, connection) {
   const conn = runner(connection);
