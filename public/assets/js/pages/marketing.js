@@ -167,37 +167,109 @@ function contact() {
     section(null, [
       el('p', { className: 'pub-prose', text: 'The best way to reach us is by email. We read every message.' }),
       el('p', { className: 'pub-prose' }, [
-        el('a', { className: 'pub-mail', text: 'hello@cyflowsocial.example', attrs: { href: 'mailto:hello@cyflowsocial.example' } }),
+        el('a', { className: 'pub-mail', text: CONTACT_EMAIL, attrs: { href: `mailto:${CONTACT_EMAIL}` } }),
       ]),
       el('p', { className: 'pub-fineprint', text: 'An in-app contact form is not available yet, so this page does not pretend to send one. Email reaches us directly.' }),
     ]),
   ];
 }
 
+/**
+ * The privacy policy and terms.
+ *
+ * These are read by people deciding whether to trust the service with their
+ * business's social accounts, and by Meta's reviewers deciding whether to grant
+ * the permissions that make the service work at all. Both deserve specifics.
+ *
+ * Every statement below describes what this software actually does — which
+ * tables hold what, which third party receives what, what deleting an account
+ * really removes. Where a thing is not done yet it says so rather than
+ * promising it.
+ */
+const LEGAL_UPDATED = '28 July 2026';
+
+/*
+ * ⚠️ THIS MUST BECOME A REAL MAILBOX BEFORE META APP REVIEW.
+ *
+ * `.example` is the reserved domain for documentation — mail to it goes
+ * nowhere, by design. Meta's reviewers send a message to the contact address on
+ * the privacy policy, and a bounce is a rejection. It is one constant on
+ * purpose: change it here and both the contact page and the privacy policy
+ * change together.
+ */
+const CONTACT_EMAIL = 'hello@cyflowsocial.example';
+
 function legal(kind) {
   const title = kind === 'privacy' ? 'Privacy Policy' : 'Terms of Service';
   const intro = kind === 'privacy'
-    ? 'This is a plain-language draft describing how Cyflow Social handles your data. It is not a substitute for legal advice and must be reviewed by a lawyer before launch.'
-    : 'This is a plain-language draft of the terms for using Cyflow Social. It is not a substitute for legal advice and must be reviewed by a lawyer before launch.';
+    ? 'This describes exactly what Cyflow Social stores, who else sees it, and how to get rid of it. It is written to be accurate about the software rather than broad enough to cover anything.'
+    : 'These are the terms for using Cyflow Social, in plain language.';
+
   const body = kind === 'privacy' ? [
-    ['What we store', 'Your account details, business and brand profile, the social accounts you connect, the content you create, your media, and activity history.'],
-    ['Credentials', 'Your OpenAI and HCTI keys and provider tokens are encrypted at rest. We never display them back to you or write them to logs.'],
-    ['Third parties', 'When you ask for AI help, your content is sent to OpenAI using your own key. When you generate an image, it is sent to your HCTI account. Publishing sends your content to the Meta platform for the account you selected.'],
-    ['Your choices', 'You can disconnect accounts, remove your keys, and (as this capability lands) export or delete your data.'],
+    ['Your account',
+      'Your name, email address, a one-way hash of your password (never the password itself), and your timezone. '
+      + 'Sessions are stored server-side so you can be signed out everywhere.'],
+    ['Your business profile',
+      'Whatever you enter or confirm about your business: its name, website, industry, description, services, contact details, '
+      + 'brand colours, fonts, logo and social links. If you ask Cyflow to read your website, what it found is stored with the profile '
+      + 'so you do not have to read it again. This is your business\'s own public information; nothing private is collected from your site.'],
+    ['Connected social accounts',
+      'When you connect a Facebook Page, an Instagram Professional account or a Threads profile, we store the account\'s id, its display name '
+      + 'and username, which permissions you granted, and an ACCESS TOKEN THAT IS ENCRYPTED AT REST. The token is never shown back to you, '
+      + 'never written to a log, and never included in an export. It is used for one thing: publishing the posts you approved, to the accounts you chose.'],
+    ['What we do with Meta platform data',
+      'We request the minimum to do the job: the list of Pages you manage, so you can pick one; permission to read basic engagement, so a failed '
+      + 'post can be reported honestly; and permission to publish posts. We do not read your messages, your friends, your followers, your ads, or '
+      + 'anyone else\'s content. We do not build profiles of you or anyone who sees your posts, and we never sell or share this data.'],
+    ['The content you create',
+      'The weekly plans, the post copy for each platform, the posters, and the record of what was published where and when. Posters are image files '
+      + 'stored on the server and served only to you through a link that cannot be guessed.'],
+    ['AI processing',
+      'To write your posts and design your posters, the business details you confirmed and the topic for that day are sent to Anthropic\'s Claude. '
+      + 'Your password, your access tokens and your contacts are NEVER sent. The generated post copy is not used to train anyone\'s model by us, '
+      + 'and it is not shared with any other user.'],
+    ['Logs',
+      'We record that an action happened, whether it succeeded, and a category when it failed. Logs deliberately never contain access tokens, '
+      + 'API keys, request headers, raw provider responses, or the text of your posts.'],
+    ['Deleting your data',
+      'Disconnecting an account removes its stored token immediately. Deleting your account removes your profile, your connected accounts and their '
+      + 'tokens, your plans, your post copy and your posters. You can also export your data first. For Threads, Meta\'s own data-deletion callback is '
+      + 'implemented and returns a confirmation code you can check.'],
+    ['Who else can see it',
+      'Nobody. One account\'s data is not readable by another, and this is enforced on every request rather than by hiding it in the interface.'],
   ] : [
-    ['Using the service', 'You are responsible for the content you create and publish, and for having the right to publish it to the accounts you connect.'],
-    ['Supported platforms', 'The service publishes to Facebook Pages, Instagram Professional and Threads only, subject to those platforms’ own terms and your approved permissions.'],
-    ['Availability', 'The service is provided as-is while in active development. Publishing availability depends on your connected accounts and provider permissions.'],
-    ['Your content', 'You keep ownership of your content. You grant us only what is needed to store, process and publish it on your behalf.'],
+    ['What the service does',
+      'Cyflow Social reads your website, generates a week of social posts with AI, lets you review and change them, and publishes them to the '
+      + 'accounts you connected, at the times you chose.'],
+    ['Your content is yours',
+      'You keep ownership of everything you create here. You grant us only what is needed to store it, generate from it, and publish it on your '
+      + 'behalf to the accounts you selected.'],
+    ['Your responsibility',
+      'You are responsible for what is published under your accounts, and for having the right to publish it. AI-generated copy is a draft: '
+      + 'nothing is published until you activate it, and you are expected to read it first. Do not use the service to publish anything unlawful, '
+      + 'misleading, or in breach of the platforms\' own rules.'],
+    ['Supported platforms',
+      'Facebook Pages, Instagram Professional accounts and Threads profiles, subject to those platforms\' terms and to the permissions you granted. '
+      + 'Those platforms can change or revoke access at any time, and when they do, publishing to them stops.'],
+    ['Availability',
+      'The service is provided as-is and is in active development. It may be unavailable, and a scheduled post may be delayed or fail. '
+      + 'When something fails you are told what failed and why.'],
+    ['Fair use',
+      'Generation is limited per account so that one person cannot exhaust the service for everyone else. The limits are shown in the app before '
+      + 'you reach them.'],
+    ['Ending it',
+      'You can disconnect any account or delete your own account at any time, from inside the app. Deleting removes your data as described in the '
+      + 'privacy policy.'],
   ];
+
   return [
-    hero(title, 'Draft — pending legal review.', false),
+    hero(title, `Last updated ${LEGAL_UPDATED}.`, false),
     section(null, [
       el('div', { className: 'pub-callout', text: intro }),
       ...body.map(([t, b]) => el('div', { className: 'pub-legal-block' }, [
         el('h3', { className: 'pub-card-title', text: t }), el('p', { className: 'pub-card-body', text: b }),
       ])),
-      el('p', { className: 'pub-fineprint', text: 'No company legal name, address or lawyer approval is claimed on this page.' }),
+      el('p', { className: 'pub-fineprint', text: `Questions about your data, or a deletion request: ${CONTACT_EMAIL}. This page is accurate about how the software behaves; the legal wording has not been reviewed by a lawyer.` }),
     ]),
   ];
 }

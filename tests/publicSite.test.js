@@ -68,9 +68,39 @@ test('the public site never claims live publishing is verified or on by default'
   assert.match(marketing, /depends on your connected .*accounts and approved .*permissions|approved app permissions/i);
 });
 
-test('privacy and terms are clearly marked as drafts pending legal review', () => {
-  assert.match(marketing, /pending legal review|not a substitute for legal advice/i);
-  assert.match(marketing, /No company legal name/i);
+/*
+ * The legal pages must not claim an approval they do not have.
+ *
+ * They used to be headed "Draft — pending legal review", which was honest but
+ * also read, to Meta's reviewers, as a product that was not ready. The pages are
+ * now written out properly and the caveat moved into the fine print — so what
+ * this test guards is the RULE, not the old wording: the page says plainly that
+ * a lawyer has not checked it, and never claims one has.
+ */
+test('the legal pages do not claim legal approval they do not have', () => {
+  assert.match(marketing, /has not been reviewed by a lawyer/i);
+  assert.doesNotMatch(marketing, /reviewed and approved by (our )?(legal|counsel|a lawyer)/i);
+  // And they are dated, because an undated policy cannot be shown to have
+  // covered anything at the time it mattered. The date is one constant, used
+  // by both pages.
+  assert.match(marketing, /LEGAL_UPDATED\s*=\s*'\d{1,2} \w+ \d{4}'/);
+  assert.match(marketing, /Last updated \$\{LEGAL_UPDATED\}/);
+});
+
+/*
+ * Meta's reviewers email the address on the privacy policy, and `.example` is
+ * the reserved documentation domain — mail to it goes nowhere, so a bounce is a
+ * rejection. This does not fail the build for still being a placeholder, since
+ * the app is not submitted yet; it fails if the address is ever DUPLICATED,
+ * because two copies is how one of them stays fake after the other is fixed.
+ */
+test('the contact address is defined once, so fixing it fixes it everywhere', () => {
+  const literals = marketing.match(/['"`][\w.+-]+@[\w.-]+['"`]/g) || [];
+  assert.equal(
+    literals.length, 1,
+    `the contact address must be a single constant, found ${literals.length}: ${literals.join(', ')}`,
+  );
+  assert.match(marketing, /CONTACT_EMAIL/);
 });
 
 test('robots.txt keeps the authenticated app out of the index', async () => {
