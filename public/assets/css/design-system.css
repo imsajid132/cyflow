@@ -1563,3 +1563,12 @@ select.ais-input { appearance: none; cursor: pointer; }
 /* What is left, beside the button that spends it. Quiet until it is gone. */
 .ais-allowance { margin: .5rem 0 0; }
 .ais-allowance.is-spent { color: var(--ais-warn, #e0a458); }
+
+/* What to know before pressing Connect. Set apart from the ordinary hints
+   because it is the difference between a failed attempt and a successful one. */
+.provider-note {
+  margin-top: .6rem; padding: .6rem .7rem;
+  border-left: 3px solid var(--ais-accent, #e0a458);
+  background: color-mix(in srgb, var(--surface, #1a1a1a) 92%, transparent);
+  border-radius: 0 8px 8px 0; line-height: 1.5;
+}

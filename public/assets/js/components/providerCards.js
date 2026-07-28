@@ -93,6 +93,23 @@ function accountRow(account, reload) {
   ]);
 }
 
+/*
+ * What people actually hit, told BEFORE they hit it.
+ *
+ * These are not bugs in this application and they cannot be fixed from here.
+ * They are the two states a Meta app is in before it has been through App
+ * Review, and both of them end with the user stranded on a Meta error page with
+ * no idea what happened — one says "App not active", the other silently opens
+ * the Threads feed. Someone who was warned can act; someone who was not assumes
+ * the product is broken.
+ */
+const BEFORE_YOU_CONNECT = {
+  meta: 'While this app is in development on Meta, only people added to it as a tester can connect a Page. '
+    + 'Anyone else sees "App not active" on Facebook\'s own page. Ask the app owner to add you under App roles, and accept the invite before trying again.',
+  instagram: 'The Instagram account must be a Professional (Business or Creator) account, and while this app is in development on Meta, only people added to it as a tester can connect one.',
+  threads: 'Connect Threads from a computer. On a phone the link opens the Threads app instead of the sign-in page, and it drops you in the feed with nothing to approve.',
+};
+
 function providerCard(provider, available, accounts, reload) {
   const mine = accounts.filter((a) => a.provider === provider);
   const connectBtn = el('button', {
@@ -118,7 +135,15 @@ function providerCard(provider, available, accounts, reload) {
     mine.length
       ? el('div', { attrs: { style: 'margin-top:.6rem' } }, mine.map((a) => accountRow(a, reload)))
       : el('p', { className: 'hint', attrs: { style: 'margin-top:.6rem' }, text: available ? 'No accounts connected yet.' : 'This provider is not configured on the server.' }),
-  ]);
+    /*
+     * Shown only to someone about to connect their FIRST account here. Once one
+     * is connected they have already got past this, and a warning that never
+     * goes away is a warning people stop reading.
+     */
+    available && !mine.length && BEFORE_YOU_CONNECT[provider]
+      ? el('p', { className: 'hint provider-note', text: BEFORE_YOU_CONNECT[provider] })
+      : null,
+  ].filter(Boolean));
 }
 
 /** Read `?oauth=…` from the URL, show a safe notice, then strip the params. */

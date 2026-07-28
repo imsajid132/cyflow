@@ -170,3 +170,29 @@ Each issue is tracked with the fields below. Statuses: `open`, `in_progress`,
   background.
 - **Fix:** `kind` travels with the picture, defaulting to `photo` only when the
   reader genuinely did not say.
+
+## CY-011 — Connecting an account failed three different ways, and the app said nothing
+- **Status:** partly resolved (the app now warns; the underlying causes are Meta's)
+- **Severity:** high for a product other people are meant to use — every one of
+  these ends with the user stranded outside this application
+- **What the owner hit,** on a brand-new account, with all three set up in Meta
+  Developers:
+  1. **Facebook: "App not active."** The app is in Development mode on Meta, and
+     in that mode only people with a ROLE on the app (admin / developer /
+     tester) may grant permissions. The new account had none, so Meta refused on
+     its own page. Nothing reached this application.
+  2. **Threads: the app opens and nothing happens.** On a phone,
+     `threads.net/oauth/authorize` is intercepted by the installed Threads app,
+     which does not handle OAuth and simply shows the feed.
+  3. **Instagram: the Allow screen appeared** — that configuration is working.
+- **Nothing here is a defect in this codebase.** The scopes, the authorize URLs
+  and the callback are correct; verified against
+  `src/config/constants.js` OAUTH_SCOPES and `src/providers/threadsProvider.js`.
+- **Fix applied:** each provider card now says what to know BEFORE the button,
+  shown only until that provider has its first connected account. A warning that
+  never goes away is one people stop reading.
+- **The real fixes, which are Meta's:**
+  - Today, without App Review: add each user under App roles → Roles → Tester,
+    and have them accept the invite. This works and is how to onboard a handful
+    of people.
+  - For strangers: App Review + Live mode. Weeks, and Meta's decision.
