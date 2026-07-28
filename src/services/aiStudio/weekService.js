@@ -33,6 +33,26 @@ import { fetchPosterPhoto, photoForDay, PHOTO_SKIP, PHOTO_SKIP_MESSAGE } from '.
 
 const DAY_SECONDS = 24 * 60 * 60;
 
+/**
+ * What one account may spend.
+ *
+ * WHY THIS EXISTS. A week is fourteen model calls and seven renders, and every
+ * account on this deployment shares ONE AI key and ONE small server. Without a
+ * bound, the first person to hold down "generate" takes the service away from
+ * everyone else — not maliciously, just by being curious. That is not a thing to
+ * discover from a bill or an outage.
+ *
+ * The numbers are deliberately generous for real use and cheap to raise: two
+ * weeks in seven days is more content than a small business posts, and twelve
+ * regenerations is more than anyone needs to fix a week they dislike.
+ */
+const num = (name, fallback) => {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+};
+export const WEEKS_PER_7_DAYS = () => num('AI_STUDIO_WEEKS_PER_7_DAYS', 2);
+export const REGENERATIONS_PER_WEEK = () => num('AI_STUDIO_REGENERATIONS_PER_WEEK', 12);
+
 /** The two things a reviewer can ask for again, separately. */
 export const REGENERATE = { POSTER: 'poster', CAPTION: 'caption' };
 
@@ -84,6 +104,20 @@ export function createWeekService({
    * @returns {Promise<{ runId:string, plan:object[] }>}
    */
   async function startWeek(userId, brand, { timezone = 'UTC' } = {}) {
+    /*
+     * The allowance is checked BEFORE the planning call, because the planning
+     * call is the first thing that costs money. Counted from the runs
+     * themselves rather than a counter column: there is nothing to drift, and
+     * nothing to migrate.
+     */
+    const allowance = await weeksRemaining(userId);
+    if (allowance.remaining <= 0) {
+      throw new ValidationError(
+        `You have generated ${allowance.limit} weeks in the last seven days, which is the limit for now. `
+        + 'Your existing weeks are still here, and you can regenerate any poster or caption inside them.',
+      );
+    }
+
     const plan = await planner({
       businessName: brand.businessName,
       industry: brand.industry,
@@ -307,6 +341,39 @@ export function createWeekService({
   }
 
   /**
+   * How many more weeks this account may generate, and when that changes.
+   *
+   * A rolling seven days rather than a calendar week: "you may start again on
+   * Monday" is a rule people have to remember, and one that punishes whoever
+   * signs up on a Sunday.
+   */
+  async function weeksRemaining(userId) {
+    const limit = WEEKS_PER_7_DAYS();
+    const recent = await runs.listRunsForUser(userId, { limit: 50 }).catch(() => []);
+    const since = new Date(now().getTime() - 7 * DAY_SECONDS * 1000);
+
+    const mine = recent
+      .filter((r) => r.settings?.engine === 'ai_studio')
+      .filter((r) => {
+        const at = r.createdAt ? new Date(String(r.createdAt).replace(' ', 'T') + (String(r.createdAt).endsWith('Z') ? '' : 'Z')) : null;
+        return at ? at.getTime() >= since.getTime() : true;
+      });
+
+    // When the oldest of them ages out, one comes back.
+    const oldest = mine.length ? mine[mine.length - 1] : null;
+    const nextAt = oldest?.createdAt
+      ? new Date(new Date(String(oldest.createdAt).replace(' ', 'T') + 'Z').getTime() + 7 * DAY_SECONDS * 1000)
+      : null;
+
+    return {
+      limit,
+      used: mine.length,
+      remaining: Math.max(0, limit - mine.length),
+      nextAvailableAt: mine.length >= limit && nextAt ? toMysqlUtc(nextAt) : null,
+    };
+  }
+
+  /**
    * The day's photograph, fetched and made embeddable — or null.
    *
    * Never throws and never blocks the post: a poster without the picture is
@@ -353,6 +420,26 @@ export function createWeekService({
       ? await jobs.listJobsByKeyPrefix(userId, prefix).catch(() => [])
       : [];
     if (previous.some((j) => IN_FLIGHT.has(j.status))) return { queued: false, alreadyRunning: true };
+
+    /*
+     * A bound on how much one week may cost. Every regeneration is a model call
+     * and a render on a shared key and a shared server, and "I'll just try one
+     * more" has no natural stopping point. Counted across the whole week rather
+     * than per day, because a user who redoes day 1 twelve times has spent the
+     * same as one who redoes twelve different days.
+     */
+    const spent = typeof jobs.listJobsByKeyPrefix === 'function'
+      ? (await jobs.listJobsByKeyPrefix(userId, `ai_studio:${found.run.id}:day:`).catch(() => []))
+        .filter((j) => parseJobKey(j.idempotencyKey)?.kind).length
+      : 0;
+    const cap = REGENERATIONS_PER_WEEK();
+    if (spent >= cap) {
+      return {
+        queued: false,
+        limitReached: true,
+        message: `You have regenerated ${cap} times on this week, which is the limit. Generate a new week to start again.`,
+      };
+    }
 
     await jobs.enqueueJob({
       userId,
@@ -740,7 +827,10 @@ export function createWeekService({
 
   const handlers = { [JOB_TYPES.AI_STUDIO_POST]: runPostJob };
 
-  return { startWeek, runPostJob, requestRegenerate, activateWeek, getWeek, findLatestWeek, handlers };
+  return {
+    startWeek, runPostJob, requestRegenerate, activateWeek,
+    getWeek, findLatestWeek, weeksRemaining, handlers,
+  };
 }
 
 export const weekService = createWeekService();

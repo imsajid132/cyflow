@@ -200,11 +200,17 @@ export function createAiStudioController({
    * without the user having to remember a run id that only ever lived in a tab.
    */
   const resume = asyncHandler(async (req, res) => {
-    const [brand, week] = await Promise.all([
+    const [brand, week, allowance] = await Promise.all([
       memory.recallBrand(req.user.id),
       weekService.findLatestWeek(req.user.id).catch(() => null),
+      // Told UP FRONT, not at the moment of refusal. Someone who presses a
+      // button and is told "no" has already decided to spend the time; the
+      // honest place for a limit is before the decision.
+      weekService.weeksRemaining
+        ? weekService.weeksRemaining(req.user.id).catch(() => null)
+        : Promise.resolve(null),
     ]);
-    return sendSuccess(res, { brand: brand ?? null, week: week ?? null });
+    return sendSuccess(res, { brand: brand ?? null, week: week ?? null, allowance: allowance ?? null });
   });
 
   /**
@@ -346,6 +352,9 @@ export function createAiStudioController({
       // Not an error: the user asked twice for something already happening.
       return sendSuccess(res, { queued: false, message: 'That one is already being redone.' });
     }
+    // A limit is a refusal, and a refusal has to arrive as one — a 200 with
+    // "queued: false" would leave the button looking like it worked.
+    if (out.limitReached) throw new ValidationError(out.message);
     return sendSuccess(res, {
       queued: true,
       message: kind === 'poster' ? 'A new poster is being designed.' : 'New post copy is being written.',

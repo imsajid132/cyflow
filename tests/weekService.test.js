@@ -622,3 +622,124 @@ test('no ticked photograph says so, rather than blaming the website', async () =
   assert.equal(week.posts[0].photo.used, false);
   assert.match(week.posts[0].photo.reason, /ticked/i);
 });
+
+/*
+ * ---- what one account may spend ------------------------------------------
+ *
+ * A week is fourteen model calls and seven renders, and every account on this
+ * deployment shares ONE key and ONE small server. Without a bound, the first
+ * curious person takes the service away from everyone else. These tests pin
+ * that the bound is real, that it is counted from the rows rather than a
+ * counter that can drift, and that it says so BEFORE the button rather than at
+ * the moment of refusal.
+ */
+
+/** A service whose clock and run history the test controls. */
+function withRuns(existing, at = '2026-07-26T08:00:00Z') {
+  const base = build();
+  const store = [...existing];
+  return createWeekService({
+    ...base.parts,
+    runs: {
+      ...base.parts.runs,
+      listRunsForUser: async () => store.slice().reverse(),
+      createRun: async (input) => {
+        const run = { id: String(store.length + 1), ...input, createdAt: at.replace('T', ' ').replace('Z', '') };
+        store.push(run);
+        return run;
+      },
+    },
+    jobs: { enqueueJob: async () => ({ created: true }), listJobsByKeyPrefix: async () => [] },
+    now: () => new Date(at),
+  });
+}
+
+const studioRun = (createdAt) => ({ userId: '7', settings: { engine: 'ai_studio' }, createdAt });
+
+test('two weeks in seven days, and the third is refused with a reason', async () => {
+  const svc = withRuns([
+    studioRun('2026-07-24 10:00:00'),
+    studioRun('2026-07-25 10:00:00'),
+  ]);
+
+  const left = await svc.weeksRemaining('7');
+  assert.equal(left.limit, 2);
+  assert.equal(left.used, 2);
+  assert.equal(left.remaining, 0);
+  assert.ok(left.nextAvailableAt, 'and it says when one comes back');
+
+  await assert.rejects(
+    () => svc.startWeek('7', BRAND),
+    /limit for now/i,
+    'the refusal explains itself rather than failing silently',
+  );
+});
+
+test('a week that has aged past seven days does not count', async () => {
+  // 2026-07-18 is more than seven days before 2026-07-26.
+  const svc = withRuns([studioRun('2026-07-18 10:00:00'), studioRun('2026-07-25 10:00:00')]);
+  const left = await svc.weeksRemaining('7');
+  assert.equal(left.used, 1, 'a rolling seven days, not a calendar week');
+  assert.equal(left.remaining, 1);
+  const out = await svc.startWeek('7', BRAND);
+  assert.ok(out.runId, 'and the week is allowed');
+});
+
+/*
+ * The allowance is checked BEFORE the planning call, because the planning call
+ * is the first thing that costs money.
+ */
+test('a refused week never reaches the model', async () => {
+  let planned = 0;
+  const base = build();
+  const svc = createWeekService({
+    ...base.parts,
+    planner: async () => { planned += 1; return PLAN; },
+    runs: { ...base.parts.runs, listRunsForUser: async () => [studioRun('2026-07-25 10:00:00'), studioRun('2026-07-25 11:00:00')] },
+    jobs: { enqueueJob: async () => ({ created: true }), listJobsByKeyPrefix: async () => [] },
+    now: () => new Date('2026-07-26T08:00:00Z'),
+  });
+  await assert.rejects(() => svc.startWeek('7', BRAND));
+  assert.equal(planned, 0, 'nothing was spent on a week that was never going to be made');
+});
+
+test('a run that is not a studio week does not use up the allowance', async () => {
+  const svc = withRuns([
+    { userId: '7', settings: { engine: 'make' }, createdAt: '2026-07-25 10:00:00' },
+    { userId: '7', settings: {}, createdAt: '2026-07-25 11:00:00' },
+  ]);
+  const left = await svc.weeksRemaining('7');
+  assert.equal(left.used, 0);
+  assert.equal(left.remaining, 2);
+});
+
+/*
+ * "I'll just try one more" has no natural stopping point, and every attempt is
+ * a model call and a render.
+ */
+test('regenerations on one week are capped, and the cap says so', async () => {
+  const base = build();
+  const jobRows = [];
+  const svc = createWeekService({
+    ...base.parts,
+    jobs: {
+      enqueueJob: async (job) => { jobRows.push({ ...job, status: 'completed' }); return { created: true }; },
+      listJobsByKeyPrefix: async (u, prefix) => jobRows.filter((j) => String(j.idempotencyKey).startsWith(prefix)),
+    },
+  });
+  const { runId } = await svc.startWeek('7', BRAND);
+  await svc.runPostJob({ userId: '7', payload: { runId, day: 1 } });
+
+  // Twelve are allowed; the thirteenth is not.
+  for (let i = 0; i < 12; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const out = await svc.requestRegenerate('7', runId, 1, i % 2 ? 'caption' : 'poster');
+    assert.equal(out.queued, true, `regeneration ${i + 1} should be allowed`);
+    // Mark it finished so the next one is not refused as "already running".
+    jobRows.forEach((j) => { j.status = 'completed'; });
+  }
+  const refused = await svc.requestRegenerate('7', runId, 1, 'poster');
+  assert.equal(refused.queued, false);
+  assert.equal(refused.limitReached, true);
+  assert.match(refused.message, /limit/i);
+});

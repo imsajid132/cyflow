@@ -158,3 +158,29 @@ which is the single remaining redeploy + live-acceptance step.
       contracting. Not invented from nothing (their content mentions a Bronx
       project) but it narrows the business. If it recurs across the remaining
       six, constrain the eyebrow to the brand's own words.
+
+## Making it usable by other people — step 1: what one account may spend (2026-07-28)
+
+- [x] A per-account limit on weeks: 2 per ROLLING seven days (not a calendar
+      week, which would punish whoever signs up on a Sunday).
+- [x] A per-week cap on regenerations: 12, counted across the whole week.
+- [x] Both counted from the rows themselves — no counter column to drift, and
+      no migration.
+- [x] Checked BEFORE the planning call, which is the first thing that costs
+      money. A refused week never reaches the model (asserted).
+- [x] Said UP FRONT next to the button, not at the moment of refusal.
+- [x] A run from the other engine does not consume the studio's allowance.
+- [x] Both raisable without a deploy: `AI_STUDIO_WEEKS_PER_7_DAYS`,
+      `AI_STUDIO_REGENERATIONS_PER_WEEK`.
+
+### Still required before strangers can really use it — NOT code
+- [ ] **Meta App Review.** The app requests `pages_show_list`,
+      `pages_read_engagement`, `pages_manage_posts`. In Development mode only
+      people with a role on the app can grant them, so no stranger can connect
+      their own Page. Needs business verification, review per permission, a
+      privacy policy, a data-deletion callback (the machinery exists) and a
+      screencast. Weeks, and Meta's decision.
+- [ ] **An AI budget.** Every week is ~14 model calls plus regenerations, all on
+      ONE shared key. The limits above bound it per account; they do not pay
+      for it.
+- [ ] **A decision about money.** If each account costs, something has to charge.

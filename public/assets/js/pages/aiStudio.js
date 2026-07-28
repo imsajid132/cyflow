@@ -831,6 +831,19 @@ export async function render(root, ctx) {
   page.addEventListener('change', scheduleSave);
   page.addEventListener('click', scheduleSave);
 
+  /** Say what is left, next to the button that spends it. */
+  function showAllowance(a) {
+    const line = a.remaining > 0
+      ? `${a.remaining} of ${a.limit} weeks left this week.`
+      : `You have used all ${a.limit} weeks for now. Your existing weeks are still here, and you can still regenerate any poster or caption in them.`;
+    const node = el('p', { className: `ais-hint ais-allowance${a.remaining > 0 ? '' : ' is-spent'}`, text: line });
+    const bar = nextBtn.parentElement;
+    const old = bar?.querySelector('.ais-allowance');
+    if (old) old.remove();
+    if (bar) bar.appendChild(node);
+    nextBtn.disabled = a.remaining <= 0;
+  }
+
   /** Put back whatever this user had: the brand they corrected, the week they started. */
   async function restore() {
     const res = await api.apiRequest('/api/ai-studio/session');
@@ -846,6 +859,14 @@ export async function render(root, ctx) {
     // drawWeek decides for itself whether there is anything left to watch, so a
     // week still building picks its polling back up where the old tab left off.
     if (data.week?.runId) drawWeek(data.week);
+
+    /*
+     * How many weeks are left, said BEFORE the button rather than at the moment
+     * it refuses. Every account here shares one AI key and one small server, so
+     * there is a limit; someone who presses "generate" and is told no has
+     * already decided to spend the time.
+     */
+    if (data.allowance && data.allowance.limit) showAllowance(data.allowance);
   }
 
   // --- analyze -------------------------------------------------------------

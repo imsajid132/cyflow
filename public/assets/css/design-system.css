@@ -1559,3 +1559,7 @@ select.ais-input { appearance: none; cursor: pointer; }
    only loud when something needs doing: a silent skip is the thing this fixes. */
 .ais-photonote { margin: 0; font-size: .78rem; color: var(--ais-warn, #e0a458); line-height: 1.4; }
 .ais-photonote.is-on { color: var(--ais-muted); }
+
+/* What is left, beside the button that spends it. Quiet until it is gone. */
+.ais-allowance { margin: .5rem 0 0; }
+.ais-allowance.is-spent { color: var(--ais-warn, #e0a458); }
