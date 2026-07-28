@@ -247,3 +247,33 @@ that switch is deliberately turned on, and the screen says so in plain words
 rather than implying a post has gone out.
 
 Unit 1371/0, integration 53/53.
+
+## 2026-07-28 (21:1x UTC) — THE FIRST LIVE PUBLISH HAPPENED
+
+Cyflow published to a real account for the first time. One post, one Facebook
+Page (Pioneer Construction NYC), from a week the AI Studio generated end to end.
+The owner confirmed it on the page itself.
+
+What the evidence showed at the time: `publishing.liveEnabled: true`, and the
+web instance we can reach reported `ticks: 0` and `schedulerLeader: false` — it
+never won the scheduler lease. The publish came from ANOTHER instance that holds
+it. That is the lease working exactly as designed: it exists to stop two
+instances publishing the same post twice, and it did.
+
+**Do not read `ticks: 0` on /health as "the scheduler is not running".** On this
+host there is more than one process and only the leader ticks. The follower
+reporting zero is normal.
+
+Six more posts remain queued, one a day at 02:10 Asia/Karachi (Jul 30 to Aug 4),
+all to the same single Page. They go by themselves. To stop them: Queue ->
+Cancel per post, or set ENABLE_LIVE_PROVIDER_PUBLISHING=false.
+
+Still to judge: whether the published post actually LOOKS right. That is the
+owner's call and it is the only remaining question.
+
+**Published post, reviewed:** the poster carries the grammar end to end and the
+caption reads well. One thing to watch, recorded in the acceptance checklist: the
+eyebrow said "BRONX BUILDERS" on a post about NYC-wide general contracting. The
+designer is allowed to write the eyebrow and it drew on their own content, but it
+narrows the business. If it recurs across the remaining six posts, constrain the
+eyebrow to words the brand actually uses.

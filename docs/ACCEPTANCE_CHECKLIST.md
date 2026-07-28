@@ -140,3 +140,21 @@ which is the single remaining redeploy + live-acceptance step.
 - [x] NOTHING PUBLISHES. Live publishing stays off and the screen says so in
       plain words rather than implying a post has gone out.
 - [ ] Looked at on the live host by the owner.
+
+## THE FIRST LIVE PUBLISH — done (2026-07-28)
+
+- [x] Live publishing turned on deliberately by the owner, verified through
+      `/health` → `publishing.liveEnabled: true` rather than trusted.
+- [x] Exactly ONE account selected. Queue showed one target per post, on the
+      chosen Page, for all seven — no fan-out.
+- [x] One post published to a real Facebook Page, confirmed by the owner ON the
+      page.
+- [x] LOOKED AT. The published poster carries the business's own photograph, the
+      header band, the eyebrow, a two-line headline with one accent word, a
+      three-row numbered content block, and a two-sided footer. Nothing clipped.
+      The reference grammar reached a real customer's feed.
+- [x] The caption is three paragraphs, specific, no em dash.
+- [ ] WATCH: the eyebrow read "BRONX BUILDERS" on a post about NYC-wide general
+      contracting. Not invented from nothing (their content mentions a Bronx
+      project) but it narrows the business. If it recurs across the remaining
+      six, constrain the eyebrow to the brand's own words.
